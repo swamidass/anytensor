@@ -81,11 +81,19 @@ class AbstractBackend:
         """return backend specific device on which the tensor is located"""
         return x.device
 
+    def exp(self, x):
+        """exponential function"""
+        return x.exp()
+    
+    def log(self, x):
+        """natural log function"""
+        return x.log()
+    
     def repeat(self, x, repeats, total_repeat_length):
         """repeat follows semantics of jax.numpy.repeat: https://docs.jax.dev/en/latest/_autosummary/jax.numpy.repeat.html"""
         raise NotImplementedError("framework doesn't support repeat")
 
-    def segment_reduce(self, x, seg_ids, num_segments, reduction : Literal['sum'] | Literal['min'] | Literal['max'] ='sum'):
+    def segment_reduce(self, x, seg_ids, num_segments, reduction, sorted: bool = False):
         """segment_reduce with reduce in {sum, min, max}.
         Follows semantics of jax.ops.segment_sum: https://docs.jax.dev/en/latest/_autosummary/jax.ops.segment_sum.html"""
         raise NotImplementedError("backend does not support segment_sum")
@@ -157,10 +165,6 @@ class AbstractBackend:
     def __repr__(self):
         return "<anytensor backend for {}>".format(self.framework_name)
 
-    def einsum(self, pattern, *x):
-        raise NotImplementedError("backend does not support einsum")
-
-
 
 class UnknownSize:
     """pseudo-symbol for symbolic frameworks which do not provide symbols for shape elements"""
@@ -198,6 +202,9 @@ class NumpyBackend(AbstractBackend):
     def to_numpy(self, x):
         return x
 
+    def exp(self, x):
+        return self.np.exp(x)
+
     def arange(self, start, stop, device=None):
         return self.np.arange(start, stop)
 
@@ -216,23 +223,31 @@ class NumpyBackend(AbstractBackend):
     def add_axis(self, x, new_position):
         return self.np.expand_dims(x, new_position)
 
-    def einsum(self, pattern, *x):
-        return self.np.einsum(pattern, *x)
+    def _type_info(self, x):
+        t = x.dtype
+        try:
+            return self.np.iinfo(t) # type: ignore
+        except ValueError:
+            return self.np.finfo(t)
 
-    def segment_reduce(self, x, seg_ids, num_segments, reduction : Literal['sum'] | Literal['min'] | Literal['max'] ='sum'):
+    def segment_reduce(self, x, seg_ids, num_segments, reduction, sorted : bool = False):
       
         s = self.np.zeros((num_segments,) + x.shape[1:], dtype=x.dtype)
         
         if reduction == "sum":
-            agg = self.np.add.at
+            agg = self.np.add
         elif reduction == "min":
-            agg = self.np.minimum.at
+            d = self._type_info(x).max  
+            s = s + d
+            agg = self.np.minimum
         elif reduction == "max":
-            agg = self.np.maximum.at       
+            d = self._type_info(x).min 
+            s = s + d
+            agg = self.np.maximum       
         else:
             raise ValueError(f"reduction type {reduction} not supported")
         
-        s = agg.at(s, seg_ids, x)
+        agg.at(s, seg_ids, x)
         return s
     
 class JaxBackend(NumpyBackend):
@@ -252,11 +267,7 @@ class JaxBackend(NumpyBackend):
     def to_numpy(self, x):
         return self.onp.asarray(x)
 
-    def segment_sum(self, x, seg_ids, num_segments):
-        import jax.ops
-        return jax.ops.segment_sum(x, seg_ids, num_segments)
-
-    def segment_reduce(self, x, seg_ids, num_segments, reduction : Literal['sum'] | Literal['min'] | Literal['max'] ='sum'):
+    def segment_reduce(self, x, seg_ids, num_segments, reduction, sorted : bool = False):
         import jax.ops
 
         if reduction == "sum":
@@ -268,7 +279,7 @@ class JaxBackend(NumpyBackend):
         else:
             raise ValueError(f"reduction type {reduction} not supported")
         
-        return f(x, seg_ids, num_segments)
+        return f(x, seg_ids, num_segments, indices_are_sorted=sorted)
 
     def device(self, x):
         return x.devices()
@@ -287,19 +298,27 @@ class TorchBackend(AbstractBackend):
     def is_appropriate_type(self, tensor):
         return isinstance(tensor, self.torch.Tensor)
     
-    def segment_reduce(self, x, seg_ids, num_segments, reduction : Literal['sum'] | Literal['min'] | Literal['max'] ='sum'):
+    def segment_reduce(self, x, seg_ids, num_segments, reduction, sorted : bool = False):
         shape = (num_segments,) + x.shape[1:]
+        ndim = len(self.shape(x))
+
+        dim = 0 
+        
+        for i in range(1, ndim):
+            seg_ids = seg_ids.unsqueeze(-1)
+        seg_ids = seg_ids.expand_as(x)
+        
         if reduction == "sum":
             out = self.torch.zeros(shape, dtype=x.dtype, device=x.device)
-            out = out.scatter_add(0, seg_ids[:, None].expand_as(x), x)
+            out = out.scatter_add(dim, seg_ids, x)
             return out
         elif reduction == "min":
             out = self.torch.full(shape, float("inf"), dtype=x.dtype, device=x.device)
-            out = out.scatter_reduce(0, seg_ids[:, None].expand_as(x), x, reduce="amin", include_self=True)
+            out = out.scatter_reduce(dim, seg_ids, x, reduce="amin", include_self=True)
             return out
         elif reduction == "max":
             out = self.torch.full(shape, float("-inf"), dtype=x.dtype, device=x.device)
-            out = out.scatter_reduce(0, seg_ids[:, None].expand_as(x), x, reduce="amax", include_self=True)
+            out = out.scatter_reduce(dim, seg_ids, x, reduce="amax", include_self=True)
             return out
         else:
             raise ValueError(f"reduction type {reduction} not supported")
@@ -360,9 +379,6 @@ class TorchBackend(AbstractBackend):
         return x.dtype in [self.torch.float16, self.torch.float32, self.torch.float64, self.torch.bfloat16]
 
 
-    def einsum(self, pattern, *x):
-        return self.torch.einsum(pattern, *x)
-
 
 
 class TensorflowBackend(AbstractBackend):
@@ -375,6 +391,9 @@ class TensorflowBackend(AbstractBackend):
 
     def is_appropriate_type(self, tensor):
         return isinstance(tensor, (self.tf.Tensor, self.tf.Variable))
+
+    def take(self, x, indices):
+        return self.tf.gather(x, indices, axis=0)
 
     def from_numpy(self, x):
         assert self.tf.executing_eagerly()
@@ -401,7 +420,10 @@ class TensorflowBackend(AbstractBackend):
             except BaseException:
                 # unhashable symbols in shape. Wrap tuple to be hashable.
                 return HashableTuple(shape)
-
+            
+    def exp(self, x):
+        return self.tf.exp(x)
+    
     def reduce(self, x, operation, axes):
         return getattr(self.tf, "reduce_" + operation)(x, axis=axes)
 
@@ -426,85 +448,16 @@ class TensorflowBackend(AbstractBackend):
     def is_float_type(self, x):
         return x.dtype in ("float16", "float32", "float64", "float128", "bfloat16")
 
-    def einsum(self, pattern, *x):
-        return self.tf.einsum(pattern, *x)
-
-    def segment_reduce(self, x, seg_ids, num_segments, reduction: Literal['sum'] | Literal['min'] | Literal['max'] = 'sum'):
+    def segment_reduce(self, x, seg_ids, num_segments, reduction: Literal['sum'] | Literal['min'] | Literal['max'] = 'sum', sorted : bool = False):
         tf = self.tf
-        
-        if reduction == "sum":
-          return tf.math.unsorted_segment_sum(x, seg_ids, num_segments)
-        elif reduction == "min":
-          return tf.math.unsorted_segment_min(x, seg_ids, num_segments)
-        elif reduction == "max":
-          return tf.math.unsorted_segment_max(x, seg_ids, num_segments)
-        else:
+        op_name = f"segment_{reduction}"
+        if not sorted: op_name = "unsorted_" + op_name
+        try:
+          op = getattr(tf.math, op_name)
+        except:
           raise ValueError(f"reduction type {reduction} not supported")
-class TFKerasBackend(AbstractBackend):
-    framework_name = "tensorflow.keras"
-
-    def __init__(self):
-        import tensorflow as tf
-
-        self.tf = tf
-        self.keras = tf.keras
-        self.K = tf.keras.backend
-
-    def is_appropriate_type(self, tensor):
-        return self.tf.is_tensor(tensor) and self.K.is_keras_tensor(tensor)
-
-    def create_symbol(self, shape):
-        return self.keras.Input(batch_shape=shape)
-
-    def eval_symbol(self, symbol, symbol_value_pairs):
-        model = self.keras.models.Model([var for (var, _) in symbol_value_pairs], symbol)
-        return model.predict_on_batch([val for (_, val) in symbol_value_pairs])
-
-    def arange(self, start, stop, device=None):
-        return self.K.arange(start, stop)
-
-    def shape(self, x):
-        shape = self.K.shape(x)  # tf tensor
-        return HashableTuple(tuple(shape))
-
-    def reduce(self, x, operation, axes):
-        return getattr(self.K, operation)(x, axis=axes)
-
-    def reshape(self, x, shape):
-        return self.K.reshape(x, shape)
-
-    def transpose(self, x, axes):
-        return self.K.permute_dimensions(x, axes)
-
-    def stack_on_zeroth_dimension(self, tensors: list):
-        return self.K.stack(tensors)
-
-    def tile(self, x, repeats):
-        return self.K.tile(x, repeats)
-
-    def concat(self, tensors, axis: int):
-        return self.K.concatenate(tensors, axis=axis)
-
-    def add_axis(self, x, new_position):
-        return self.K.expand_dims(x, new_position)
-
-    def is_float_type(self, x):
-        return "float" in self.K.dtype(x)
-
-    def segment_reduce(self, x, seg_ids, num_segments, reduction: Literal['sum'] | Literal['min'] | Literal['max'] = 'sum'):
-        """need to test."""
-        ops = self.keras.ops
         
-        if reduction == "sum":
-          return ops.segment_sum(x, seg_ids, num_segments)
-        elif reduction == "min":
-          return -ops.segment_max(-x, seg_ids, num_segments)
-        elif reduction == "max":
-          return ops.segment_max(x, seg_ids, num_segments)
-        else:
-          raise ValueError(f"reduction type {reduction} not supported")
-
-
+        return op(x, seg_ids, num_segments)
 
 class HashableTuple:
     """Overcomes non-hashability of symbolic elements"""
