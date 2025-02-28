@@ -89,6 +89,10 @@ class AbstractBackend:
         """natural log function"""
         return x.log()
     
+    def cumsum(self, x):
+        """cumulative summation"""
+        return x.cumsum()
+
     def repeat(self, x, repeats, total_repeat_length):
         """repeat follows semantics of jax.numpy.repeat: https://docs.jax.dev/en/latest/_autosummary/jax.numpy.repeat.html"""
         raise NotImplementedError("framework doesn't support repeat")
@@ -207,6 +211,10 @@ class NumpyBackend(AbstractBackend):
 
     def log(self, x):
         return self.np.log(x)
+    
+    def cumsum(self, x):
+        """cumulative summation"""
+        return self.np.cumsum(x)
 
     def arange(self, start, stop, device=None):
         return self.np.arange(start, stop)
@@ -381,8 +389,8 @@ class TorchBackend(AbstractBackend):
     def is_float_type(self, x):
         return x.dtype in [self.torch.float16, self.torch.float32, self.torch.float64, self.torch.bfloat16]
 
-
-
+    def cumsum(self, x):
+        return self.torch.cumsum(x,0)
 
 class TensorflowBackend(AbstractBackend):
     framework_name = "tensorflow"
@@ -405,6 +413,9 @@ class TensorflowBackend(AbstractBackend):
     def to_numpy(self, x):
         assert self.tf.executing_eagerly()
         return x.numpy()
+    
+    def cumsum(self, x):
+        return self.tf.cumsum(x)
 
     def arange(self, start, stop, device=None):
         return self.tf.range(start, stop)

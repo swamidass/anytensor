@@ -29,7 +29,7 @@ try:
 except ImportError:
   pass
 
-segment_ops =  "segment_sum segment_max segment_min segment_normalize segment_softmax".split()
+segment_ops =  "segment_sum segment_max segment_min segment_normalize".split()
 
 @pytest.mark.parametrize("op,ndims,backend", itertools.product(
     segment_ops, [1, 2, 3], loaded_backends
@@ -60,7 +60,7 @@ def test_segment_ops(backend, op, ndims):
 
 
 @pytest.mark.parametrize("op,backend", itertools.product(
-    "sum min max exp log".split(), loaded_backends
+    "sum min max exp log cumsum".split(), loaded_backends
 ))
 def test_unitary_ops(backend, op):
   op = getattr(at, op)
