@@ -50,15 +50,17 @@ def test_segment_ops(backend, op, ndims):
   bx = backend.from_numpy(x)
   bseg_id =backend.from_numpy(seg_id)
 
-  y = op(bx, bseg_id, num_segments)
-  z = op(x, seg_id, num_segments)
+  by = op(bx, bseg_id, num_segments)
+  y = op(x, seg_id, num_segments)
 
-  assert close(backend.to_numpy(y), z)
-  assert type(backend.from_numpy(x)) == type(y)
+  assert close(backend.to_numpy(by), y)
+  assert type(bx) == type(by)
+
+  assert len(x.shape) == ndims
 
 
 @pytest.mark.parametrize("op,backend", itertools.product(
-    "sum min max exp".split(), loaded_backends
+    "sum min max exp log".split(), loaded_backends
 ))
 def test_unitary_ops(backend, op):
   op = getattr(at, op)
@@ -68,11 +70,11 @@ def test_unitary_ops(backend, op):
 
   bx = backend.from_numpy(x)
 
-  y = op(bx)
-  z = op(x)
+  by = op(bx)
+  y = op(x)
 
-  assert close(backend.to_numpy(y), z)
-  assert type(backend.from_numpy(x)) == type(y)
+  assert close(backend.to_numpy(by), y)
+  assert type(bx) == type(by)
 
 
 def close(x,y):

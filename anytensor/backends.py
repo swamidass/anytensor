@@ -205,6 +205,9 @@ class NumpyBackend(AbstractBackend):
     def exp(self, x):
         return self.np.exp(x)
 
+    def log(self, x):
+        return self.np.log(x)
+
     def arange(self, start, stop, device=None):
         return self.np.arange(start, stop)
 
@@ -413,7 +416,7 @@ class TensorflowBackend(AbstractBackend):
             static_shape = x.shape.as_list()
             tf_shape = self.tf.shape(x)
             # use the static shape where known, otherwise use the TF shape components
-            shape = tuple([s or tf_shape[dim] for dim, s in enumerate(static_shape)])
+            shape = tuple([s or tf_shape[dim] for dim, s in enumerate(static_shape)]) # type: ignore
             try:
                 hash(shape)
                 return shape
@@ -423,7 +426,10 @@ class TensorflowBackend(AbstractBackend):
             
     def exp(self, x):
         return self.tf.exp(x)
-    
+
+    def log(self, x):
+        return self.tf.math.log(x)
+
     def reduce(self, x, operation, axes):
         return getattr(self.tf, "reduce_" + operation)(x, axis=axes)
 
