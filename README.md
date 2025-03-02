@@ -45,22 +45,57 @@ s = at.sum(x, axis=0)
 ```
 This code will work with tensor created by any backend library, not just numpy.
 
-## Segment Functions
+### Segment Functions
 
-One of the primary motivations for creating this library is to provide a unified interface for segment functions. These functions are used to aggregate tensors based on a segment index. For example, given a tensor `x` and a segment index `s`, we can compute the sum of each segment as follows.
+One of the primary motivations for creating this library is to provide a unified interface for segment functions. Segments ops are valuable because they enable the construction of models that operate on ragged arrays, where the second dimension of each tensor is not fixed. This is a common pattern in graph neural networks, where each graph has a different number of nodes and edges.
+
+
+These functions are used to aggregate tensors based on a segment index. For example, given a tensor `x` and a segment index `s`, we can compute the sum of each segment as follows.
 
 ```python
 import anytensor as at
 import numpy as np
 
 x = np.arange(12).reshape(3, 4)
-s = np.array([0, 0, 1])
+seg_ids = np.array([0, 0, 1])
+n_segs = 2
 
-y = at.segment_sum(x, s)
+y = at.segment_sum(x, seg_ids, n_segs)
 ```
 
-Segements are valuable because they enable the construction of models that operate on ragged arrays, where the second dimension of each tensor is not fixed. This is a common pattern in graph neural networks, where each graph has a different number of nodes and edges.
+The same code will work with tensors created by any backend library, not just numpy. For example, see this code using JAX.
 
+
+```python
+import anytensor as at
+import jax.umpy as np
+
+x = np.arange(12).reshape(3, 4)
+seg_ids = np.array([0, 0, 1])
+
+y = at.segment_sum(x, seg_ids, n_segs)
+```
+
+The function works, without modificaiton, with PyTorch and TensorFlow tensors too. Using these functions, we can build up more complicated logic. For example, we can compute the mean of each segment as follows.
+
+```python
+import anytensor as at
+import numpy as np
+
+x = np.arange(12).reshape(3, 4)
+seg_ids = np.array([0, 0, 1])
+n_segs = 2
+
+
+def segment_mean(x, seg_ids, n_segs): # TODO: implement in library!
+    y = at.segment_sum(x, seg_ids, n_segs)
+    n = at.segment_count(seg_ids, n_segs) # not implemented yet...
+    return y / n
+
+y = segment_mean(x, seg_ids, n_segs)
+```
+
+Of course, we could just use the `segment_mean` function from the library, but this shows how libraries can build on top of anytensor to create more complex functions that still work across all backends.
 
 ## Einops Compatibility
 
