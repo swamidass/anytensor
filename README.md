@@ -10,7 +10,9 @@ There are several tensor libraries currently in use, each with its on quirks, st
 1. Choose a single backend and limit their users to that backend.
 2. Implement a backend or plugin structure, which is tricky to build out effectively.
 
-Most libraries take the first approach, and need to be translated into entirely new code to be used with a different backend. Keras 2.0 and Einops are examples of the second approach. Kera 2.0 backend syste is very complex and very difficult to extend. In contrast, the design of Einops is much simpler and more extensible, albiet not complete enough for most use cases.
+Most libraries take the first approach, and need to be translated into entirely new code to be used with a different backend. Keras 2.0 and Einops are examples of the second approach. Kera 2.0 backend syste is  complex,  difficult to extend, and requires selection of a single backend rather than adapting to the inputs. 
+
+In contrast, the design of Einops is much simpler, more extensible, and transparently adapts to the inputs. The main downside of einops is that it is not complete enough for most use cases. Just as significant, Einops' backend system is not part of its public API, and is not designed to be used by other libraries. So, it is not advisable to use einops backend system directly in other libraries.
 
 
 ## Solution
