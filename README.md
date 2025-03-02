@@ -89,13 +89,13 @@ n_segs = 2
 
 def segment_mean(x, seg_ids, n_segs): # TODO: implement in library!
     y = at.segment_sum(x, seg_ids, n_segs)
-    n = at.segment_count(seg_ids, n_segs) # not implemented yet...
+    n = at.segment_count(seg_ids, n_segs) # TODO: not implemented yet...
     return y / n
 
 y = segment_mean(x, seg_ids, n_segs)
 ```
 
-Of course, we could just use the `segment_mean` function from the library, but this shows how libraries can build on top of anytensor to create more complex functions that still work across all backends.
+Of course, we could just use the `segment_mean` function from the library, and we need to add code to handle some of the boundary cases. But this shows how libraries can build on top of anytensor to create more complex functions that still work across all backends.
 
 ## Einops Compatibility
 
