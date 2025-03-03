@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 """
 Backends in `anytensor` are organized to meet the following requirements
 - backends are not imported unless those are actually needed, because
@@ -26,6 +25,7 @@ A new backend can be added by creating a subclass of `AbstractBackend` and imple
 
 import sys
 from typing import Literal
+from contextlib import nullcontext
 
 _loaded_backends: dict = {}
 _type2backend: dict = {}
@@ -417,8 +417,9 @@ class TensorflowBackend(AbstractBackend):
     def cumsum(self, x):
         return self.tf.cumsum(x)
 
-    def arange(self, start, stop, device=None):
-        return self.tf.range(start, stop)
+    def arange(self, start, stop, device=None): 
+        with (self.tf.device(device) if device else nullcontext()):
+          return self.tf.range(start, stop)
 
     def shape(self, x):
         if self.tf.executing_eagerly():
