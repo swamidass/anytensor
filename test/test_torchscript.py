@@ -9,7 +9,7 @@ from functools import partial
 def test_jit():
   @th.jit.script
   def f(x, s):
-    return at.segment_sum(x, s, 5, backend=at.backends.TorchBackend())
+    return at.segment_sum(x, s, 5)
 
 
 # But tracing works just fine.
