@@ -185,6 +185,19 @@ def test_elementwise_maximum_minimum(backend):
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
+def test_scalar_operand_upcast(backend):
+    """Python scalars in binary ops promote to 0-d arrays on the array's backend."""
+    backend_impl = loaded_backends[backend]
+    x = np.array([1.0, 5.0, 3.0])
+    bx = backend_impl.from_numpy(x)
+    by = at.maximum(bx, 2.0)
+    assert type(by) is type(bx)
+    assert close(backend_impl.to_numpy(by), np.maximum(x, 2.0))
+    s = at.sum(x)
+    assert type(s) is np.ndarray and s.ndim == 0
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
 def test_where_clip_astype(backend):
     x = np.array([4.0, 9.0, 16.0])
     backend_impl = loaded_backends[backend]
