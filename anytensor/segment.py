@@ -35,9 +35,9 @@ def segment_count(segment_ids, num_segments: int, sorted: bool = False):
     ``segment_ids``.
     """
     ones = ones_like(segment_ids)
-    # Cast to float for division-friendly counts.
+    # Float counts for division; use default float (float32 on JAX without x64).
     xp = array_namespace(ones)
-    ones = xp.astype(ones, xp.float64)
+    ones = xp.astype(ones, xp.asarray(0.0).dtype)
     return segment_sum(ones, segment_ids, num_segments, sorted=sorted)
 
 
