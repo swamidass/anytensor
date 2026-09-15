@@ -8,9 +8,45 @@ from array_api_compat import array_namespace
 
 Axes = Union[int, Sequence[int], None]
 
+_SCALAR_TYPES = (bool, int, float, complex)
+
+
+def _is_scalar(x: Any) -> bool:
+    if isinstance(x, _SCALAR_TYPES):
+        return True
+    try:
+        import numpy as np
+
+        return isinstance(x, np.generic)
+    except ImportError:  # pragma: no cover
+        return False
+
 
 def _xp(*arrays: Any):
-    return array_namespace(*arrays)
+    """Namespace from non-scalar operands (scalars are upcast later)."""
+    arrs = [a for a in arrays if a is not None and not _is_scalar(a)]
+    if not arrs:
+        import array_api_compat.numpy as xp
+
+        return xp
+    return array_namespace(*arrs)
+
+
+def _asarray(xp, x):
+    """Promote Python / NumPy scalars to 0-d arrays on ``xp``."""
+    if _is_scalar(x):
+        return xp.asarray(x)
+    return x
+
+
+def _result(xp, out):
+    """Ensure results are arrays (0-d ok), never bare Python/NumPy scalars.
+
+    Callers can rely on array methods (``.shape``, ``.dtype``, ``.ndim``, …).
+    """
+    if _is_scalar(out):
+        return xp.asarray(out)
+    return out
 
 
 def _axis(axes: Axes):
@@ -20,42 +56,50 @@ def _axis(axes: Axes):
 
 def exp(x):
     """Element-wise exponential."""
-    return _xp(x).exp(x)
+    xp = array_namespace(x)
+    return _result(xp, xp.exp(x))
 
 
 def log(x):
     """Element-wise natural logarithm."""
-    return _xp(x).log(x)
+    xp = array_namespace(x)
+    return _result(xp, xp.log(x))
 
 
 def sum(x, axes: Axes = None):
-    """Sum of array elements over given axes (``None`` = all)."""
-    return _xp(x).sum(x, axis=_axis(axes))
+    """Sum over axes; full reduce returns a **0-d array** (not a scalar)."""
+    xp = array_namespace(x)
+    return _result(xp, xp.sum(x, axis=_axis(axes)))
 
 
 def min(x, axes: Axes = None):
-    """Minimum of array elements over given axes."""
-    return _xp(x).min(x, axis=_axis(axes))
+    """Minimum over axes; full reduce returns a 0-d array."""
+    xp = array_namespace(x)
+    return _result(xp, xp.min(x, axis=_axis(axes)))
 
 
 def max(x, axes: Axes = None):
-    """Maximum of array elements over given axes."""
-    return _xp(x).max(x, axis=_axis(axes))
+    """Maximum over axes; full reduce returns a 0-d array."""
+    xp = array_namespace(x)
+    return _result(xp, xp.max(x, axis=_axis(axes)))
 
 
 def mean(x, axes: Axes = None):
-    """Mean of array elements over given axes."""
-    return _xp(x).mean(x, axis=_axis(axes))
+    """Mean over axes; full reduce returns a 0-d array."""
+    xp = array_namespace(x)
+    return _result(xp, xp.mean(x, axis=_axis(axes)))
 
 
 def prod(x, axes: Axes = None):
-    """Product of array elements over given axes."""
-    return _xp(x).prod(x, axis=_axis(axes))
+    """Product over axes; full reduce returns a 0-d array."""
+    xp = array_namespace(x)
+    return _result(xp, xp.prod(x, axis=_axis(axes)))
 
 
 def cumsum(x, axis: int = 0):
     """Cumulative sum along ``axis`` (default ``0``, never flatten)."""
-    return _xp(x).cumulative_sum(x, axis=axis)
+    xp = array_namespace(x)
+    return _result(xp, xp.cumulative_sum(x, axis=axis))
 
 
 def shape(x):
@@ -65,67 +109,80 @@ def shape(x):
 
 def take(x, indices, axis: int = 0):
     """Take elements from ``x`` along ``axis`` (default ``0``)."""
-    xp = _xp(x, indices)
-    return xp.take(x, indices, axis=axis)
+    xp = array_namespace(x, indices)
+    return _result(xp, xp.take(x, indices, axis=axis))
 
 
 def reshape(x, shape):
     """Reshape ``x`` to ``shape``."""
-    return _xp(x).reshape(x, shape)
+    xp = array_namespace(x)
+    return _result(xp, xp.reshape(x, shape))
 
 
 def transpose(x, axes: Optional[Sequence[int]] = None):
     """Permute axes of ``x``."""
-    xp = _xp(x)
+    xp = array_namespace(x)
     if axes is None:
-        return xp.permute_dims(x, axes=tuple(range(x.ndim - 1, -1, -1)))
-    return xp.permute_dims(x, axes=tuple(axes))
+        return _result(xp, xp.permute_dims(x, axes=tuple(range(x.ndim - 1, -1, -1))))
+    return _result(xp, xp.permute_dims(x, axes=tuple(axes)))
 
 
 def concatenate(arrays, axis: int = 0):
     """Concatenate a sequence of arrays along ``axis``."""
-    return _xp(*arrays).concat(arrays, axis=axis)
+    xp = array_namespace(*arrays)
+    return _result(xp, xp.concat(arrays, axis=axis))
 
 
 def stack(arrays, axis: int = 0):
     """Stack a sequence of arrays along a new ``axis``."""
-    return _xp(*arrays).stack(arrays, axis=axis)
+    xp = array_namespace(*arrays)
+    return _result(xp, xp.stack(arrays, axis=axis))
 
 
 def maximum(x, y):
-    """Element-wise maximum (not a reduction)."""
-    return _xp(x, y).maximum(x, y)
+    """Element-wise maximum. Scalars are upcast to 0-d arrays."""
+    xp = _xp(x, y)
+    return _result(xp, xp.maximum(_asarray(xp, x), _asarray(xp, y)))
 
 
 def minimum(x, y):
-    """Element-wise minimum (not a reduction)."""
-    return _xp(x, y).minimum(x, y)
+    """Element-wise minimum. Scalars are upcast to 0-d arrays."""
+    xp = _xp(x, y)
+    return _result(xp, xp.minimum(_asarray(xp, x), _asarray(xp, y)))
 
 
 def sqrt(x):
     """Element-wise square root."""
-    return _xp(x).sqrt(x)
+    xp = array_namespace(x)
+    return _result(xp, xp.sqrt(x))
 
 
 def rsqrt(x):
     """Element-wise reciprocal square root (``1 / sqrt(x)``)."""
-    xp = _xp(x)
-    return xp.asarray(1.0, dtype=getattr(x, "dtype", None)) / xp.sqrt(x)
+    xp = array_namespace(x)
+    one = xp.asarray(1.0, dtype=getattr(x, "dtype", None))
+    return _result(xp, one / xp.sqrt(x))
 
 
 def where(condition, x, y):
-    """Return elements chosen from ``x`` or ``y`` depending on ``condition``."""
-    return _xp(condition, x, y).where(condition, x, y)
+    """Choose from ``x`` or ``y`` by ``condition``. Scalars upcast to 0-d arrays."""
+    xp = _xp(condition, x, y)
+    return _result(
+        xp,
+        xp.where(_asarray(xp, condition), _asarray(xp, x), _asarray(xp, y)),
+    )
 
 
 def clip(x, min=None, max=None):
-    """Clip values to the interval ``[min, max]``."""
-    return _xp(x).clip(x, min=min, max=max)
+    """Clip values to ``[min, max]``."""
+    xp = array_namespace(x)
+    return _result(xp, xp.clip(x, min=min, max=max))
 
 
 def astype(x, dtype):
     """Cast ``x`` to ``dtype``."""
-    return _xp(x).astype(x, dtype)
+    xp = array_namespace(x)
+    return _result(xp, xp.astype(x, dtype))
 
 
 def cast(x, dtype):
@@ -134,93 +191,88 @@ def cast(x, dtype):
 
 
 def zeros_like(x, dtype=None):
-    """Return an array of zeros with the same shape (and backend) as ``x``."""
-    xp = _xp(x)
-    return xp.zeros(x.shape, dtype=x.dtype if dtype is None else dtype)
+    """Return zeros with the same shape (and backend) as ``x``."""
+    xp = array_namespace(x)
+    return _result(xp, xp.zeros(x.shape, dtype=x.dtype if dtype is None else dtype))
 
 
 def ones_like(x, dtype=None):
-    """Return an array of ones with the same shape (and backend) as ``x``."""
-    xp = _xp(x)
-    return xp.ones(x.shape, dtype=x.dtype if dtype is None else dtype)
+    """Return ones with the same shape (and backend) as ``x``."""
+    xp = array_namespace(x)
+    return _result(xp, xp.ones(x.shape, dtype=x.dtype if dtype is None else dtype))
 
 
 def full_like(x, fill_value, dtype=None):
     """Return an array filled with ``fill_value`` matching ``x``."""
-    xp = _xp(x)
-    return xp.full(x.shape, fill_value, dtype=x.dtype if dtype is None else dtype)
+    xp = array_namespace(x)
+    return _result(xp, xp.full(x.shape, fill_value, dtype=x.dtype if dtype is None else dtype))
 
 
 def zeros(shape, *, dtype=None, like=None):
-    """Return an array of zeros; pass ``like=`` to select the backend."""
+    """Return zeros; pass ``like=`` to select the backend."""
     if like is None:
-        import numpy as np
+        import array_api_compat.numpy as xp
 
-        return np.zeros(shape, dtype=dtype)
-    xp = _xp(like)
-    return xp.zeros(shape, dtype=dtype if dtype is not None else like.dtype)
+        return _result(xp, xp.zeros(shape, dtype=dtype))
+    xp = array_namespace(like)
+    return _result(xp, xp.zeros(shape, dtype=dtype if dtype is not None else like.dtype))
 
 
 def ones(shape, *, dtype=None, like=None):
-    """Return an array of ones; pass ``like=`` to select the backend."""
+    """Return ones; pass ``like=`` to select the backend."""
     if like is None:
-        import numpy as np
+        import array_api_compat.numpy as xp
 
-        return np.ones(shape, dtype=dtype)
-    xp = _xp(like)
-    return xp.ones(shape, dtype=dtype if dtype is not None else like.dtype)
+        return _result(xp, xp.ones(shape, dtype=dtype))
+    xp = array_namespace(like)
+    return _result(xp, xp.ones(shape, dtype=dtype if dtype is not None else like.dtype))
 
 
 def full(shape, fill_value, *, dtype=None, like=None):
     """Return a filled array; pass ``like=`` to select the backend."""
     if like is None:
-        import numpy as np
+        import array_api_compat.numpy as xp
 
-        return np.full(shape, fill_value, dtype=dtype)
-    xp = _xp(like)
-    return xp.full(shape, fill_value, dtype=dtype if dtype is not None else like.dtype)
+        return _result(xp, xp.full(shape, fill_value, dtype=dtype))
+    xp = array_namespace(like)
+    return _result(xp, xp.full(shape, fill_value, dtype=dtype if dtype is not None else like.dtype))
 
 
 def arange(start, /, stop=None, step=1, *, dtype=None, like=None, device=None):
-    """Return evenly spaced values; pass ``like=`` to select the backend.
+    """Evenly spaced values; pass ``like=`` to select the backend.
 
-    ``device`` is forwarded when the Array API namespace supports it (e.g. Torch).
+    ``device`` is forwarded when supported (e.g. Torch).
     """
     if stop is None:
         start, stop = 0, start
     if like is None:
-        import numpy as np
+        import array_api_compat.numpy as xp
 
-        return np.arange(start, stop, step, dtype=dtype)
-    xp = _xp(like)
+        return _result(xp, xp.arange(start, stop, step, dtype=dtype))
+    xp = array_namespace(like)
     kwargs = {}
     if dtype is not None:
         kwargs["dtype"] = dtype
     if device is not None:
         kwargs["device"] = device
     try:
-        return xp.arange(start, stop, step, **kwargs)
+        return _result(xp, xp.arange(start, stop, step, **kwargs))
     except TypeError:
         kwargs.pop("device", None)
-        return xp.arange(start, stop, step, **kwargs)
+        return _result(xp, xp.arange(start, stop, step, **kwargs))
 
 
 def repeat(x, repeats, *, total_repeat_length: Optional[int] = None, axis: Optional[int] = None):
     """Repeat elements of ``x``.
 
-    When ``repeats`` is an array of per-element counts and ``total_repeat_length``
-    is set, matches JAX ``jnp.repeat`` semantics (important for graph batching).
+    When ``repeats`` is per-element counts and ``total_repeat_length`` is set,
+    matches JAX ``jnp.repeat`` semantics (graph batching).
     """
-    xp = _xp(x)
-    # NumPy / Array API: xp.repeat(x, repeats, axis=axis)
-    # JAX-style total_repeat_length: use numpy path for NumPy; for others try kwargs.
+    xp = array_namespace(x)
     if total_repeat_length is not None:
-        # Build output by concatenating repeated slices — works across backends.
         if axis is None:
             flat = xp.reshape(x, (-1,))
             reps = repeats
-            if hasattr(reps, "shape") and getattr(reps, "ndim", 0) == 0:
-                reps = xp.broadcast_to(reps, flat.shape)
             parts = []
             n = int(flat.shape[0])
             for i in range(n):
@@ -230,22 +282,21 @@ def repeat(x, repeats, *, total_repeat_length: Optional[int] = None, axis: Optio
             if not parts:
                 return xp.zeros((0,), dtype=flat.dtype)
             out = xp.concat(parts, axis=0)
-            if total_repeat_length is not None and out.shape[0] != total_repeat_length:
-                # Truncate or error; JAX requires exact length when provided.
-                if out.shape[0] > total_repeat_length:
-                    out = out[:total_repeat_length]
-                elif out.shape[0] < total_repeat_length:
-                    raise ValueError(
-                        f"repeat produced length {out.shape[0]}, "
-                        f"expected total_repeat_length={total_repeat_length}"
-                    )
-            return out
+            if out.shape[0] > total_repeat_length:
+                out = out[:total_repeat_length]
+            elif out.shape[0] < total_repeat_length:
+                raise ValueError(
+                    f"repeat produced length {out.shape[0]}, "
+                    f"expected total_repeat_length={total_repeat_length}"
+                )
+            return _result(xp, out)
         raise NotImplementedError("total_repeat_length with axis!=None is not supported yet")
     if axis is None:
-        return xp.repeat(x, repeats)
-    return xp.repeat(x, repeats, axis=axis)
+        return _result(xp, xp.repeat(x, repeats))
+    return _result(xp, xp.repeat(x, repeats, axis=axis))
 
 
 def matmul(x, y):
     """Matrix product of two arrays."""
-    return _xp(x, y).matmul(x, y)
+    xp = array_namespace(x, y)
+    return _result(xp, xp.matmul(x, y))

@@ -48,10 +48,8 @@ def close(x, y):
 
 
 def _same_framework_type(ref, out):
-    """0-D NumPy reductions may return scalars; other backends keep array types."""
-    if type(ref) is type(out):
-        return True
-    return isinstance(ref, np.ndarray) and isinstance(out, (np.ndarray, np.generic))
+    """Results keep the framework array type (0-d arrays, never bare scalars)."""
+    return type(ref) is type(out)
 
 
 def _run_unary(backend_name, op_name, x_np, **kwargs):
@@ -62,6 +60,11 @@ def _run_unary(backend_name, op_name, x_np, **kwargs):
     y = op(x_np, **kwargs)
     assert close(backend.to_numpy(by), np.asarray(y))
     assert _same_framework_type(bx, by)
+    # Full reductions: 0-d arrays so callers can use .shape / .dtype / methods.
+    if op_name in {"sum", "min", "max", "mean", "prod"} and kwargs.get("axes") is None:
+        assert by.ndim == 0
+        assert y.ndim == 0
+        assert type(y) is type(x_np)
 
 
 def _run_binary(backend_name, op_name, a_np, b_np, **kwargs):
