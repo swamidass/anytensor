@@ -213,6 +213,21 @@ def test_numpy_operand_upcasts_to_framework(backend):
     assert close(backend_impl.to_numpy(s), np.array([6.0, 3.0]))
 
 
+@pytest.mark.skipif("torch" not in BACKENDS, reason="torch not installed")
+def test_numpy_upcast_prefers_reference_torch():
+    """Torch upcast shares the NumPy buffer when dtypes allow (copy=False)."""
+    import torch
+
+    from anytensor.core import align_arrays
+
+    host = np.arange(4, dtype=np.float64)
+    peer = torch.zeros(4, dtype=torch.float64)
+    _, up = align_arrays(peer, host)
+    assert isinstance(up, torch.Tensor)
+    host[0] = 123.0
+    assert float(up[0]) == 123.0
+
+
 @pytest.mark.parametrize("backend", BACKENDS)
 def test_where_clip_astype(backend):
     from array_api_compat import array_namespace

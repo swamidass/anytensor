@@ -54,11 +54,24 @@ def _xp(*values: Any):
 
 
 def _asarray(xp, x):
-    """Promote Python scalars and NumPy ndarrays onto ``xp``."""
+    """Promote Python scalars and NumPy ndarrays onto ``xp``.
+
+    NumPy → framework conversion prefers a **reference** (``copy=False``) when
+    the Array API namespace allows it (e.g. Torch shares the buffer). Falls back
+    to a copy only if the backend cannot satisfy a zero-copy view. Scalars
+    always allocate a new 0-d array.
+    """
     if x is None:
         return x
-    if _is_scalar(x) or _is_numpy_ndarray(x):
+    if _is_scalar(x):
         return xp.asarray(x)
+    if _is_numpy_ndarray(x):
+        try:
+            return xp.asarray(x, copy=False)
+        except TypeError:
+            return xp.asarray(x)
+        except ValueError:
+            return xp.asarray(x)
     return x
 
 

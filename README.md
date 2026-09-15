@@ -43,6 +43,8 @@ y = at.segment_sum(x, seg_ids, 2)
 
 Full reductions return **0-d arrays** (not bare Python / NumPy scalars). Binary ops and segment helpers **upcast** Python scalars and **NumPy ndarrays** onto a peer JAX / Torch / TF tensor. NumPy is host interchange data — we never demote a framework tensor to NumPy when mixing. Scalars alone still default to NumPy.
 
+NumPy → framework upcast prefers **by reference** (`asarray(..., copy=False)`) when the backend can share the buffer (Torch does; JAX/TF may still materialize). A copy is used only when zero-copy is impossible.
+
 ### Segment helpers
 
 | Function | Role |
