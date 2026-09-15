@@ -199,14 +199,18 @@ def test_scalar_operand_upcast(backend):
 
 @pytest.mark.parametrize("backend", BACKENDS)
 def test_where_clip_astype(backend):
+    from array_api_compat import array_namespace
+
     x = np.array([4.0, 9.0, 16.0])
     backend_impl = loaded_backends[backend]
     bx = backend_impl.from_numpy(x)
     by = at.where(bx > 5, bx, 0.0)
     assert close(backend_impl.to_numpy(by), np.where(x > 5, x, 0.0))
     assert close(backend_impl.to_numpy(at.clip(bx, 5.0, 10.0)), np.clip(x, 5.0, 10.0))
-    casted = at.astype(bx, np.int64)
-    assert backend_impl.to_numpy(casted).dtype == np.int64
+    xp = array_namespace(bx)
+    casted = at.astype(bx, xp.int64)
+    # JAX may truncate int64→int32 unless x64 is enabled; require an integer dtype.
+    assert xp.isdtype(casted.dtype, "integral")
 
 
 @pytest.mark.parametrize("backend", BACKENDS)

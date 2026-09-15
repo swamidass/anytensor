@@ -24,12 +24,41 @@ A new backend can be added by creating a subclass of `AbstractBackend` and imple
 """
 
 import sys
-from typing import Literal
+from typing import Literal, Tuple
 from contextlib import nullcontext
+from importlib.metadata import PackageNotFoundError, version as pkg_version
 
 _loaded_backends: dict = {}
 _type2backend: dict = {}
 _debug_importing = False
+
+
+def _parse_version(v: str) -> Tuple[int, ...]:
+    parts = []
+    for p in v.split(".")[:3]:
+        digits = "".join(c for c in p if c.isdigit())
+        parts.append(int(digits) if digits else 0)
+    while len(parts) < 3:
+        parts.append(0)
+    return tuple(parts)
+
+
+def _require_pkg_version(distribution: str, minimum: str, *, import_name: str | None = None) -> None:
+    """Raise a clear error if an installed backend is below the supported floor."""
+    name = import_name or distribution
+    try:
+        current = pkg_version(distribution)
+    except PackageNotFoundError:
+        # Module may be present without metadata; fall back to __version__.
+        mod = sys.modules.get(name)
+        current = getattr(mod, "__version__", None)
+        if current is None:
+            return
+    if _parse_version(str(current)) < _parse_version(minimum):
+        raise RuntimeError(
+            f"{distribution} >={minimum} required for anytensor "
+            f"(found {current}). Upgrade or omit this backend."
+        )
 
 
 def get_backend(tensor) -> "AbstractBackend":
@@ -69,7 +98,7 @@ def get_backend(tensor) -> "AbstractBackend":
                     _type2backend[_type] = backend
                     return backend
 
-    raise RuntimeError("Tensor type unknown to einops {}".format(type(tensor)))
+    raise RuntimeError(f"Tensor type unknown to anytensor: {type(tensor)}")
 
 
 class AbstractBackend:
@@ -265,12 +294,21 @@ class JaxBackend(NumpyBackend):
     framework_name = "jax"
 
     def __init__(self):
+        _require_pkg_version("jax", "0.4.32")
         super(JaxBackend, self).__init__()
         self.onp = self.np
 
         import jax.numpy
 
         self.np = jax.numpy
+        self._jax = __import__("jax")
+
+    def is_appropriate_type(self, tensor):
+        # Prefer jax.Array; also accept jnp arrays / tracers used as ndarray-like.
+        jax = self._jax
+        if hasattr(jax, "Array") and isinstance(tensor, jax.Array):
+            return True
+        return isinstance(tensor, self.np.ndarray)
 
     def from_numpy(self, x):
         return self.np.asarray(x)
@@ -278,7 +316,7 @@ class JaxBackend(NumpyBackend):
     def to_numpy(self, x):
         return self.onp.asarray(x)
 
-    def segment_reduce(self, x, seg_ids, num_segments, reduction, sorted : bool = False):
+    def segment_reduce(self, x, seg_ids, num_segments, reduction, sorted: bool = False):
         import jax.ops
 
         if reduction == "sum":
@@ -286,60 +324,68 @@ class JaxBackend(NumpyBackend):
         elif reduction == "min":
             f = jax.ops.segment_min
         elif reduction == "max":
-            f = jax.ops.segment_max       
+            f = jax.ops.segment_max
         else:
             raise ValueError(f"reduction type {reduction} not supported")
-        
+
         return f(x, seg_ids, num_segments, indices_are_sorted=sorted)
 
     def device(self, x):
         return x.devices()
 
 
-
-
 class TorchBackend(AbstractBackend):
     framework_name = "torch"
 
     def __init__(self):
+        _require_pkg_version("torch", "2.0")
         import torch
 
         self.torch = torch
 
     def is_appropriate_type(self, tensor):
         return isinstance(tensor, self.torch.Tensor)
-    
-    def segment_reduce(self, x, seg_ids, num_segments, reduction, sorted : bool = False):
+
+    def _scatter_fill_value(self, x, reduction: str):
+        """Identity for empty segments: 0 / dtype max / dtype min (not float inf on ints)."""
+        if reduction == "sum":
+            return 0
+        is_float = x.dtype.is_floating_point
+        if reduction == "min":
+            if is_float:
+                return float("inf")
+            return self.torch.iinfo(x.dtype).max
+        if reduction == "max":
+            if is_float:
+                return float("-inf")
+            return self.torch.iinfo(x.dtype).min
+        raise ValueError(f"reduction type {reduction} not supported")
+
+    def segment_reduce(self, x, seg_ids, num_segments, reduction, sorted: bool = False):
+        # ``sorted`` is currently a no-op on Torch (scatter path is unsorted-safe).
+        del sorted
         shape = (num_segments,) + x.shape[1:]
         ndim = len(self.shape(x))
+        dim = 0
 
-        dim = 0 
-        
-        for i in range(1, ndim):
+        seg_ids = seg_ids.to(dtype=self.torch.int64)
+        for _ in range(1, ndim):
             seg_ids = seg_ids.unsqueeze(-1)
         seg_ids = seg_ids.expand_as(x)
-        
+
         if reduction == "sum":
             out = self.torch.zeros(shape, dtype=x.dtype, device=x.device)
-            out = out.scatter_add(dim, seg_ids, x)
-            return out
-        elif reduction == "min":
-            out = self.torch.full(shape, float("inf"), dtype=x.dtype, device=x.device)
-            out = out.scatter_reduce(dim, seg_ids, x, reduce="amin", include_self=True)
-            return out
-        elif reduction == "max":
-            out = self.torch.full(shape, float("-inf"), dtype=x.dtype, device=x.device)
-            out = out.scatter_reduce(dim, seg_ids, x, reduce="amax", include_self=True)
-            return out
-        else:
-            raise ValueError(f"reduction type {reduction} not supported")
+            return out.scatter_add(dim, seg_ids, x)
+        if reduction in ("min", "max"):
+            fill = self._scatter_fill_value(x, reduction)
+            out = self.torch.full(shape, fill, dtype=x.dtype, device=x.device)
+            reduce = "amin" if reduction == "min" else "amax"
+            return out.scatter_reduce(dim, seg_ids, x, reduce=reduce, include_self=True)
+        raise ValueError(f"reduction type {reduction} not supported")
 
     def from_numpy(self, x):
-        variable = self.torch.from_numpy(x)
-        if self.is_float_type(variable):
-            # attach grad only to floating types
-            variable.requires_grad = True
-        return variable
+        # Do not attach autograd — conversion helpers must be side-effect free.
+        return self.torch.from_numpy(x)
 
     def to_numpy(self, x):
         return x.detach().cpu().numpy()
@@ -387,15 +433,22 @@ class TorchBackend(AbstractBackend):
         return self.torch.unsqueeze(x, new_position)
 
     def is_float_type(self, x):
-        return x.dtype in [self.torch.float16, self.torch.float32, self.torch.float64, self.torch.bfloat16]
+        return x.dtype in [
+            self.torch.float16,
+            self.torch.float32,
+            self.torch.float64,
+            self.torch.bfloat16,
+        ]
 
     def cumsum(self, x):
-        return self.torch.cumsum(x,0)
+        return self.torch.cumsum(x, 0)
+
 
 class TensorflowBackend(AbstractBackend):
     framework_name = "tensorflow"
 
     def __init__(self):
+        _require_pkg_version("tensorflow", "2.10")
         import tensorflow
 
         self.tf = tensorflow
@@ -413,13 +466,13 @@ class TensorflowBackend(AbstractBackend):
     def to_numpy(self, x):
         assert self.tf.executing_eagerly()
         return x.numpy()
-    
+
     def cumsum(self, x):
         return self.tf.cumsum(x)
 
-    def arange(self, start, stop, device=None): 
-        with (self.tf.device(device) if device else nullcontext()):
-          return self.tf.range(start, stop)
+    def arange(self, start, stop, device=None):
+        with self.tf.device(device) if device else nullcontext():
+            return self.tf.range(start, stop)
 
     def shape(self, x):
         if self.tf.executing_eagerly():
@@ -428,14 +481,14 @@ class TensorflowBackend(AbstractBackend):
             static_shape = x.shape.as_list()
             tf_shape = self.tf.shape(x)
             # use the static shape where known, otherwise use the TF shape components
-            shape = tuple([s or tf_shape[dim] for dim, s in enumerate(static_shape)]) # type: ignore
+            shape = tuple([s or tf_shape[dim] for dim, s in enumerate(static_shape)])  # type: ignore
             try:
                 hash(shape)
                 return shape
             except BaseException:
                 # unhashable symbols in shape. Wrap tuple to be hashable.
                 return HashableTuple(shape)
-            
+
     def exp(self, x):
         return self.tf.exp(x)
 
@@ -466,16 +519,25 @@ class TensorflowBackend(AbstractBackend):
     def is_float_type(self, x):
         return x.dtype in ("float16", "float32", "float64", "float128", "bfloat16")
 
-    def segment_reduce(self, x, seg_ids, num_segments, reduction: Literal['sum'] | Literal['min'] | Literal['max'] = 'sum', sorted : bool = False):
+    def segment_reduce(
+        self,
+        x,
+        seg_ids,
+        num_segments,
+        reduction: Literal["sum"] | Literal["min"] | Literal["max"] = "sum",
+        sorted: bool = False,
+    ):
         tf = self.tf
-        op_name = f"segment_{reduction}"
-        if not sorted: op_name = "unsorted_" + op_name
-        try:
-          op = getattr(tf.math, op_name)
-        except:
-          raise ValueError(f"reduction type {reduction} not supported")
-        
+        if reduction not in ("sum", "min", "max"):
+            raise ValueError(f"reduction type {reduction} not supported")
+        # Sorted ops are ``segment_{sum,min,max}(data, ids)`` — no num_segments.
+        # Unsorted ops take ``(data, ids, num_segments)``.
+        if sorted:
+            op = getattr(tf.math, f"segment_{reduction}")
+            return op(x, seg_ids)
+        op = getattr(tf.math, f"unsorted_segment_{reduction}")
         return op(x, seg_ids, num_segments)
+
 
 class HashableTuple:
     """Overcomes non-hashability of symbolic elements"""

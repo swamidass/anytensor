@@ -18,10 +18,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+numpy = ["numpy>=1.24"]
 jax = ["jax>=0.4.32"]
 torch = ["torch>=2.0"]
 tensorflow = ["tensorflow>=2.10"]
 all = [
+  "numpy>=1.24",
   "jax>=0.4.32",
   "torch>=2.0",
   "tensorflow>=2.10",
