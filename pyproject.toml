@@ -38,6 +38,7 @@ dev = [
   "towncrier>=24",
   "hatch>=1.12",
   "ruff>=0.8",
+  "numpy>=1.24",
 ]
 
 [tool.hatch.version]
