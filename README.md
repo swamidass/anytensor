@@ -84,7 +84,12 @@ Einops (`rearrange`, `einsum`, `reduce`, …) is re-exported for convenience.
 
 ## Contributing
 
-PRs welcome. Prefer adding portable helpers in `anytensor/core.py` or `segment.py`; only extend `backends.py` when the Array API cannot express the op (e.g. `segment_reduce`). Add coverage in `test/test_ops.py` and backend contracts in `test/test_backend_contracts.py`.
+PRs welcome. Prefer adding portable helpers in `anytensor/core.py` or `segment.py`; only extend `backends.py` when the Array API cannot express the op (e.g. `segment_reduce`). Add coverage in `test/test_ops.py`, boundaries in `test/test_boundaries.py`, fuzz in `test/test_hypothesis.py`, and backend contracts in `test/test_backend_contracts.py`.
+
+```bash
+uv sync --extra jax --extra torch --group dev
+uv run pytest --cov=anytensor --cov-report=term-missing
+```
 
 ## License
 

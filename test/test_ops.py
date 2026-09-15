@@ -8,43 +8,7 @@ import numpy as np
 import pytest
 
 import anytensor as at
-from anytensor import backends
-
-loaded_backends: dict = {
-    "numpy": backends.NumpyBackend(),
-}
-
-try:
-    import jax  # noqa: F401
-
-    b = backends.JaxBackend()
-    loaded_backends[b.framework_name] = b
-except ImportError:
-    pass
-
-try:
-    import torch  # noqa: F401
-
-    b = backends.TorchBackend()
-    loaded_backends[b.framework_name] = b
-except ImportError:
-    pass
-
-try:
-    import tensorflow as tf  # noqa: F401
-
-    b = backends.TensorflowBackend()
-    loaded_backends[b.framework_name] = b
-except ImportError:
-    pass
-
-BACKENDS = list(loaded_backends)
-
-
-def close(x, y):
-    x = np.asarray(x)
-    y = np.asarray(y)
-    return np.allclose(x, y)
+from helpers import BACKENDS, close, loaded_backends
 
 
 def _same_framework_type(ref, out):

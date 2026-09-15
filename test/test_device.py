@@ -1,9 +1,12 @@
-import torch as th
-import anytensor as at
 import pytest
+
+torch = pytest.importorskip("torch")
+th = torch
+import anytensor as at  # noqa: E402
 
 # check if mps available on the device
 not_mps: bool = not th.backends.mps.is_available()
+
 
 @pytest.mark.skipif(not_mps, reason="MPS is not available")
 def test_device_check():

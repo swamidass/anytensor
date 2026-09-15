@@ -96,7 +96,8 @@ def segment_normalize(x, segment_ids, num_segments: int, sorted: bool = False):
     sum_x = segment_sum(x, segment_ids, num_segments, sorted=sorted)
     sum_x = take(sum_x, segment_ids)
     xp = array_namespace(x, sum_x)
-    out = x / sum_x
+    safe = where(sum_x == 0, xp.ones_like(sum_x), sum_x)
+    out = x / safe
     return where(sum_x == 0, xp.zeros_like(out), out)
 
 

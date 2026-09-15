@@ -7,5 +7,6 @@
 - Mixed operands: prefer non-NumPy namespace; upcast NumPy by **reference** when possible (`copy=False`), with `fallback="copy"` (warn) or `"error"`. `@promote(x="data", indices="index")` applies `result_type` only to data args so ints widen beside floats without corrupting segment ids.
 - Index **width** left backend-local (Torch→int64 at scatter; JAX/TF often int32). Do not force `xp.int64` in portable helpers.
 - `promote_options(copy=True)` / decorator `copy=True` when host NumPy buffers mutate.
+- Added boundary tests + Hypothesis fuzz; coverage ~74% (backends TF paths / unused AbstractBackend methods dominate miss). `segment_normalize` avoids 0/0 warnings via safe denominator.
 - Backend patches: Torch `from_numpy` no longer sets `requires_grad`; dtype-safe min/max fills + int64 segment ids; JAX `jax.Array` detection; TF sorted `segment_*` arity (no `num_segments`); version floors at backend init.
 - Deferred: GraphsTuple / RaggedTensor; ORT not a v1 backend.
