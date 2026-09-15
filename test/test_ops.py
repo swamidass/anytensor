@@ -77,7 +77,10 @@ def _run_binary(backend_name, op_name, a_np, b_np, **kwargs):
 
 # --- segment ops ----------------------------------------------------------
 
-segment_ops = "segment_sum segment_max segment_min segment_normalize".split()
+segment_ops = (
+    "segment_sum segment_max segment_min segment_normalize "
+    "segment_mean segment_count segment_variance"
+).split()
 
 
 @pytest.mark.parametrize(
@@ -97,12 +100,49 @@ def test_segment_ops(backend, op, ndims):
     bx = backend_impl.from_numpy(x)
     bseg_id = backend_impl.from_numpy(seg_id)
 
-    by = fn(bx, bseg_id, num_segments)
-    y = fn(x, seg_id, num_segments)
+    if op == "segment_count":
+        by = fn(bseg_id, num_segments)
+        y = fn(seg_id, num_segments)
+    else:
+        by = fn(bx, bseg_id, num_segments)
+        y = fn(x, seg_id, num_segments)
 
     assert close(backend_impl.to_numpy(by), y)
-    assert type(bx) is type(by)
+    if op != "segment_count":
+        assert _same_framework_type(bx, by)
     assert len(x.shape) == ndims
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_segment_softmax_and_partition_softmax(backend):
+    backend_impl = loaded_backends[backend]
+    logits = np.array([1.0, 2.0, 3.0, 1.0, 2.0], dtype=np.float64)
+    seg_id = np.array([0, 0, 0, 1, 1])
+    partitions = np.array([3, 2])
+
+    blogits = backend_impl.from_numpy(logits)
+    bseg = backend_impl.from_numpy(seg_id)
+    bpart = backend_impl.from_numpy(partitions)
+
+    s = at.segment_softmax(blogits, bseg, 2)
+    p = at.partition_softmax(blogits, bpart, sum_partitions=5)
+    assert close(backend_impl.to_numpy(s), at.segment_softmax(logits, seg_id, 2))
+    assert close(backend_impl.to_numpy(p), at.partition_softmax(logits, partitions, 5))
+    assert close(backend_impl.to_numpy(s), backend_impl.to_numpy(p))
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_segment_min_max_or_constant_empty(backend):
+    backend_impl = loaded_backends[backend]
+    x = np.array([1.0, 2.0], dtype=np.float64)
+    seg_id = np.array([0, 0])
+    bx = backend_impl.from_numpy(x)
+    bseg = backend_impl.from_numpy(seg_id)
+    # segment 1 empty -> constant
+    ymin = at.segment_min_or_constant(bx, bseg, 2, constant=0.0)
+    ymax = at.segment_max_or_constant(bx, bseg, 2, constant=0.0)
+    assert close(backend_impl.to_numpy(ymin), np.array([1.0, 0.0]))
+    assert close(backend_impl.to_numpy(ymax), np.array([2.0, 0.0]))
 
 
 # --- ordinary unary / binary ops -----------------------------------------
