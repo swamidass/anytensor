@@ -39,9 +39,9 @@ seg_ids = jnp.array([0, 0, 1])
 y = at.segment_sum(x, seg_ids, 2)
 ```
 
-### Scalar policy
+### Scalar / NumPy promotion
 
-Full reductions return **0-d arrays** (not bare Python / NumPy scalars), so results always have array methods (`.shape`, `.dtype`, …). Binary ops such as `maximum` / `where` **upcast** Python scalars to 0-d arrays on the other operand’s backend.
+Full reductions return **0-d arrays** (not bare Python / NumPy scalars). Binary ops and segment helpers **upcast** Python scalars and **NumPy ndarrays** onto a peer JAX / Torch / TF tensor. NumPy is host interchange data — we never demote a framework tensor to NumPy when mixing. Scalars alone still default to NumPy.
 
 ### Segment helpers
 

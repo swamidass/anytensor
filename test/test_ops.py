@@ -197,6 +197,22 @@ def test_scalar_operand_upcast(backend):
     assert type(s) is np.ndarray and s.ndim == 0
 
 
+@pytest.mark.parametrize("backend", [b for b in BACKENDS if b != "numpy"])
+def test_numpy_operand_upcasts_to_framework(backend):
+    """NumPy arrays mixed with a framework tensor promote onto that framework."""
+    backend_impl = loaded_backends[backend]
+    x = backend_impl.from_numpy(np.array([1.0, 5.0, 3.0]))
+    y_np = np.array([4.0, 2.0, 3.0])
+    out = at.maximum(x, y_np)
+    assert type(out) is type(x)
+    assert close(backend_impl.to_numpy(out), np.array([4.0, 5.0, 3.0]))
+    # segment_ids as NumPy with framework values
+    seg = np.array([0, 0, 1], dtype=np.int64)
+    s = at.segment_sum(x, seg, 2)
+    assert type(s) is type(x)
+    assert close(backend_impl.to_numpy(s), np.array([6.0, 3.0]))
+
+
 @pytest.mark.parametrize("backend", BACKENDS)
 def test_where_clip_astype(backend):
     from array_api_compat import array_namespace

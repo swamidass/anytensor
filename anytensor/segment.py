@@ -7,23 +7,42 @@ from typing import Optional
 from array_api_compat import array_namespace
 
 from .backends import get_backend
-from .core import take, ones_like, where, exp, maximum, repeat, arange, cumsum
+from .core import (
+    take,
+    ones_like,
+    where,
+    exp,
+    maximum,
+    repeat,
+    arange,
+    cumsum,
+    align_arrays,
+)
+
+
+def _align_segment_args(x, segment_ids):
+    """Upcast NumPy ``segment_ids`` (or ``x``) onto the non-NumPy peer."""
+    x, segment_ids = align_arrays(x, segment_ids)
+    return x, segment_ids
 
 
 def segment_sum(x, segment_ids, num_segments: int, sorted: bool = False):
     """Sum values of ``x`` within each segment along axis 0."""
+    x, segment_ids = _align_segment_args(x, segment_ids)
     backend = get_backend(x)
     return backend.segment_reduce(x, segment_ids, num_segments, "sum", sorted)
 
 
 def segment_max(x, segment_ids, num_segments: int, sorted: bool = False):
     """Max of values of ``x`` within each segment along axis 0."""
+    x, segment_ids = _align_segment_args(x, segment_ids)
     backend = get_backend(x)
     return backend.segment_reduce(x, segment_ids, num_segments, "max", sorted)
 
 
 def segment_min(x, segment_ids, num_segments: int, sorted: bool = False):
     """Min of values of ``x`` within each segment along axis 0."""
+    x, segment_ids = _align_segment_args(x, segment_ids)
     backend = get_backend(x)
     return backend.segment_reduce(x, segment_ids, num_segments, "min", sorted)
 

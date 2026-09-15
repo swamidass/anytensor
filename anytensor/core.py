@@ -24,21 +24,48 @@ def _is_scalar(x: Any) -> bool:
         return False
 
 
+def _is_numpy_ndarray(x: Any) -> bool:
+    try:
+        import numpy as np
+
+        return isinstance(x, np.ndarray)
+    except ImportError:  # pragma: no cover
+        return False
+
+
 def _xp(*values: Any):
-    """Array namespace from non-scalar values; NumPy if only scalars."""
+    """Pick Array API namespace for mixed operands.
+
+    - Scalars only → NumPy
+    - NumPy arrays only → NumPy
+    - Any non-NumPy framework tensor → that framework (NumPy is host data
+      and is upcast; we never demote Torch/JAX/TF to NumPy)
+    - Multiple distinct non-NumPy frameworks → ``array_namespace`` error
+    """
     arrs = [v for v in values if v is not None and not _is_scalar(v)]
     if not arrs:
         import array_api_compat.numpy as xp
 
         return xp
-    return array_namespace(*arrs)
+    others = [a for a in arrs if not _is_numpy_ndarray(a)]
+    if not others:
+        return array_namespace(*arrs)
+    return array_namespace(*others)
 
 
 def _asarray(xp, x):
-    """Promote Python / NumPy scalars to 0-d arrays on ``xp``."""
-    if _is_scalar(x):
+    """Promote Python scalars and NumPy ndarrays onto ``xp``."""
+    if x is None:
+        return x
+    if _is_scalar(x) or _is_numpy_ndarray(x):
         return xp.asarray(x)
     return x
+
+
+def align_arrays(*arrays: Any):
+    """Align operands on one namespace; upcast scalars/NumPy to non-NumPy peers."""
+    xp = _xp(*arrays)
+    return tuple(_asarray(xp, a) for a in arrays)
 
 
 def as_array_result(fn: Callable) -> Callable:
@@ -60,7 +87,11 @@ def as_array_result(fn: Callable) -> Callable:
 
 
 def promote_scalars(*names: str) -> Callable:
-    """Decorator: upcast named parameters that are scalars before calling ``fn``."""
+    """Upcast named scalar **and NumPy** operands onto the peer framework namespace.
+
+    NumPy is treated as interchangeable host data: mixed ``torch`` + ``ndarray``
+    becomes Torch, never the reverse.
+    """
 
     def decorator(fn: Callable) -> Callable:
         sig = inspect.signature(fn)
@@ -140,6 +171,7 @@ def shape(x):
 
 
 @as_array_result
+@promote_scalars("x", "indices")
 def take(x, indices, axis: int = 0):
     """Take elements from ``x`` along ``axis`` (default ``0``)."""
     return array_namespace(x, indices).take(x, indices, axis=axis)
@@ -175,14 +207,14 @@ def stack(arrays, axis: int = 0):
 @as_array_result
 @promote_scalars("x", "y")
 def maximum(x, y):
-    """Element-wise maximum. Scalars are upcast to 0-d arrays."""
+    """Element-wise maximum. Scalars/NumPy upcast onto the peer framework."""
     return array_namespace(x, y).maximum(x, y)
 
 
 @as_array_result
 @promote_scalars("x", "y")
 def minimum(x, y):
-    """Element-wise minimum. Scalars are upcast to 0-d arrays."""
+    """Element-wise minimum. Scalars/NumPy upcast onto the peer framework."""
     return array_namespace(x, y).minimum(x, y)
 
 
@@ -202,7 +234,7 @@ def rsqrt(x):
 @as_array_result
 @promote_scalars("condition", "x", "y")
 def where(condition, x, y):
-    """Choose from ``x`` or ``y`` by ``condition``. Scalars upcast to 0-d arrays."""
+    """Choose from ``x`` or ``y`` by ``condition``. Scalars/NumPy upcast."""
     return array_namespace(condition, x, y).where(condition, x, y)
 
 
@@ -303,6 +335,7 @@ def arange(start, /, stop=None, step=1, *, dtype=None, like=None, device=None):
 
 
 @as_array_result
+@promote_scalars("x", "repeats")
 def repeat(x, repeats, *, total_repeat_length: Optional[int] = None, axis: Optional[int] = None):
     """Repeat elements of ``x``.
 
@@ -337,6 +370,7 @@ def repeat(x, repeats, *, total_repeat_length: Optional[int] = None, axis: Optio
 
 
 @as_array_result
+@promote_scalars("x", "y")
 def matmul(x, y):
-    """Matrix product of two arrays."""
+    """Matrix product of two arrays. NumPy operands upcast onto peers."""
     return array_namespace(x, y).matmul(x, y)
