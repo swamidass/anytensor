@@ -9,7 +9,13 @@ from .segment import (
     segment_max,
     segment_min,
     segment_mean,
+    segment_count,
+    segment_variance,
     segment_normalize,
+    segment_softmax,
+    segment_min_or_constant,
+    segment_max_or_constant,
+    partition_softmax,
 )
 
 from .core import (
@@ -63,7 +69,13 @@ __all__ = [
     "segment_max",
     "segment_min",
     "segment_mean",
+    "segment_count",
+    "segment_variance",
     "segment_normalize",
+    "segment_softmax",
+    "segment_min_or_constant",
+    "segment_max_or_constant",
+    "partition_softmax",
     "repeat",
     "take",
     "exp",
