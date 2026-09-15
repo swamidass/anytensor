@@ -128,7 +128,14 @@ class AbstractBackend:
 
     def segment_reduce(self, x, seg_ids, num_segments, reduction, sorted: bool = False):
         """segment_reduce with reduce in {sum, min, max}.
-        Follows semantics of jax.ops.segment_sum: https://docs.jax.dev/en/latest/_autosummary/jax.ops.segment_sum.html"""
+
+        Follows semantics of jax.ops.segment_sum:
+        https://docs.jax.dev/en/latest/_autosummary/jax.ops.segment_sum.html
+
+        Index dtypes are backend-local: ``seg_ids`` must be integral, but width
+        differs (Torch scatter wants int64; JAX/TF often use int32). Callers
+        should not assume NumPy int64 ids stay int64 after upcast.
+        """
         raise NotImplementedError("backend does not support segment_sum")
     
     def take(self, x, indices):

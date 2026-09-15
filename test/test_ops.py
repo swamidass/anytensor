@@ -307,8 +307,8 @@ def test_where_clip_astype(backend):
     assert close(backend_impl.to_numpy(by), np.where(x > 5, x, 0.0))
     assert close(backend_impl.to_numpy(at.clip(bx, 5.0, 10.0)), np.clip(x, 5.0, 10.0))
     xp = array_namespace(bx)
-    casted = at.astype(bx, xp.int64)
-    # JAX may truncate int64→int32 unless x64 is enabled; require an integer dtype.
+    # Use the namespace default integer (JAX often has no int64 without x64).
+    casted = at.astype(bx, xp.asarray(0).dtype)
     assert xp.isdtype(casted.dtype, "integral")
 
 

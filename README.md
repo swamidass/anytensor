@@ -53,6 +53,8 @@ Dtype policy is per-operand via `@promote`:
 @promote(condition="mask", x="data", y="data")
 ```
 
+**Index width** is not unified: Torch scatter normalizes to `int64`; JAX (without x64) and TF commonly use `int32`. `@promote(..., kind="index")` only requires an integral dtype — backends cast at the kernel boundary when needed.
+
 
 ### Segment helpers
 

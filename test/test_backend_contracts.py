@@ -86,3 +86,42 @@ def test_backend_version_floors_when_imported():
         except ImportError:
             continue
         cls()  # should enforce floor internally without cryptic later errors
+
+
+def test_segment_ids_int32_portable_across_backends():
+    """int32 segment ids must work; width normalization is backend-local.
+
+    Torch casts to int64 for scatter; JAX/TF commonly keep int32 (no x64).
+    The public ``kind='index'`` policy only requires integral, not a fixed width.
+    """
+    import anytensor as at
+
+    x_np = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+    seg_np = np.array([0, 0, 1], dtype=np.int32)
+    expected = np.array([3.0, 3.0], dtype=np.float32)
+
+    # NumPy reference
+    assert np.allclose(at.segment_sum(x_np, seg_np, 2), expected)
+
+    try:
+        import torch
+    except ImportError:
+        torch = None
+    if torch is not None:
+        b = backends.TorchBackend()
+        x = b.from_numpy(x_np.astype(np.float64))
+        seg = torch.tensor(seg_np, dtype=torch.int32)
+        out = b.segment_reduce(x, seg, 2, "sum")
+        assert list(b.to_numpy(out)) == [3.0, 3.0]
+
+    try:
+        import jax.numpy as jnp
+    except ImportError:
+        jnp = None
+    if jnp is not None:
+        b = backends.JaxBackend()
+        x = b.from_numpy(x_np)
+        seg = jnp.asarray(seg_np)  # typically int32 under default JAX
+        out = b.segment_reduce(x, seg, 2, "sum")
+        assert np.allclose(b.to_numpy(out), expected)
+        assert np.issubdtype(np.dtype(seg.dtype), np.integer)

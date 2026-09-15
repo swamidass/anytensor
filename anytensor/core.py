@@ -220,7 +220,9 @@ def promote(
         def where(condition, x, y): ...
 
     ``data`` operands share Array API ``result_type`` (so a NumPy int beside a
-    float tensor becomes float). ``index`` stays integral. ``mask`` becomes bool.
+    float tensor becomes float). ``index`` stays integral (width is
+    backend-local: Torch may cast to int64; JAX/TF often keep int32). ``mask``
+    becomes bool.
 
     ``copy`` / ``fallback`` control NumPy→framework buffer sharing (see
     :func:`promote_options`).
