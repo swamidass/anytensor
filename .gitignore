@@ -1,4 +1,9 @@
-poetry.lock
+# Public package: resolve deps from pyproject; do not commit lock.
+uv.lock
+.python-version
+.envrc
+anytensor/_version.py
+
 *.ipynb
 
 # Byte-compiled / optimized / DLL files

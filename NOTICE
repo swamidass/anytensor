@@ -1,0 +1,10 @@
+AnyTensor
+Copyright (c) 2025 S. Joshua Swamidass
+
+This product includes software derived from einops
+(https://github.com/arogozhnikov/einops), specifically the multi-backend
+dispatch pattern adapted in anytensor/backends.py.
+
+einops is Copyright (c) 2018 Alex Rogozhnikov and is available under the
+MIT License. See https://github.com/arogozhnikov/einops/blob/main/LICENSE
+for the full text of that license.
