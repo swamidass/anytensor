@@ -4,13 +4,41 @@ from __future__ import annotations
 
 import functools
 import inspect
-from typing import Any, Callable, Optional, Sequence, Union
+import warnings
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Any, Callable, Iterator, Literal, Optional, Sequence, Union
 
 from array_api_compat import array_namespace
 
 Axes = Union[int, Sequence[int], None]
+Fallback = Literal["copy", "error"]
 
 _SCALAR_TYPES = (bool, int, float, complex)
+
+# Library defaults for NumPy → framework promotion (decorators / align read these).
+_promote_copy: ContextVar[bool] = ContextVar("anytensor_promote_copy", default=False)
+_promote_fallback: ContextVar[Fallback] = ContextVar(
+    "anytensor_promote_fallback", default="copy"
+)
+
+
+@contextmanager
+def promote_options(*, copy: bool = False, fallback: Fallback = "copy") -> Iterator[None]:
+    """Temporarily set NumPy-upcast defaults (``copy`` / non-ref ``fallback``).
+
+    Example::
+
+        with at.promote_options(copy=True):
+            y = at.maximum(torch_x, numpy_y)  # safe if numpy_y will be mutated
+    """
+    t_copy = _promote_copy.set(copy)
+    t_fb = _promote_fallback.set(fallback)
+    try:
+        yield
+    finally:
+        _promote_copy.reset(t_copy)
+        _promote_fallback.reset(t_fb)
 
 
 def _is_scalar(x: Any) -> bool:
@@ -53,32 +81,70 @@ def _xp(*values: Any):
     return array_namespace(*others)
 
 
-def _asarray(xp, x):
+def _asarray(
+    xp,
+    x,
+    *,
+    copy: Optional[bool] = None,
+    fallback: Optional[Fallback] = None,
+):
     """Promote Python scalars and NumPy ndarrays onto ``xp``.
 
-    NumPy → framework conversion prefers a **reference** (``copy=False``) when
-    the Array API namespace allows it (e.g. Torch shares the buffer). Falls back
-    to a copy only if the backend cannot satisfy a zero-copy view. Scalars
-    always allocate a new 0-d array.
+    Parameters
+    ----------
+    copy:
+        If True, always copy NumPy buffers into the framework. If False
+        (default), prefer a reference via ``asarray(..., copy=False)``.
+        ``None`` reads :func:`promote_options` / the module default.
+    fallback:
+        When ``copy=False`` but zero-copy is impossible — common for some
+        non-contiguous layouts, dtype conversions, or backends that refuse
+        to alias:
+
+        - ``"copy"`` (default): emit a warning and copy
+        - ``"error"``: raise ``ValueError``
+
+        ``None`` reads the current default.
     """
     if x is None:
         return x
     if _is_scalar(x):
         return xp.asarray(x)
-    if _is_numpy_ndarray(x):
-        try:
-            return xp.asarray(x, copy=False)
-        except TypeError:
-            return xp.asarray(x)
-        except ValueError:
-            return xp.asarray(x)
-    return x
+    if not _is_numpy_ndarray(x):
+        return x
+
+    if copy is None:
+        copy = _promote_copy.get()
+    if fallback is None:
+        fallback = _promote_fallback.get()
+
+    if copy:
+        return xp.asarray(x, copy=True)
+
+    # Prefer reference. Non-contiguous / incompatible views may refuse.
+    try:
+        return xp.asarray(x, copy=False)
+    except (TypeError, ValueError) as exc:
+        if fallback == "error":
+            raise ValueError(
+                "NumPy upcast could not use a zero-copy reference "
+                f"(copy=False, fallback='error'): {exc}"
+            ) from exc
+        warnings.warn(
+            f"NumPy upcast fell back to a copy (zero-copy failed: {exc})",
+            stacklevel=2,
+        )
+        return xp.asarray(x, copy=True)
 
 
-def align_arrays(*arrays: Any):
+def align_arrays(
+    *arrays: Any,
+    copy: Optional[bool] = None,
+    fallback: Optional[Fallback] = None,
+):
     """Align operands on one namespace; upcast scalars/NumPy to non-NumPy peers."""
     xp = _xp(*arrays)
-    return tuple(_asarray(xp, a) for a in arrays)
+    return tuple(_asarray(xp, a, copy=copy, fallback=fallback) for a in arrays)
 
 
 def as_array_result(fn: Callable) -> Callable:
@@ -99,12 +165,68 @@ def as_array_result(fn: Callable) -> Callable:
     return wrapper
 
 
-def promote_scalars(*names: str) -> Callable:
-    """Upcast named scalar **and NumPy** operands onto the peer framework namespace.
+OperandKind = Literal["data", "index", "mask"]
 
-    NumPy is treated as interchangeable host data: mixed ``torch`` + ``ndarray``
-    becomes Torch, never the reverse.
+
+def _apply_dtype_roles(xp, converted: dict, roles: dict[str, OperandKind]) -> None:
+    """In-place dtype policy after namespace alignment.
+
+    - ``data``: shared ``result_type`` (ints widen to float when mixed with floats)
+    - ``index``: must stay integral (segment ids, take indices) — never float
+    - ``mask``: boolean (``where`` condition)
     """
+    data_names = [n for n, k in roles.items() if k == "data" and n in converted]
+    if len(data_names) >= 1:
+        try:
+            rt = xp.result_type(*[converted[n] for n in data_names])
+        except TypeError:
+            rt = None
+        if rt is not None:
+            for n in data_names:
+                if converted[n].dtype != rt:
+                    converted[n] = xp.astype(converted[n], rt)
+
+    for n, kind in roles.items():
+        if n not in converted:
+            continue
+        a = converted[n]
+        if kind == "index":
+            if not xp.isdtype(a.dtype, "integral"):
+                raise TypeError(
+                    f"operand {n!r} is kind='index' and must be integral, got dtype={a.dtype}"
+                )
+        elif kind == "mask":
+            if not xp.isdtype(a.dtype, "bool"):
+                converted[n] = xp.astype(a, xp.bool)
+
+
+def promote(
+    *,
+    copy: Optional[bool] = None,
+    fallback: Optional[Fallback] = None,
+    **roles: OperandKind,
+) -> Callable:
+    """Decorator: namespace upcast + per-operand dtype policy.
+
+    Pass keyword roles for each parameter::
+
+        @promote(x="data", y="data")
+        def maximum(x, y): ...
+
+        @promote(x="data", indices="index")
+        def take(x, indices, axis=0): ...
+
+        @promote(condition="mask", x="data", y="data")
+        def where(condition, x, y): ...
+
+    ``data`` operands share Array API ``result_type`` (so a NumPy int beside a
+    float tensor becomes float). ``index`` stays integral. ``mask`` becomes bool.
+
+    ``copy`` / ``fallback`` control NumPy→framework buffer sharing (see
+    :func:`promote_options`).
+    """
+    if not roles:
+        raise TypeError("promote() requires at least one name=kind role")
 
     def decorator(fn: Callable) -> Callable:
         sig = inspect.signature(fn)
@@ -113,16 +235,36 @@ def promote_scalars(*names: str) -> Callable:
         def wrapper(*args, **kwargs):
             bound = sig.bind(*args, **kwargs)
             bound.apply_defaults()
-            values = [bound.arguments[n] for n in names if n in bound.arguments]
+            names = [n for n in roles if n in bound.arguments]
+            values = [bound.arguments[n] for n in names]
             xp = _xp(*values)
-            for n in names:
-                if n in bound.arguments:
-                    bound.arguments[n] = _asarray(xp, bound.arguments[n])
+            converted = {
+                n: _asarray(xp, bound.arguments[n], copy=copy, fallback=fallback)
+                for n in names
+            }
+            _apply_dtype_roles(xp, converted, roles)
+            for n, v in converted.items():
+                bound.arguments[n] = v
             return fn(*bound.args, **bound.kwargs)
 
         return wrapper
 
     return decorator
+
+
+def promote_scalars(
+    *names: str,
+    copy: Optional[bool] = None,
+    fallback: Optional[Fallback] = None,
+) -> Callable:
+    """Upcast named operands as ``data`` (namespace + ``result_type``).
+
+    Prefer :func:`promote` when some args are indices/masks. Kept as a short
+    form of ``@promote(x="data", y="data")``.
+    """
+    if not names:
+        raise TypeError("promote_scalars() requires at least one parameter name")
+    return promote(**{n: "data" for n in names}, copy=copy, fallback=fallback)
 
 
 def _axis(axes: Axes):
@@ -184,7 +326,7 @@ def shape(x):
 
 
 @as_array_result
-@promote_scalars("x", "indices")
+@promote(x="data", indices="index")
 def take(x, indices, axis: int = 0):
     """Take elements from ``x`` along ``axis`` (default ``0``)."""
     return array_namespace(x, indices).take(x, indices, axis=axis)
@@ -218,16 +360,16 @@ def stack(arrays, axis: int = 0):
 
 
 @as_array_result
-@promote_scalars("x", "y")
+@promote(x="data", y="data")
 def maximum(x, y):
-    """Element-wise maximum. Scalars/NumPy upcast onto the peer framework."""
+    """Element-wise maximum. Scalars/NumPy upcast; dtypes via ``result_type``."""
     return array_namespace(x, y).maximum(x, y)
 
 
 @as_array_result
-@promote_scalars("x", "y")
+@promote(x="data", y="data")
 def minimum(x, y):
-    """Element-wise minimum. Scalars/NumPy upcast onto the peer framework."""
+    """Element-wise minimum. Scalars/NumPy upcast; dtypes via ``result_type``."""
     return array_namespace(x, y).minimum(x, y)
 
 
@@ -245,7 +387,7 @@ def rsqrt(x):
 
 
 @as_array_result
-@promote_scalars("condition", "x", "y")
+@promote(condition="mask", x="data", y="data")
 def where(condition, x, y):
     """Choose from ``x`` or ``y`` by ``condition``. Scalars/NumPy upcast."""
     return array_namespace(condition, x, y).where(condition, x, y)
@@ -348,7 +490,7 @@ def arange(start, /, stop=None, step=1, *, dtype=None, like=None, device=None):
 
 
 @as_array_result
-@promote_scalars("x", "repeats")
+@promote(x="data", repeats="index")
 def repeat(x, repeats, *, total_repeat_length: Optional[int] = None, axis: Optional[int] = None):
     """Repeat elements of ``x``.
 
@@ -383,7 +525,7 @@ def repeat(x, repeats, *, total_repeat_length: Optional[int] = None, axis: Optio
 
 
 @as_array_result
-@promote_scalars("x", "y")
+@promote(x="data", y="data")
 def matmul(x, y):
     """Matrix product of two arrays. NumPy operands upcast onto peers."""
     return array_namespace(x, y).matmul(x, y)

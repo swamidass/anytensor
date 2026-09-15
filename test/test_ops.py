@@ -228,6 +228,74 @@ def test_numpy_upcast_prefers_reference_torch():
     assert float(up[0]) == 123.0
 
 
+@pytest.mark.skipif("torch" not in BACKENDS, reason="torch not installed")
+def test_numpy_upcast_copy_true_isolates_mutations():
+    """copy=True (decorator / align / promote_options) avoids aliased mutations."""
+    import torch
+
+    from anytensor.core import align_arrays, promote_options
+
+    host = np.arange(4, dtype=np.float64)
+    peer = torch.zeros(4, dtype=torch.float64)
+    _, up = align_arrays(peer, host, copy=True)
+    host[0] = 99.0
+    assert float(up[0]) == 0.0
+
+    host2 = np.arange(4, dtype=np.float64)
+    with promote_options(copy=True):
+        _, up2 = align_arrays(peer, host2)
+    host2[0] = 77.0
+    assert float(up2[0]) == 0.0
+
+
+def test_numpy_upcast_fallback_warn_or_error():
+    """When zero-copy fails: fallback='copy' warns; fallback='error' raises."""
+    from anytensor.core import _asarray
+
+    class _RefuseRef:
+        def asarray(self, x, copy=None):
+            if copy is False:
+                raise ValueError("non-contiguous buffer")
+            return np.array(x, copy=True)
+
+    host = np.arange(4, dtype=np.float64)
+    xp = _RefuseRef()
+    with pytest.warns(UserWarning, match="fell back to a copy"):
+        out = _asarray(xp, host, copy=False, fallback="copy")
+    assert isinstance(out, np.ndarray)
+    host[0] = -1
+    assert out[0] == 0
+
+    with pytest.raises(ValueError, match="zero-copy"):
+        _asarray(xp, host, copy=False, fallback="error")
+
+
+@pytest.mark.parametrize("backend", [b for b in BACKENDS if b != "numpy"])
+def test_promote_data_widens_int_to_float(backend):
+    """kind='data' uses result_type: NumPy ints beside floats become float."""
+    backend_impl = loaded_backends[backend]
+    x = backend_impl.from_numpy(np.array([1.5, 2.5, 3.5], dtype=np.float64))
+    y = np.array([1, 2, 3], dtype=np.int64)
+    out = at.maximum(x, y)
+    assert type(out) is type(x)
+    # float peer wins — not an int tensor
+    assert "float" in str(out.dtype)
+    assert close(backend_impl.to_numpy(out), np.array([1.5, 2.5, 3.5]))
+
+
+@pytest.mark.parametrize("backend", [b for b in BACKENDS if b != "numpy"])
+def test_promote_index_keeps_integral_segment_ids(backend):
+    """kind='index' must not widen segment ids to float."""
+    backend_impl = loaded_backends[backend]
+    x = backend_impl.from_numpy(np.array([1.0, 2.0, 3.0], dtype=np.float64))
+    seg = np.array([0, 0, 1], dtype=np.int64)
+    out = at.segment_sum(x, seg, 2)
+    assert type(out) is type(x)
+    assert close(backend_impl.to_numpy(out), np.array([3.0, 3.0]))
+    with pytest.raises(TypeError, match="integral"):
+        at.segment_sum(x, np.array([0.0, 0.0, 1.0]), 2)
+
+
 @pytest.mark.parametrize("backend", BACKENDS)
 def test_where_clip_astype(backend):
     from array_api_compat import array_namespace

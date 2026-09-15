@@ -16,14 +16,21 @@ from .core import (
     repeat,
     arange,
     cumsum,
-    align_arrays,
+    _xp,
+    _asarray,
+    _apply_dtype_roles,
 )
 
 
 def _align_segment_args(x, segment_ids):
-    """Upcast NumPy ``segment_ids`` (or ``x``) onto the non-NumPy peer."""
-    x, segment_ids = align_arrays(x, segment_ids)
-    return x, segment_ids
+    """Namespace-align values + ids; ids stay integral (kind=index)."""
+    xp = _xp(x, segment_ids)
+    converted = {
+        "x": _asarray(xp, x),
+        "segment_ids": _asarray(xp, segment_ids),
+    }
+    _apply_dtype_roles(xp, converted, {"x": "data", "segment_ids": "index"})
+    return converted["x"], converted["segment_ids"]
 
 
 def segment_sum(x, segment_ids, num_segments: int, sorted: bool = False):

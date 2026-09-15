@@ -4,6 +4,7 @@
 
 - Hybrid architecture: ordinary ops via `array-api-compat`; segment ops keep einops-style input-adaptive backends (NumPy / JAX / Torch / TF).
 - Scalar policy: reductions return 0-d arrays; `@as_array_result` / `@promote_scalars` centralize wrapping (NumPy `np.generic` is not usable as a stable array type for methods / `type(x) is type(y)`).
-- Mixed operands: prefer non-NumPy namespace; upcast NumPy ndarrays/scalars onto JAX/Torch/TF peers by **reference** when possible (`asarray(..., copy=False)`); never demote framework → NumPy. Scalars-only still → NumPy.
+- Mixed operands: prefer non-NumPy namespace; upcast NumPy by **reference** when possible (`copy=False`), with `fallback="copy"` (warn) or `"error"`. `@promote(x="data", indices="index")` applies `result_type` only to data args so ints widen beside floats without corrupting segment ids.
+- `promote_options(copy=True)` / decorator `copy=True` when host NumPy buffers mutate.
 - Backend patches: Torch `from_numpy` no longer sets `requires_grad`; dtype-safe min/max fills + int64 segment ids; JAX `jax.Array` detection; TF sorted `segment_*` arity (no `num_segments`); version floors at backend init.
 - Deferred: GraphsTuple / RaggedTensor; ORT not a v1 backend.

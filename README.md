@@ -43,7 +43,16 @@ y = at.segment_sum(x, seg_ids, 2)
 
 Full reductions return **0-d arrays** (not bare Python / NumPy scalars). Binary ops and segment helpers **upcast** Python scalars and **NumPy ndarrays** onto a peer JAX / Torch / TF tensor. NumPy is host interchange data — we never demote a framework tensor to NumPy when mixing. Scalars alone still default to NumPy.
 
-NumPy → framework upcast prefers **by reference** (`asarray(..., copy=False)`) when the backend can share the buffer (Torch does; JAX/TF may still materialize). A copy is used only when zero-copy is impossible.
+NumPy → framework upcast prefers **by reference** (`asarray(..., copy=False)`) when the backend can share the buffer (Torch does; JAX/TF may still materialize). A copy is used only when zero-copy is impossible (default: warn + copy; set `fallback="error"` to raise). Use `@promote(..., copy=True)` or `with at.promote_options(copy=True):` when the host NumPy buffer may be mutated.
+
+Dtype policy is per-operand via `@promote`:
+
+```python
+@promote(x="data", y="data")           # result_type — ints widen beside floats
+@promote(x="data", indices="index")  # indices stay integral
+@promote(condition="mask", x="data", y="data")
+```
+
 
 ### Segment helpers
 

@@ -50,6 +50,10 @@ from .core import (
     full,
     arange,
     matmul,
+    promote,
+    promote_scalars,
+    promote_options,
+    align_arrays,
 )
 
 try:
@@ -107,5 +111,9 @@ __all__ = [
     "full",
     "arange",
     "matmul",
+    "promote",
+    "promote_scalars",
+    "promote_options",
+    "align_arrays",
     "__version__",
 ]
