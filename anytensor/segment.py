@@ -9,12 +9,9 @@ inferred from ``segment_ids``.
 
 TorchScript: :func:`enable_torchscript` wraps ``segment_sum`` / ``min`` /
 ``max`` with a ``torch.jit.is_scripting()`` divert. Eager calls still dispatch
-by tensor type (NumPy / JAX / Torch / TF); only the scripted path uses the
-static Torch-only kernels in :mod:`anytensor.torchscript` (einops'
-``TorchJitBackend`` split). That lets a library call ``at.segment_sum`` while
-an end user ``torch.jit.script``s the library. See docs/usage.md. Do not add
-einops-style ``nn.Module`` layers for this — the function signatures are
-already scriptable.
+by tensor type (NumPy / JAX / Torch / TF); only the scripted path uses
+:mod:`anytensor.torchscript`. That lets a library call ``at.segment_sum`` while
+an end user ``torch.jit.script``s the library. See docs/usage.md.
 """
 
 from __future__ import annotations

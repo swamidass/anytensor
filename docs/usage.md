@@ -104,9 +104,9 @@ do not use them in new code.
 
 `anytensor.enable_torchscript()` remains for legacy `torch.jit.script` call
 sites that still hit `segment_sum` / `min` / `max`; it is not the recommended
-path. Einops' scriptable **layers** (`Rearrange`, …) are a workaround for
-unscriptable function signatures — our segment functions already script, so
-there is no `anytensor.layers.torch`. See [Design](design.md#9-legacy-torchscript-divert-not-recommended).
+path. Einops layers (`Rearrange`, …) are for unscriptable function signatures;
+ours already script, so there is no `anytensor.layers.torch`. See
+[Design](design.md#9-legacy-torchscript-divert-not-recommended).
 
 ## Typing
 
