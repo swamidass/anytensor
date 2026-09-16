@@ -92,7 +92,7 @@ Under `jax.jit`, pass a static `sum_partitions` to `partition_softmax` so
 
 ## TorchScript
 
-`torch.jit.script` cannot follow AAC / backend dispatch. After
+`torch.jit.script` cannot follow array-api-compat / backend dispatch. After
 `anytensor.enable_torchscript()` (automatic if `torch` was imported before
 `anytensor`, or when the Torch backend first loads), public
 `segment_sum` / `min` / `max` gain a `torch.jit.is_scripting()` divert to

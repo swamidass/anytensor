@@ -7,6 +7,20 @@ compile/script recipes, see [Worked examples](examples.md).
 
 ---
 
+## Mental model (short)
+
+1. Pass the tensors you already have.
+2. Tag operands with the right promote kind (`data` / `index` / `mask` / `shape`).
+3. Always pass shape-sizes (`num_segments`, …) as static-friendly values.
+4. Trust empty-segment identities and TF NaN OR-in for segment min/max.
+5. Treat index width, XLA NaN, and GPU ties as non-portable.
+6. For TorchScript, only rely on the `segment_sum` / `min` / `max` divert.
+
+That is the design: a small set of hard contracts, and clear warnings everywhere
+else.
+
+---
+
 ## Design goals
 
 1. **Write once, run on the caller’s tensors.** Library code should not fork
@@ -17,14 +31,14 @@ compile/script recipes, see [Worked examples](examples.md).
 3. **Prefer standards, patch where necessary.** Ordinary math rides the
    [Python Array API](https://data-apis.org/array-api/latest/) via
    [`array-api-compat`](https://github.com/data-apis/array-api-compat). Where
-   AAC cannot express an op (or TF is missing), we add a thin shim — not a
-   parallel math library.
+   array-api-compat cannot express an op (or TF is missing), we add a thin
+   shim — not a parallel math library.
 4. **Standardize contracts we can defend; document the rest.** Empty-segment
    identities and TF NaN-in-scatter are portable. Index width, XLA-vs-eager
    NaN, and GPU atomics are not — we tell you so.
 5. **Keep compile paths honest.** `num_segments` is a shape-size (JAX
    discipline). TorchScript gets an explicit divert, not a pretend-portable
-   script of AAC dispatch.
+   script of array-api-compat dispatch.
 
 Non-goals (for now): a full GraphsTuple / RaggedTensor API, ONNX Runtime as a
 backend, or papering over every XLA vs eager disagreement.
@@ -34,29 +48,30 @@ backend, or papering over every XLA vs eager disagreement.
 ## Hybrid architecture
 
 ```text
-                    ┌─────────────────────────┐
-   at.sum(x)  ───►  │ array-api-compat (AAC)  │  ordinary math
-   at.exp(x)        │ + TF tnp shim           │
-                    └─────────────────────────┘
-                    ┌─────────────────────────┐
-   at.segment_* ─►  │ backends.get_backend(x) │  NumPy / JAX / Torch / TF
-                    │   .segment_reduce(...)  │
-                    └─────────────────────────┘
+                    ┌──────────────────────────────┐
+   at.sum(x)  ───►  │ array-api-compat             │  ordinary math
+   at.exp(x)        │ + TF experimental.numpy shim │
+                    └──────────────────────────────┘
+                    ┌──────────────────────────────┐
+   at.segment_* ─►  │ backends.get_backend(x)      │  NumPy / JAX / Torch / TF
+                    │   .segment_reduce(...)       │
+                    └──────────────────────────────┘
 ```
 
-**Why not “everything through AAC”?** Segment reductions are not in the Array
-API. Each framework’s scatter / unsorted-segment / `jax.ops.segment_*` has
-different empty-slot fills, NaN rules, and index dtypes. A single
-`get_backend(x).segment_reduce(...)` keeps that complexity in one place.
+**Why not “everything through array-api-compat”?** Segment reductions are not
+in the Array API. Each framework’s scatter / unsorted-segment /
+`jax.ops.segment_*` has different empty-slot fills, NaN rules, and index
+dtypes. A single `get_backend(x).segment_reduce(...)` keeps that complexity in
+one place.
 
 **Why not “everything through custom backends”?** Reimplementing `matmul`,
-`where`, `reshape`, … would duplicate AAC and drift from the Array API. Ordinary
-ops stay thin wrappers (`@as_array_result`, `@promote`).
+`where`, `reshape`, … would duplicate array-api-compat and drift from the
+Array API. Ordinary ops stay thin wrappers (`@as_array_result`, `@promote`).
 
-**TensorFlow ordinary ops.** AAC does not ship a TF backend yet. EagerTensors
-go through `anytensor.namespace`: `tf.experimental.numpy` plus graph-safe
-`repeat` / `arange` / `zeros` / `full`. Mixing **NumPy + TF** is allowed
-(NumPy upcasts onto TF). Mixing **Torch + JAX** (or any two non-NumPy
+**TensorFlow ordinary ops.** array-api-compat does not ship a TF backend yet.
+EagerTensors go through `anytensor.namespace`: `tf.experimental.numpy` plus
+graph-safe `repeat` / `arange` / `zeros` / `full`. Mixing **NumPy + TF** is
+allowed (NumPy upcasts onto TF). Mixing **Torch + JAX** (or any two non-NumPy
 frameworks) is an error — pick a peer.
 
 Backend objects are **internal**. Public `inf(x)`, `finfo(x)`, `dtype(...)`
@@ -181,13 +196,13 @@ rely on NaN under XLA for portability.
 | Eager (all backends) | Full public surface |
 | `jax.jit` | Mark shape-sizes static; `repeat` / `partition_softmax` may need `total_repeat_length` / `sum_partitions` |
 | `tf.function` | Prefer Python ints for sizes; use `at.shape(x)` under polymorphic shapes |
-| `torch.compile` | Works for many graphs (fuzzed); Dynamo may graph-break on AAC helpers |
+| `torch.compile` | Works for many graphs (fuzzed); Dynamo may graph-break on array-api-compat helpers |
 | `torch.jit.script` | Only `segment_sum` / `min` / `max` after `enable_torchscript()` — see below |
 | `torch.jit.trace` | Trace tensors only; close over Python ints |
 
 ### 9. TorchScript is a divert, not a second public API
 
-`torch.jit.script` cannot follow AAC or Python backend dispatch. Rather than
+`torch.jit.script` cannot follow array-api-compat or Python backend dispatch. Rather than
 replace the public API with Torch-only functions when `torch` is imported,
 we:
 
@@ -285,17 +300,3 @@ After `1.0.0`, anything that would break a careful caller requires a **major**
 bump.
 
 Versions come from git tags via hatch-vcs — see [Release](release.md).
-
----
-
-## Mental model (short)
-
-1. Pass the tensors you already have.
-2. Tag operands with the right promote kind (`data` / `index` / `mask` / `shape`).
-3. Always pass shape-sizes (`num_segments`, …) as static-friendly values.
-4. Trust empty-segment identities and TF NaN OR-in for segment min/max.
-5. Treat index width, XLA NaN, and GPU ties as non-portable.
-6. For TorchScript, only rely on the `segment_sum` / `min` / `max` divert.
-
-That is the design: a small set of hard contracts, and clear warnings everywhere
-else.

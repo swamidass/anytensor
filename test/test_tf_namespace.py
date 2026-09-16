@@ -1,4 +1,4 @@
-"""TensorFlow namespace shim coverage (AAC has no TF backend yet)."""
+"""TensorFlow namespace shim coverage (array-api-compat has no TF backend yet)."""
 
 from __future__ import annotations
 

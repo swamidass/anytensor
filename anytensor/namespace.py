@@ -43,7 +43,7 @@ def _is_tensorflow_tensor(x: Any) -> bool:
 
 
 class _TensorflowNumpyNamespace:
-    """``tf.experimental.numpy`` plus Array API helpers AAC would normally add."""
+    """``tf.experimental.numpy`` plus Array API helpers array-api-compat would normally add."""
 
     def __init__(self):
         import tensorflow as tf
