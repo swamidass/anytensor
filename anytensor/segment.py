@@ -193,8 +193,8 @@ def enable_torchscript() -> bool:
     Python, while an end user of that library can ``torch.jit.script`` their
     own code that reaches those calls.
 
-    Requires ``torch`` to be imported already (AnyTensor does not import it).
-    Safe to call more than once. Returns whether TorchScript support is active.
+    Does not import ``torch``. Returns ``False`` if Torch is not loaded yet;
+    otherwise whether the divert is active. Safe to call more than once.
 
     If ``torch`` is imported after AnyTensor, this is invoked automatically via
     :func:`anytensor.loaded`. Calling it yourself remains safe and idempotent.

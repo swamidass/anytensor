@@ -29,14 +29,6 @@ from importlib.metadata import PackageNotFoundError, version as pkg_version
 
 from .optional import loaded
 
-
-def _framework(name: str):
-    """Return an already-imported optional extra (jax / torch / tensorflow)."""
-    mod = loaded(name)
-    if mod is None:
-        raise RuntimeError(f"{name} is not imported")
-    return mod
-
 _loaded_backends: dict = {}
 _type2backend: dict = {}
 _debug_importing = False
@@ -71,9 +63,11 @@ def _require_pkg_version(distribution: str, minimum: str, *, import_name: str | 
 
 
 def get_backend(tensor: Any) -> "AbstractBackend":
-    """
-    Takes a correct backend (e.g. numpy backend if tensor is numpy.ndarray) for a tensor.
-    If needed, imports package and creates backend
+    """Return the backend for ``tensor`` (e.g. NumPy for ``numpy.ndarray``).
+
+    Optional extras (JAX, Torch, TensorFlow) are used only if already imported;
+    this never imports them. NumPy is a required dependency and is the fallback
+    for ndarrays.
     """
     _type = type(tensor)
     _result = _type2backend.get(_type, None)
@@ -97,7 +91,7 @@ def get_backend(tensor: Any) -> "AbstractBackend":
         if _debug_importing:
             print("Testing for subclass of ", BackendSubclass)
         if BackendSubclass.framework_name not in _loaded_backends:
-            # check that module was already imported. Otherwise it can't be imported
+            # Construct only if the extra is already imported; never import it here.
             if loaded(BackendSubclass.framework_name) is not None:
                 if _debug_importing:
                     print("Imported backend for ", BackendSubclass.framework_name)
@@ -372,13 +366,16 @@ class JaxBackend(NumpyBackend):
 
     def __init__(self):
         _require_pkg_version("jax", "0.4.32")
+        jax = loaded("jax")
+        if jax is None:
+            raise RuntimeError("jax is not imported")
         super(JaxBackend, self).__init__()
         self.onp = self.np
 
         import jax.numpy
 
         self.np = jax.numpy
-        self._jax = _framework("jax")
+        self._jax = jax
         self._install_numeric_attrs(self.np)
 
     def is_appropriate_type(self, tensor):
@@ -420,7 +417,9 @@ class TorchBackend(AbstractBackend):
 
     def __init__(self):
         _require_pkg_version("torch", "2.0")
-        torch = _framework("torch")
+        torch = loaded("torch")
+        if torch is None:
+            raise RuntimeError("torch is not imported")
 
         self.torch = torch
         self._install_numeric_attrs(torch)
@@ -514,7 +513,9 @@ class TensorflowBackend(AbstractBackend):
 
     def __init__(self):
         _require_pkg_version("tensorflow", "2.10")
-        tensorflow = _framework("tensorflow")
+        tensorflow = loaded("tensorflow")
+        if tensorflow is None:
+            raise RuntimeError("tensorflow is not imported")
         import tensorflow.experimental.numpy as tnp
 
         self.tf = tensorflow
