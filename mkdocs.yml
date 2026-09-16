@@ -1,0 +1,75 @@
+site_name: AnyTensor
+site_description: Portable tensor ops across NumPy, JAX, PyTorch, and TensorFlow
+site_url: https://swamidass.github.io/anytensor/
+repo_url: https://github.com/swamidass/anytensor
+repo_name: swamidass/anytensor
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue grey
+      accent: teal
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue grey
+      accent: teal
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - search.suggest
+    - toc.follow
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            members_order: source
+            separate_signature: true
+            signature_crossrefs: true
+            filters:
+              - "!^_"
+          paths: ["."]
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Usage: usage.md
+  - Surprising differences: semantics.md
+  - Design: design.md
+  - API:
+      - Overview: api/index.md
+      - Package root: api/anytensor.md
+      - Core ops: api/core.md
+      - Segment ops: api/segment.md
+      - Semantics helpers: api/semantics_api.md
+      - Namespace: api/namespace.md
+  - Contributing: contributing.md
+  - Release: release.md

@@ -2,13 +2,15 @@
 
 Portable tensor ops across **NumPy**, **JAX**, **PyTorch**, and **TensorFlow**, with a focus on **segment / GNN** primitives.
 
-Ordinary math (`sum`, `exp`, `reshape`, …) delegates to the [Python Array API](https://data-apis.org/array-api/latest/) via [`array-api-compat`](https://github.com/data-apis/array-api-compat). Segment reductions stay on thin **input-adaptive** backends (einops-style `get_backend(x)`), so you write one function and run it on whatever tensor the caller already has.
+Ordinary math (`sum`, `exp`, `reshape`, …) uses the [Python Array API](https://data-apis.org/array-api/latest/) via [`array-api-compat`](https://github.com/data-apis/array-api-compat). Segment reductions stay on thin input-adaptive backends, so one function runs on whatever tensor the caller already has.
+
+**Full docs** (usage, surprising differences, API from docstrings): run locally with `uv run --group docs mkdocs serve`, or see [`docs/`](docs/index.md). Planned site: <https://swamidass.github.io/anytensor/>.
 
 ## Install
 
 ```bash
 pip install "anytensor @ git+https://github.com/swamidass/anytensor.git"
-# optional backends
+# optional backends (NumPy is a core dependency)
 pip install "anytensor[jax]" "anytensor[torch]" "anytensor[tensorflow]"
 # or
 pip install "anytensor[all]"
@@ -24,128 +26,25 @@ import numpy as np
 
 x = np.arange(12.0).reshape(3, 4)
 seg_ids = np.array([0, 0, 1])
-
 y = at.segment_sum(x, seg_ids, num_segments=2)
-m = at.segment_mean(x, seg_ids, 2)
 ```
 
-The same calls work on JAX / Torch / TF tensors without changing the code:
+The same call works on JAX / Torch / TF tensors. `num_segments` is **required** (JAX convention).
 
-```python
-import jax.numpy as jnp
+Read next:
 
-x = jnp.arange(12.0).reshape(3, 4)
-seg_ids = jnp.array([0, 0, 1])
-y = at.segment_sum(x, seg_ids, 2)
-```
+- [Usage](docs/usage.md) — promotion, segment helpers, TorchScript (`enable_torchscript`), specials
+- [Surprising differences](docs/semantics.md) — NaN / ±inf / graph / GPU gotchas from fuzz
+- [API reference](docs/api/index.md) — generated from docstrings
+- [Contributing](docs/contributing.md) — tests, fuzz, docs build
 
-### Scalar / NumPy promotion
-
-Full reductions return **0-d arrays** (not bare Python / NumPy scalars). Binary ops and segment helpers **upcast** Python scalars and **NumPy ndarrays** onto a peer JAX / Torch / TF tensor. NumPy is host interchange data — we never demote a framework tensor to NumPy when mixing. Scalars alone still default to NumPy.
-
-NumPy → framework upcast prefers **by reference** (`asarray(..., copy=False)`) when the backend can share the buffer (Torch does; JAX/TF may still materialize). A copy is used only when zero-copy is impossible (default: warn + copy; set `fallback="error"` to raise). Use `@promote(..., copy=True)` or `with at.promote_options(copy=True):` when the host NumPy buffer may be mutated.
-
-Dtype policy is per-operand via `@promote`:
-
-```python
-@promote(x="data", y="data")           # result_type — ints widen beside floats
-@promote(x="data", indices="index")  # indices stay integral
-@promote(condition="mask", x="data", y="data")
-```
-
-### Portable differences (read this)
-
-These are the behaviors AnyTensor **standardizes** or **documents as backend-local**. Full tables live in [`anytensor/semantics.py`](anytensor/semantics.py).
-
-#### Empty segment slots (standardized)
-
-When `num_segments` is larger than the set of ids present (or an id never appears), empty slots keep the reduction **identity**:
-
-| reduction | floating | integral |
-|---|---|---|
-| `segment_sum` | `0` | `0` |
-| `segment_min` | `+inf` | `iinfo(dtype).max` |
-| `segment_max` | `-inf` | `iinfo(dtype).min` |
-
-- Occupied slots always do a real reduce (e.g. a segment whose only value is `+inf` stays `+inf` for min — not a finfo stand-in).
-- Prefer `segment_min_or_constant` / `segment_max_or_constant` when empties should be a finite fill.
-- `sorted=` is honored on JAX/TF; on NumPy/Torch the path is unsorted-safe and `sorted` is currently a no-op.
-
-#### Index integer width (backend-local)
-
-`@promote(..., "index")` only requires an **integral** dtype. Width is not unified:
-
-| Backend | Typical index dtype | Notes |
-|---|---|---|
-| NumPy | `int64` (or platform `int_`) | Host ids often start here |
-| PyTorch | cast to **`int64`** at scatter | Required by `scatter_*` |
-| JAX | often **`int32`** without `jax_enable_x64` | `int64` may truncate with a warning |
-| TensorFlow | often **`int32`** | Mixed width can friction in graphs |
-
-Do not assume NumPy `int64` segment ids stay `int64` after upcast to JAX.
-
-#### Float width / NaN / ±inf
-
-- Cross-backend fuzz compares in **float32** where JAX defaults truncate `float64`.
-- NaN and ±inf are in-scope for portable math and segment ops; comparisons use `equal_nan=True` in tests.
-- Helpers: `is_nan` / `is_finite` / `is_inf` (aliases `isnan` / `isfinite` / `isinf`), `fill_nan` (alias `nan_fill`), `fill_nan_mask` → `(filled, mask)` with mask True where NaN was, Array API `nan_to_num`, and element-wise `equal_nan`.
-- Portable specials: `inf(x)` / `ninf(x)` / `nan(x)` / `pi(x)` / `e(x)` look up the attr on `get_backend(x)` (Python floats that promote in ops). `dtype("bool", like=x)`, `finfo(x)` / `iinfo(x)` same pattern. `newaxis` is `None`. Backends stay internal.
-- TensorFlow: ordinary ops via `tf.experimental.numpy` shim (AAC has no TF backend yet); segment min/max use `tensor_scatter_nd_{min,max}` so ±inf / empty identities match other backends.
-- Fuzz also compares TF **eager vs `tf.function`** on the shared op registry (skips `repeat` / `partition_softmax` until graph-safe).
-- Empty **axis reductions** (`min`/`max` on length-0) remain framework-defined (often error); prefer nonempty for those.
-
-#### NumPy promotion / copy
-
-| Situation | Behavior |
-|---|---|
-| Only scalars | NumPy 0-d arrays |
-| NumPy + framework tensor | Promote NumPy → framework (never the reverse) |
-| Default upcast | Prefer **reference** (`copy=False`) |
-| Zero-copy impossible | `fallback="copy"` (warn) or `"error"` |
-| Mutating host buffer | `@promote(..., copy=True)` or `promote_options(copy=True)` |
-
-### Segment helpers
-
-| Function | Role |
-|---|---|
-| `segment_sum` / `min` / `max` | Reduce along axis 0 by segment id |
-| `segment_count` / `mean` / `variance` | Counts and moments |
-| `segment_normalize` / `segment_softmax` | Per-segment normalize / softmax |
-| `segment_min_or_constant` / `segment_max_or_constant` | Empty segments → constant |
-| `partition_softmax` | Softmax over contiguous partition lengths (array logits only) |
-
-Einops (`rearrange`, `einsum`, `reduce`, …) is re-exported for convenience.
-
-## Design
-
-- **Ordinary ops** → `array_api_compat.array_namespace(x)` (+ `@as_array_result` / `@promote_scalars`).
-- **Segment ops** → `backends.get_backend(x).segment_reduce(...)`.
-- Backends are imported lazily; missing optional deps are fine until you pass that framework’s tensors.
-
-## Roadmap
-
-- [x] Ordinary ops via Array API compat
-- [x] Segment helpers for GNN / ragged workloads
-- [ ] jraph-style `GraphsTuple` API
-- [ ] RaggedTensor / more partition helpers
-- [ ] Broader contract tests in CI
-
-## Contributing
-
-PRs welcome. Prefer adding portable helpers in `anytensor/core.py` or `segment.py`; only extend `backends.py` when the Array API cannot express the op (e.g. `segment_reduce`). Add coverage in `test/test_ops.py`, boundaries in `test/test_boundaries.py`, fuzz in `test/test_hypothesis.py`, and backend contracts in `test/test_backend_contracts.py`.
+## Docs / tests (checkout)
 
 ```bash
-uv sync --extra jax --extra torch --group dev
-# Coverage gate: unit/contract tests only (no fuzz); backends.py omitted; fail_under=100
+uv sync --extra jax --extra torch --extra tensorflow --group dev --group docs
+uv run mkdocs serve
 uv run pytest -m "not fuzz" --cov=anytensor --cov-report=term-missing
-# Full suite (fuzz uses fuzz_examples from pyproject, default 1000)
-uv run pytest
-# Long fuzz — CLI override (preferred) or env
-uv run pytest -m fuzz --fuzz-examples=10000 --hypothesis-show-statistics
-ANYTENSOR_FUZZ_EXAMPLES=20000 uv run pytest -m fuzz
 ```
-
-`fuzz_examples` lives under `[tool.pytest.ini_options]` in `pyproject.toml`. Override order: `--fuzz-examples` > `ANYTENSOR_FUZZ_EXAMPLES` > pyproject.
 
 ## License
 
