@@ -11,6 +11,7 @@ from types import MappingProxyType
 import numpy as np
 import pytest
 
+import anytensor as at
 import anytensor.tree as tree
 
 
@@ -77,14 +78,16 @@ class Packed:
         tags = {x.tag for x in xs}
         if len(tags) != 1:
             raise ValueError("Packed.tag mismatch")
-        return cls(np.concatenate([x.values for x in xs], axis=axis), tag=xs[0].tag)
+        return cls(at.concatenate([x.values for x in xs], axis=axis), tag=xs[0].tag)
 
     def __tree_unbatch__(self, axis=0):
         if axis != 0:
             raise ValueError("Packed unbatch only supports axis=0")
+        n = int(at.shape(self.values)[0])
+        ids = at.arange(n, like=self.values)
         return [
-            Packed(self.values[i : i + 1], tag=self.tag)
-            for i in range(int(self.values.shape[0]))
+            Packed(at.take(self.values, ids[i : i + 1], axis=0), tag=self.tag)
+            for i in range(n)
         ]
 
 
@@ -97,10 +100,14 @@ class PackedNoAxis:
 
     @classmethod
     def __tree_batch__(cls, xs):
-        return cls(np.concatenate([x.values for x in xs], axis=0))
+        return cls(at.concatenate([x.values for x in xs], axis=0))
 
     def __tree_unbatch__(self):
-        return [PackedNoAxis(self.values[i : i + 1]) for i in range(int(self.values.shape[0]))]
+        n = int(at.shape(self.values)[0])
+        ids = at.arange(n, like=self.values)
+        return [
+            PackedNoAxis(at.take(self.values, ids[i : i + 1], axis=0)) for i in range(n)
+        ]
 
 
 def test_none_is_empty_pytree():
@@ -560,17 +567,15 @@ def test_batch_kwargs_axis_accepted():
         @classmethod
         def __tree_batch__(cls, xs, **kwargs):
             axis = kwargs.get("axis", 0)
-            return cls(np.concatenate([x.values for x in xs], axis=axis))
+            return cls(at.concatenate([x.values for x in xs], axis=axis))
 
         def __tree_unbatch__(self, **kwargs):
             axis = kwargs.get("axis", 0)
-            n = int(self.values.shape[axis])
-            out = []
-            for i in range(n):
-                sl = [slice(None)] * self.values.ndim
-                sl[axis] = slice(i, i + 1)
-                out.append(Kw(self.values[tuple(sl)]))
-            return out
+            n = int(at.shape(self.values)[axis])
+            ids = at.arange(n, like=self.values)
+            return [
+                Kw(at.take(self.values, ids[i : i + 1], axis=axis)) for i in range(n)
+            ]
 
     out = tree.batch([Kw([1, 2]), Kw([3])])
     assert out == Kw([1, 2, 3])

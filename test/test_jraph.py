@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+import anytensor as at
 from anytensor import jraph as atj
 from helpers import BACKENDS, loaded_backends
 
@@ -427,16 +428,14 @@ class Packed:
 
     @classmethod
     def __tree_batch__(cls, xs, axis=0):
-        return cls(np.concatenate([x.values for x in xs], axis=axis))
+        return cls(at.concatenate([x.values for x in xs], axis=axis))
 
     def __tree_unbatch__(self, axis=0):
-        n = int(self.values.shape[axis])
-        out = []
-        for i in range(n):
-            sl = [slice(None)] * self.values.ndim
-            sl[axis] = slice(i, i + 1)
-            out.append(Packed(self.values[tuple(sl)]))
-        return out
+        n = int(at.shape(self.values)[axis])
+        ids = at.arange(n, like=self.values)
+        return [
+            Packed(at.take(self.values, ids[i : i + 1], axis=axis)) for i in range(n)
+        ]
 
 
 def test_batch_unbatch_plain_pytree():

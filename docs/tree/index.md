@@ -88,9 +88,10 @@ stays `None`. Mixing `None` with arrays is a structure error (same as JAX).
 
 If the object defines `__tree_batch__(xs, axis=0)` /
 `__tree_unbatch__(axis=0)`, those win **before** walking children — so a
-feature container or `GraphsTuple` can own join/partition. GraphsTuple
-offsets senders/receivers; it does not take sizes because `n_node` /
-`n_edge` already know the grouping.
+feature container or `GraphsTuple` can own join/partition. Implement those
+hooks with AnyTensor ops (`concatenate`, `take`, `shape`, `arange`) so they
+run on the caller’s backend. GraphsTuple offsets senders/receivers; it does
+not take sizes because `n_node` / `n_edge` already know the grouping.
 
 ## Custom types (beta)
 

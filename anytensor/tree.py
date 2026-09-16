@@ -21,12 +21,20 @@ extension). Walking rules follow `jax.tree` / `jax.tree_util`:
            return cls(...)
 
 2. Batch / unbatch (**stable**; same functions as :mod:`anytensor.jraph`
-   ``batch`` / ``unbatch``). Checked **before** walking children::
+   ``batch`` / ``unbatch``). Checked **before** walking children. Use
+   AnyTensor ops so the type stays portable::
 
        @classmethod
-       def __tree_batch__(cls, xs, axis=0): ...
+       def __tree_batch__(cls, xs, axis=0):
+           return cls(at.concatenate([x.values for x in xs], axis=axis))
 
-       def __tree_unbatch__(self, axis=0): ...
+       def __tree_unbatch__(self, axis=0):
+           n = int(at.shape(self.values)[axis])
+           ids = at.arange(n, like=self.values)
+           return [
+               cls(at.take(self.values, ids[i : i + 1], axis=axis))
+               for i in range(n)
+           ]
 
    ``GraphsTuple`` implements these (offset senders/receivers). Objects
    without magic unbatch along the leading axis into unit slices.

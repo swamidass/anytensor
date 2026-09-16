@@ -7,4 +7,5 @@ includes batch/pad, GraphNetwork, the model zoo (GAT with self-edges, not
 skipped), and segment ops. Custom-type registration (magic flatten and existing
 JAX/Torch/optree registries) is beta; the rest of the tree/jraph API is stable.
 Tree is pure Python with NumPy as the only binary dependency, for any nested
-numeric record, not only graphs.
+numeric record, not only graphs. Custom ``__tree_batch__`` / ``__tree_unbatch__``
+examples use AnyTensor ops (not NumPy) so they stay portable.

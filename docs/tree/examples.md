@@ -44,32 +44,35 @@ np.testing.assert_array_equal(second["temp"], [21.0])
 
 ## Objects that own batch / unbatch
 
-`__tree_batch__` / `__tree_unbatch__` run before walking children.
+`__tree_batch__` / `__tree_unbatch__` run before walking children. Use
+AnyTensor ops inside them so the same class works on NumPy / JAX / Torch / TF.
 
 ```python
 import numpy as np
+import anytensor as at
 from anytensor import tree
 
 
 class Packed:
     def __init__(self, values):
-        self.values = np.asarray(values)
+        self.values = values
 
     @classmethod
     def __tree_batch__(cls, xs, axis=0):
-        return cls(np.concatenate([x.values for x in xs], axis=axis))
+        return cls(at.concatenate([x.values for x in xs], axis=axis))
 
     def __tree_unbatch__(self, axis=0):
-        n = int(self.values.shape[axis])
-        out = []
-        for i in range(n):
-            sl = [slice(None)] * self.values.ndim
-            sl[axis] = slice(i, i + 1)
-            out.append(Packed(self.values[tuple(sl)]))
-        return out
+        n = int(at.shape(self.values)[axis])
+        ids = at.arange(n, like=self.values)
+        return [
+            Packed(at.take(self.values, ids[i : i + 1], axis=axis))
+            for i in range(n)
+        ]
 
 
-joined = tree.batch([Packed([[1.0, 2.0]]), Packed([[3.0, 4.0]])])
+joined = tree.batch(
+    [Packed(np.array([[1.0, 2.0]])), Packed(np.array([[3.0, 4.0]]))]
+)
 assert isinstance(joined, Packed)
 np.testing.assert_array_equal(joined.values, [[1.0, 2.0], [3.0, 4.0]])
 a, b = tree.unbatch(joined)
