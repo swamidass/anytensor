@@ -1,5 +1,12 @@
 # Lab log
 
+## 2026-09-16
+
+- Folded `anytensor.jraph` into the 100% coverage gate (None connectivity,
+  padding without senders, dynamically_batch flush/split, 1-d zero-out,
+  `_flip0` fallbacks, extra jraph pad parity). Minimal-numpy CI smokes
+  GraphsTuple batch + GraphNetwork.
+
 ## 2026-09-15
 
 - Require current array-api-compat (≥1.15); fix coverage test that passed raw ``numpy`` into ``_pad_or_slice_leading`` (needs AAC ``concat`` under numpy 1.24).
@@ -42,4 +49,5 @@
   `__tree_flatten__` / `__tree_unflatten__` and JAX/Torch/optree registry hooks.
   `tree.concat` / `tree.split` dispatch to `__tree_concat__` / `__tree_split__`
   so GraphsTuple and custom feature objects own batch/unbatch. Dev extra
-  installs `jraph` for parity tests.
+  installs `jraph` for parity tests. `anytensor.jraph` is in the 100%
+  coverage gate (only `backends.py` / `torchscript.py` remain omitted).

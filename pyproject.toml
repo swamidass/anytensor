@@ -125,7 +125,6 @@ omit = [
   "anytensor/_version.py",
   "anytensor/backends.py",
   "anytensor/torchscript.py",
-  "anytensor/jraph/*",
 ]
 
 [tool.coverage.report]

@@ -257,7 +257,7 @@ part of the product:
 | Layer | What it buys you |
 |---|---|
 | **Unit / contract** | Empty-segment identities, promotion rules, and backend contracts pinned in pytest — not tribal knowledge |
-| **100% coverage gate** | Non-fuzz suite must cover the portable surface (`fail_under=100`; `backends.py` / `torchscript.py` omitted as framework shims) |
+| **100% coverage gate** | Non-fuzz suite must cover the portable surface (`fail_under=100`; `backends.py` / `torchscript.py` omitted as framework shims; `jraph` is in the gate) |
 | **Cross-backend fuzz** | Hypothesis draws random ops and inputs; **NumPy is the reference**, a random other backend must agree (NaN-aware) |
 | **Symbolic fuzz** | Eager vs `jax.jit` / `torch.compile` / `tf.function` (+ XLA) on the same registry — compilers are not an afterthought |
 | **Minimal-NumPy CI** | Install **without** Hypothesis / JAX / Torch / TF and still import + run segment ops — deploy surface stays thin |

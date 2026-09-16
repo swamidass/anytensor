@@ -473,3 +473,145 @@ def test_dynamically_batch_rejects_non_graphs():
     with pytest.raises(RuntimeError, match="GraphsTuple"):
         list(atj.dynamically_batch(iter([object()]), 10, 10, 2))
 
+
+def _none_connectivity(g):
+    return g._replace(
+        senders=None,
+        receivers=None,
+        edges=None,
+        n_edge=np.zeros_like(g.n_edge),
+    )
+
+
+def test_batch_unbatch_none_features_and_indices():
+    g1, g2 = _toy_graphs()
+    g1 = _none_connectivity(g1)._replace(nodes=None, globals=None)
+    g2 = _none_connectivity(g2)._replace(nodes=None, globals=None)
+    batched = atj.batch([g1, g2])
+    assert batched.nodes is None
+    assert batched.senders is None
+    assert batched.globals is None
+    parts = atj.unbatch(batched)
+    assert len(parts) == 2
+    assert parts[0].senders is None and parts[1].receivers is None
+    host = atj.batch_np([g1, g2])
+    assert host.senders is None
+
+
+def test_pad_without_senders_and_zero_edge_padding():
+    g1, _ = _toy_graphs()
+    none_idx = _none_connectivity(g1)
+    padded = atj.pad_with_graphs(none_idx, n_node=6, n_edge=2, n_graph=2)
+    assert int(np.asarray(padded.n_node).sum()) == 6
+    exact_edges = atj.pad_with_graphs(g1, n_node=6, n_edge=5, n_graph=2)
+    restored = atj.unpad_with_graphs(exact_edges)
+    np.testing.assert_array_equal(_np(restored.senders), g1.senders)
+    empty = atj.GraphsTuple(
+        nodes=np.zeros((0, 2)),
+        edges=np.zeros((0, 2)),
+        senders=np.zeros((0,), dtype=np.int32),
+        receivers=np.zeros((0,), dtype=np.int32),
+        globals=np.zeros((1, 2)),
+        n_node=np.array([0]),
+        n_edge=np.array([0]),
+    )
+    still_empty = atj.unpad_with_graphs(empty)
+    assert int(np.asarray(still_empty.n_node).sum()) == 0
+    with pytest.raises(ValueError, match="senders"):
+        atj.get_edge_padding_mask(padded._replace(senders=None))
+
+
+def test_graph_network_nodes_without_senders():
+    g1, _ = _toy_graphs()
+    graph = _none_connectivity(g1)
+    net = atj.GraphNetwork(
+        update_edge_fn=None,
+        update_node_fn=lambda n, s, r, g: n,
+        update_global_fn=lambda n, e, g: g,
+    )
+    out = net(graph)
+    np.testing.assert_allclose(_np(out.nodes), _np(graph.nodes))
+
+
+def test_concatenated_args_factory_and_fully_connected_empty_nests():
+    @atj.concatenated_args(axis=-1)
+    def fn(x):
+        return x
+
+    out = fn(np.ones((2, 2)), np.zeros((2, 3)))
+    assert out.shape == (2, 5)
+    g = atj.get_fully_connected_graph(2, 2, node_features={}, global_features={})
+    assert g.nodes == {}
+    assert g.globals == {}
+    assert g.senders.shape[0] == 2 * 4
+
+
+def test_dynamically_batch_flush_split_and_empty():
+    g1, g2 = _toy_graphs()
+    assert list(atj.dynamically_batch(iter([]), 10, 10, 2)) == []
+    split = list(atj.dynamically_batch(iter([g1, g2]), n_node=7, n_edge=20, n_graph=4))
+    assert len(split) == 2
+    with pytest.raises(RuntimeError, match="bigger than batch"):
+        list(atj.dynamically_batch(iter([g1, g2]), n_node=5, n_edge=20, n_graph=3))
+
+
+def test_zero_out_padding_1d_features():
+    g1, _ = _toy_graphs()
+    flat = g1._replace(
+        nodes=g1.nodes[:, 0],
+        edges=g1.edges[:, 0],
+        globals=g1.globals[:, 0],
+    )
+    padded = atj.pad_with_graphs(flat, n_node=6, n_edge=8, n_graph=2)
+    z = atj.zero_out_padding(padded)
+    mask = np.asarray(atj.get_node_padding_mask(padded))
+    np.testing.assert_allclose(_np(z.nodes)[~mask], 0.0)
+
+
+def test_flip0_namespace_fallbacks(monkeypatch):
+    from anytensor.jraph import utils as ju
+
+    x = np.array([1, 2, 3])
+
+    class NoFlip:
+        pass
+
+    monkeypatch.setattr(ju, "array_namespace", lambda _x: NoFlip())
+    np.testing.assert_array_equal(ju._flip0(x), x[::-1])
+
+    class FlipNoAxis:
+        def flip(self, arr, axis=None):
+            if axis is not None:
+                raise TypeError("axis not supported")
+            return arr[::-1]
+
+    monkeypatch.setattr(ju, "array_namespace", lambda _x: FlipNoAxis())
+    np.testing.assert_array_equal(ju._flip0(x), x[::-1])
+
+
+def test_jraph_parity_pad_and_masks():
+    jraph = pytest.importorskip("jraph")
+    jnp = pytest.importorskip("jax.numpy")
+    g1, _ = _toy_graphs()
+    jp = jraph.pad_with_graphs(
+        jraph.GraphsTuple(
+            nodes=jnp.asarray(g1.nodes),
+            edges=jnp.asarray(g1.edges),
+            senders=jnp.asarray(g1.senders),
+            receivers=jnp.asarray(g1.receivers),
+            globals=jnp.asarray(g1.globals),
+            n_node=jnp.asarray(g1.n_node),
+            n_edge=jnp.asarray(g1.n_edge),
+        ),
+        n_node=6,
+        n_edge=8,
+        n_graph=3,
+    )
+    ap = atj.pad_with_graphs(g1, n_node=6, n_edge=8, n_graph=3)
+    np.testing.assert_array_equal(np.asarray(jp.n_node), _np(ap.n_node))
+    np.testing.assert_array_equal(np.asarray(jp.senders), _np(ap.senders))
+    np.testing.assert_array_equal(
+        np.asarray(jraph.get_node_padding_mask(jp)),
+        _np(atj.get_node_padding_mask(ap)),
+    )
+

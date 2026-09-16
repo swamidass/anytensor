@@ -18,7 +18,7 @@ NumPy ops — see the `minimal-numpy` CI job. Pytest assumes the `dev` group
 ## Tests
 
 ```bash
-# Coverage gate: unit/contract only (no fuzz); backends.py omitted; fail_under=100
+# Coverage gate: unit/contract only (no fuzz); backends.py / torchscript.py omitted; fail_under=100
 uv run pytest -m "not fuzz" --cov=anytensor --cov-report=term-missing
 
 # Full suite (fuzz uses fuzz_examples from pyproject, default 1000)
@@ -37,7 +37,8 @@ suite. Disable with `ANYTENSOR_TYPECHECK=0`. Dedicated checks live in
 CI (`.github/workflows/test.yml`):
 
 - `minimal-numpy` — install the package alone; assert hypothesis / jax / torch /
-  tensorflow are absent; smoke NumPy segment ops (runtime deploy surface)
+  tensorflow are absent; smoke NumPy segment ops and a GraphsTuple batch
+  (runtime deploy surface)
 - `test` — `uv sync --extra all --group dev`; **coverage gate**
   (`fail_under=100`, XML artifact on 3.12) + bounded fuzz (typecheck hook on
   by default)
