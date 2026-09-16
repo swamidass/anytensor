@@ -12,7 +12,8 @@
   tree/jraph API is stable. Jraph overview links upstream and discusses
   why the library’s data model is worth following. Tree overview links
   jax.tree / dm-tree / optree / Torch pytree and positions the module as
-  a nest walker for any structured record, not only GNN features.
+  a nest walker for any structured record, not only GNN features. Tree is
+  pure Python; NumPy is the only binary dependency.
 
 ## 2026-09-15
 

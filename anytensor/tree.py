@@ -1,7 +1,7 @@
 """Nested-structure utilities with the public API of ``jax.tree``.
 
-Implemented in pure Python so AnyTensor does not depend on JAX. Walking
-rules follow `jax.tree` / `jax.tree_util`:
+Pure Python; the only binary dependency is NumPy (no JAX, no C++ pytree
+extension). Walking rules follow `jax.tree` / `jax.tree_util`:
 
 - ``None`` is an **empty pytree** (zero leaves), not a leaf.
 - ``flatten(tree)`` returns ``(leaves, treedef)``.

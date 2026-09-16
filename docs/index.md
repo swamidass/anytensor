@@ -225,7 +225,7 @@ constant, or 0-d integral tensor scalar.
 
 - [Worked examples](examples.md) — pytest-verified GAT helper + jit/compile/script
 - [Jraph](jraph/index.md) — portable GraphsTuple / GraphNetwork (follows [jraph](https://github.com/google-deepmind/jraph))
-- [Tree](tree/index.md) — portable `jax.tree` nests (graphs, and any structured record)
+- [Tree](tree/index.md) — portable `jax.tree` nests, pure Python + NumPy (graphs, and any structured record)
 - [Usage](usage.md) — promotion, segment helpers, `torch.compile`, typing
 - [Design](design.md) — principles, decisions, and what to expect on edges
 - [Surprising differences](semantics.md) — NaN / ±inf / graph / GPU gotchas

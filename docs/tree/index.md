@@ -2,8 +2,9 @@
 
 `anytensor.tree` follows the
 [JAX pytree](https://docs.jax.dev/en/latest/pytrees.html) API
-(`flatten` → `(leaves, treedef)`, `map`, `unflatten`, …) in
-pure Python. JAX is **not** a runtime dependency.
+(`flatten` → `(leaves, treedef)`, `map`, `unflatten`, …). The
+implementation is **pure Python**; the only binary dependency is **NumPy**.
+No JAX, no C++ pytree extension.
 
 `None` is an **empty pytree** (zero leaves), matching jraph — not a leaf.
 NumPy arrays and framework tensors are leaves. Dicts flatten by **sorted
@@ -40,16 +41,16 @@ That problem already has good libraries:
 
 | Library | What it is good at |
 |---|---|
-| [`jax.tree`](https://docs.jax.dev/en/latest/pytrees.html) / [`jax.tree_util`](https://docs.jax.dev/en/latest/jax.tree_util.html) | The API this module follows. `None` is empty. Built for `jit` / `vmap` over nested parameters. |
-| [`dm-tree`](https://github.com/google-deepmind/tree) | `map_structure` / `flatten` for TensorFlow and JAX-era nests. Treats `None` as a **leaf** (wrong for jraph). |
+| [`jax.tree`](https://docs.jax.dev/en/latest/pytrees.html) / [`jax.tree_util`](https://docs.jax.dev/en/latest/jax.tree_util.html) | The API this module follows. `None` is empty. Built for `jit` / `vmap` over nested parameters. Needs JAX (and optree). |
+| [`dm-tree`](https://github.com/google-deepmind/tree) | `map_structure` / `flatten` for TensorFlow and JAX-era nests. C++ extension. Treats `None` as a **leaf** (wrong for jraph). |
 | [`optree`](https://github.com/metaopt/optree) | Fast C++ pytrees; JAX uses it under `jax.tree`. |
-| [`torch.utils._pytree`](https://pytorch.org/docs/stable/pytree.html) | Nested tensors for `torch.compile` / `export`. |
+| [`torch.utils._pytree`](https://pytorch.org/docs/stable/pytree.html) | Nested tensors for `torch.compile` / `export`. Ships with PyTorch. |
 
-The **key value of `anytensor.tree`** is that same `jax.tree` contract
-**without** taking JAX, dm-tree, or optree as a runtime dependency, on
-whatever array the caller already has (NumPy included). `tree.map(fn, nest)`
-is one implementation for a structured record whether that record is a GNN
-feature nest, a physics state, or a table of experimental traces.
+The **key value of `anytensor.tree`** is that same `jax.tree` contract as
+**pure Python + NumPy**. No JAX install, no dm-tree / optree shared library.
+Leaves may still be JAX / Torch / TF arrays when those are present;
+`tree.map(fn, nest)` does not care. One implementation for a structured
+record — GNN features, a physics state, or a table of experimental traces.
 
 `concat` / `split` are the extra that those libs do not standardize: stack
 nests along an axis, and let an object own join/partition
@@ -58,8 +59,9 @@ wrong. GraphsTuple uses that for batching; a packed buffer or a ragged
 container can do the same.
 
 Use upstream `jax.tree` when you are JAX-only and do not need concat/split.
-Use this module when the helper must run on NumPy (or Torch / TF) too, or
-when `None` must mean “no arrays here” like jraph.
+Use this module when you want the same API with only NumPy as a binary
+dep, when the helper must run on Torch / TF too, or when `None` must mean
+“no arrays here” like jraph.
 
 ## Walking rules
 
