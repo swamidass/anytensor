@@ -1,6 +1,8 @@
 ### Added
 
-- ``anytensor.hetero`` MVP: ``HeteroGraphsTuple``, ``SendRecvTuple``, with
-  ``__tree_batch__`` / ``__tree_unbatch__`` hooks into :func:`anytensor.tree.batch`
-  / ``unbatch``. Batching requires identical ntype/etype keys; callers pad
-  missing types with empty features themselves.
+- ``anytensor.split`` / backend ``split`` (NumPy cut-index semantics; Torch via
+  ``tensor_split``), plus ``anytensor.tree.split`` / ``tree.partition`` /
+  ``tree.match_sizes`` for nest-aware leading-axis splits.
+- ``anytensor.hetero`` MVP with ``HeteroGraphsTuple`` / ``SendRecvTuple`` and
+  ``__tree_batch__`` / ``__tree_unbatch__``. Batching requires matching keys;
+  unbatch uses ``tree.partition`` (also used by ``GraphsTuple`` unbatch).

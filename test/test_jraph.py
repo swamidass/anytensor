@@ -561,6 +561,19 @@ def test_batch_unbatch_none_features_and_indices():
     assert host.senders is None
 
 
+def test_unbatch_zero_length_n_node_vector():
+    g = atj.GraphsTuple(
+        nodes=None,
+        edges=None,
+        senders=None,
+        receivers=None,
+        globals=None,
+        n_node=np.zeros((0,), dtype=np.int32),
+        n_edge=np.zeros((0,), dtype=np.int32),
+    )
+    assert atj.unbatch(g) == []
+
+
 def test_pad_without_senders_and_zero_edge_padding():
     g1, _ = _toy_graphs()
     none_idx = _none_connectivity(g1)

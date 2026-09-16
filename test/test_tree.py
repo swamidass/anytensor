@@ -515,6 +515,44 @@ def test_batch_unbatch_arrays_and_nests():
         tree.batch([{"a": np.array([1])}, {"a": np.array([1]), "b": np.array([2])}])
     empty = tree.batch([[], []])
     assert empty == []
+
+
+def test_tree_split_nests_and_none():
+    parts = tree.split(np.arange(4), [2])
+    assert len(parts) == 2
+    np.testing.assert_array_equal(parts[0], [0, 1])
+    nested = tree.split({"a": np.arange(3), "b": np.arange(3, 6)}, [1, 1])
+    assert len(nested) == 3
+    np.testing.assert_array_equal(nested[0]["a"], [0])
+    np.testing.assert_array_equal(nested[1]["a"], [])
+    np.testing.assert_array_equal(nested[2]["b"], [4, 5])
+    assert tree.split(None, [1, 2]) == [None, None, None]
+    assert tree.split({}, 3) == [{}, {}, {}]
+    assert tree.split(np.arange(4), 2)[0].shape == (2,)
+
+
+def test_tree_partition_parallel_sizes():
+    data = {"n": np.arange(3), "e": np.arange(10, 12)}
+    sizes = {"n": np.array([2, 1]), "e": np.array([1, 1])}
+    parts = tree.partition(data, sizes)
+    assert len(parts) == 2
+    np.testing.assert_array_equal(parts[0]["n"], [0, 1])
+    np.testing.assert_array_equal(parts[0]["e"], [10])
+    np.testing.assert_array_equal(parts[1]["n"], [2])
+    np.testing.assert_array_equal(parts[1]["e"], [11])
+    none_parts = tree.partition({"a": None}, {"a": np.array([1, 0, 2])})
+    assert none_parts == [{"a": None}, {"a": None}, {"a": None}]
+    single = tree.partition(np.arange(3), np.array([3]))
+    assert len(single) == 1
+    np.testing.assert_array_equal(single[0], [0, 1, 2])
+    assert tree.partition(np.arange(0), np.array([], dtype=np.int32)) == []
+    # Broadcast sizes onto a feature nest
+    nested = {"h": np.arange(4).reshape(2, 2)}
+    nested_parts = tree.partition(nested, tree.match_sizes(nested, np.array([1, 1])))
+    assert nested_parts[0]["h"].shape == (1, 2)
+    assert tree.partition({}, {}) == []
+    with pytest.raises(ValueError, match="same structure"):
+        tree.partition({"a": np.arange(2)}, {"b": np.array([1, 1])})
     assert tree.unbatch(np.zeros((0, 2))) == []
     assert tree.unbatch({"a": None}) == []
     none_notes = tree.unbatch({"a": np.array([1, 2]), "b": None})

@@ -314,6 +314,12 @@ def test_reshape_transpose_concatenate_stack(backend):
         backend_impl.to_numpy(at.concatenate([bx, bx], axis=0)),
         np.concatenate([x, x], axis=0),
     )
+    parts = at.split(bx, [1], axis=0)
+    assert len(parts) == 2
+    assert close(backend_impl.to_numpy(parts[0]), x[:1])
+    assert close(backend_impl.to_numpy(parts[1]), x[1:])
+    empty_mid = at.split(bx, [0, 0, 2], axis=0)
+    assert close(backend_impl.to_numpy(empty_mid[1]), x[:0])
     assert close(backend_impl.to_numpy(at.stack([bx, bx], axis=0)), np.stack([x, x], axis=0))
 
 

@@ -26,7 +26,7 @@ from typing import (
 import numpy as np
 
 from anytensor import tree
-from anytensor.core import concatenate, zeros
+from anytensor.core import concatenate
 from anytensor.namespace import array_namespace
 
 ArrayTree = Union[Any, Iterable["ArrayTree"], Mapping[Any, "ArrayTree"]]
@@ -53,16 +53,6 @@ def _n_graphs_from_sizes(sizes: Mapping[Any, Any], globals_) -> int:
             return int(leaves[0].shape[0])
         return 1
     return 1
-
-
-def _empty_like_leading(proto, leading: int = 0):
-    """Leading-axis empty (or length-``leading``) array matching ``proto``."""
-
-    def _one(leaf):
-        rest = tuple(int(s) for s in np.asarray(leaf.shape)[1:])
-        return zeros((leading,) + rest, dtype=leaf.dtype, like=leaf)
-
-    return tree.map(_one, proto)
 
 
 def _offset_index(index, offset: int):
@@ -338,69 +328,50 @@ def _partition_sizes(sizes) -> list[int]:
     return [int(v) for v in _as_np_vec(sizes).tolist()]
 
 
+def _ones_n_graphs(n_graphs: int, like) -> Any:
+    return np.ones((n_graphs,), dtype=np.asarray(like).dtype)
+
+
 def _unbatch_hetero(graph: HeteroGraphsTuple) -> list[HeteroGraphsTuple]:
     n_graphs = graph.n_graphs()
     if n_graphs == 0:
         return []
 
-    n_node_lists = {t: _partition_sizes(graph.n_node[t]) for t in graph.n_node}
-    n_edge_lists = {e: _partition_sizes(graph.n_edge[e]) for e in graph.n_edge}
+    # Parallel size tree: feature leaves use n_node/n_edge counts; count /
+    # globals leaves use ones (one slice per graph).
+    like = next(iter(graph.n_node.values()), None)
+    if like is None:
+        like = next(iter(graph.n_edge.values()), np.zeros((n_graphs,), dtype=np.int32))
+    ones = _ones_n_graphs(n_graphs, like)
+    size_guide = HeteroGraphsTuple(
+        nodes={t: tree.match_sizes(graph.nodes.get(t), graph.n_node[t]) for t in graph.n_node},
+        edges={e: tree.match_sizes(graph.edges.get(e), graph.n_edge[e]) for e in graph.n_edge},
+        senders={e: tree.match_sizes(graph.senders.get(e), graph.n_edge[e]) for e in graph.n_edge},
+        receivers={
+            e: tree.match_sizes(graph.receivers.get(e), graph.n_edge[e]) for e in graph.n_edge
+        },
+        n_node={t: ones for t in graph.n_node},
+        n_edge={e: ones for e in graph.n_edge},
+        globals=tree.match_sizes(graph.globals, ones),
+    )
+    parts = tree.partition(graph, size_guide, axis=0)
 
-    node_offsets = {}
-    for t, counts in n_node_lists.items():
-        offs = [0]
-        for c in counts[:-1]:
-            offs.append(offs[-1] + c)
-        node_offsets[t] = offs
-
-    def split_feat(feat, sizes):
-        if feat is None:
-            return [None] * len(sizes)
-        if all(s == 0 for s in sizes):
-            return [_empty_like_leading(feat, 0) for _ in sizes]
-        units = tree.unbatch(feat, axis=0)
-        out = []
-        i = 0
-        for n in sizes:
-            chunk = units[i : i + n]
-            i += n
-            if n == 0:
-                out.append(_empty_like_leading(feat, 0))
-            elif n == 1:
-                out.append(chunk[0])
-            else:
-                out.append(tree.batch(chunk, axis=0))
-        return out
-
-    nodes_parts = {t: split_feat(graph.nodes[t], n_node_lists[t]) for t in graph.n_node}
-    edges_parts = {e: split_feat(graph.edges[e], n_edge_lists[e]) for e in graph.n_edge}
-    senders_parts = {
-        e: split_feat(graph.senders[e], n_edge_lists[e]) for e in graph.n_edge
+    # Undo batch-time sender/receiver offsets (per ntype prefix sums).
+    node_prefix = {
+        t: [0, *np.cumsum(_partition_sizes(graph.n_node[t])[:-1]).tolist()]
+        for t in graph.n_node
     }
-    receivers_parts = {
-        e: split_feat(graph.receivers[e], n_edge_lists[e]) for e in graph.n_edge
-    }
-    globals_parts = split_feat(graph.globals, [1] * n_graphs)
-
     out = []
-    for i in range(n_graphs):
+    for i, part in enumerate(parts):
         senders_i = {}
         receivers_i = {}
-        for e in graph.n_edge:
+        for e in part.n_edge:
             src, _r, dst = e
-            s = senders_parts[e][i]
-            r = receivers_parts[e][i]
-            senders_i[e] = None if s is None else s - node_offsets[src][i]
-            receivers_i[e] = None if r is None else r - node_offsets[dst][i]
-        out.append(
-            HeteroGraphsTuple(
-                nodes={t: nodes_parts[t][i] for t in graph.n_node},
-                edges={e: edges_parts[e][i] for e in graph.n_edge},
-                senders=senders_i,
-                receivers=receivers_i,
-                n_node={t: graph.n_node[t][i : i + 1] for t in graph.n_node},
-                n_edge={e: graph.n_edge[e][i : i + 1] for e in graph.n_edge},
-                globals=globals_parts[i],
-            )
-        )
+            s = part.senders[e]
+            r = part.receivers[e]
+            off_s = node_prefix[src][i] if src in node_prefix else 0
+            off_r = node_prefix[dst][i] if dst in node_prefix else 0
+            senders_i[e] = None if s is None else s - off_s
+            receivers_i[e] = None if r is None else r - off_r
+        out.append(part._replace(senders=senders_i, receivers=receivers_i))
     return out

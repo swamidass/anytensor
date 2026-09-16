@@ -387,3 +387,19 @@ def test_edge_map_key_mismatch():
     )
     with pytest.raises(ValueError, match="edge maps must share keys"):
         tree.batch([g, g])
+
+
+def test_unbatch_no_ntypes_falls_back_to_edge_sizes():
+    et = ("a", "r", "a")
+    g = HeteroGraphsTuple(
+        nodes={},
+        edges={et: np.zeros((0, 1), dtype=np.float32)},
+        senders={et: np.zeros((0,), dtype=np.int32)},
+        receivers={et: np.zeros((0,), dtype=np.int32)},
+        n_node={},
+        n_edge={et: np.asarray([0], dtype=np.int32)},
+        globals=np.asarray([[1.0]], dtype=np.float32),
+    )
+    parts = g.__tree_unbatch__()
+    assert len(parts) == 1
+    assert parts[0].n_edge[et].shape == (1,)

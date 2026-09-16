@@ -467,6 +467,27 @@ def concatenate(arrays: Sequence[ShapedArray], axis: int = 0) -> ShapedArray:
     return array_namespace(*arrays).concat(arrays, axis=axis)
 
 
+def split(x: ShapedArray, indices_or_sections: Any, axis: int = 0) -> list:
+    """Split ``x`` along ``axis`` (NumPy ``split`` semantics).
+
+    Args:
+        x: Array to split.
+        indices_or_sections: Either an ``int`` (equal-sized parts) or a sequence
+            of cut indices along ``axis`` (as in ``numpy.split``).
+        axis: Axis along which to split.
+
+    Returns:
+        A ``list`` of array chunks (may include empty leading-axis pieces).
+
+    Notes:
+        Dispatches via :func:`anytensor.backends.get_backend` so Torch uses
+        ``tensor_split`` (index cuts) rather than size-based ``torch.split``.
+    """
+    from .backends import get_backend
+
+    return get_backend(x).split(x, indices_or_sections, axis=axis)
+
+
 @as_array_result
 def stack(arrays: Sequence[ShapedArray], axis: int = 0) -> ShapedArray:
     """Stack a sequence of arrays along a new ``axis``."""

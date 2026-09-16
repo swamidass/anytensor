@@ -295,79 +295,37 @@ def _concat_maybe(arrays):
     return concatenate(present, axis=0)
 
 
-def _empty_leading(feat, units, axis: int = 0):
-    """Zero-length leading slice of ``feat`` (a 0-node / 0-edge graph)."""
-    if not units:
-        return feat
-    proto = units[0]
-
-    def zero(leaf):
-        ndim = int(leaf.ndim)
-        ax = axis if axis >= 0 else axis + ndim
-        sl = [slice(None)] * ndim
-        sl[ax] = slice(0, 0)
-        return leaf[tuple(sl)]
-
-    return tree.map(zero, proto)
-
-
-def _rebatch_groups(units, sizes, *, empty, axis: int = 0):
-    """Reassemble unit slices into chunks of ``sizes`` (GraphsTuple n_node / n_edge)."""
-    out = []
-    i = 0
-    for n in sizes:
-        chunk = units[i : i + n]
-        i += n
-        if n == 0:
-            out.append(empty)
-        elif n == 1:
-            out.append(chunk[0])
-        else:
-            out.append(batch(chunk, axis=axis))
-    return out
-
-
-def _partition_feature(feat, sizes, axis: int = 0):
-    """Split a batched feature nest into per-graph pieces via unbatch + batch."""
-    if feat is None:
-        return [None] * len(sizes)
-    units = unbatch(feat, axis=axis)
-    return _rebatch_groups(
-        units, sizes, empty=_empty_leading(feat, units, axis), axis=axis
-    )
-
-
 def _unbatch_graphs(graph: GraphsTuple) -> List[GraphsTuple]:
     n_node_i = [int(v) for v in _np_vec(graph.n_node).tolist()]
-    n_edge_i = [int(v) for v in _np_vec(graph.n_edge).tolist()]
-    node_offsets = np.cumsum(n_node_i[:-1]).astype(int).tolist() if len(n_node_i) > 1 else []
+    n_graphs = len(n_node_i)
+    if n_graphs == 0:
+        return []
+    ones = np.ones((n_graphs,), dtype=np.asarray(graph.n_node).dtype)
+    # ``match_sizes`` broadcasts n_node/n_edge onto feature nests; ``None``
+    # features pair with a size leaf under tree.partition's None-as-leaf rule.
+    size_guide = GraphsTuple(
+        nodes=tree.match_sizes(graph.nodes, graph.n_node),
+        edges=tree.match_sizes(graph.edges, graph.n_edge),
+        senders=tree.match_sizes(graph.senders, graph.n_edge),
+        receivers=tree.match_sizes(graph.receivers, graph.n_edge),
+        globals=tree.match_sizes(graph.globals, ones),
+        n_node=ones,
+        n_edge=ones,
+    )
+    parts = tree.partition(graph, size_guide, axis=0)
 
-    all_nodes = _partition_feature(graph.nodes, n_node_i)
-    all_edges = _partition_feature(graph.edges, n_edge_i)
-    all_globals = _partition_feature(graph.globals, [1] * len(n_node_i))
-    all_senders = _partition_feature(graph.senders, n_edge_i)
-    all_receivers = _partition_feature(graph.receivers, n_edge_i)
-
-    for graph_index in range(1, len(n_node_i)):
-        off = int(node_offsets[graph_index - 1])
-        if all_senders[graph_index] is not None:
-            all_senders[graph_index] = all_senders[graph_index] - off
-        if all_receivers[graph_index] is not None:
-            all_receivers[graph_index] = all_receivers[graph_index] - off
-
+    node_offsets = np.cumsum(n_node_i[:-1]).astype(int).tolist() if n_graphs > 1 else []
     out = []
-    for i in range(len(n_node_i)):
-        out.append(
-            GraphsTuple(
-                nodes=all_nodes[i],
-                edges=all_edges[i],
-                receivers=all_receivers[i],
-                senders=all_senders[i],
-                globals=all_globals[i],
-                n_node=graph.n_node[i : i + 1],
-                n_edge=graph.n_edge[i : i + 1],
-            )
-        )
+    for graph_index, part in enumerate(parts):
+        senders = part.senders
+        receivers = part.receivers
+        if graph_index > 0:
+            off = int(node_offsets[graph_index - 1])
+            if senders is not None:
+                senders = senders - off
+            if receivers is not None:
+                receivers = receivers - off
+        out.append(part._replace(senders=senders, receivers=receivers))
     return out
 
 

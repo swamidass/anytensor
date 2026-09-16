@@ -199,6 +199,15 @@ class AbstractBackend:
         """take follows semantics of jax.numpy.take with axis=0: https://docs.jax.dev/en/latest/_autosummary/jax.numpy.take.html"""
         return x[indices]
 
+    def split(self, x, indices_or_sections, axis: int = 0):
+        """Split ``x`` along ``axis`` (NumPy ``split`` semantics).
+
+        ``indices_or_sections`` is either an ``int`` (equal parts) or a sequence
+        of cut indices along ``axis``. Returns a ``list`` of chunks (possibly
+        empty).
+        """
+        raise NotImplementedError("backend does not support split")
+
     def is_appropriate_type(self, tensor):
         """helper method should recognize tensors it can handle"""
         raise NotImplementedError()
@@ -321,6 +330,9 @@ class NumpyBackend(AbstractBackend):
 
     def concat(self, tensors, axis: int):
         return self.np.concatenate(tensors, axis=axis)
+
+    def split(self, x, indices_or_sections, axis: int = 0):
+        return list(self.np.split(x, indices_or_sections, axis=axis))
 
     def is_float_type(self, x):
         return x.dtype in ("float16", "float32", "float64", "float128", "bfloat16")
@@ -484,6 +496,10 @@ class TorchBackend(AbstractBackend):
     def concat(self, tensors, axis: int):
         return self.torch.cat(tensors, dim=axis)
 
+    def split(self, x, indices_or_sections, axis: int = 0):
+        # ``tensor_split`` matches NumPy cut-index / equal-section semantics.
+        return list(self.torch.tensor_split(x, indices_or_sections, dim=axis))
+
     def add_axis(self, x, new_position):
         return self.torch.unsqueeze(x, new_position)
 
@@ -588,6 +604,16 @@ class TensorflowBackend(AbstractBackend):
 
     def concat(self, tensors, axis: int):
         return self.tf.concat(tensors, axis=axis)
+
+    def split(self, x, indices_or_sections, axis: int = 0):
+        # ``tf.split`` takes section *sizes*; convert NumPy-style cut indices.
+        axis = int(axis)
+        if isinstance(indices_or_sections, int):
+            return list(self.tf.split(x, indices_or_sections, axis=axis))
+        length = int(x.shape[axis])
+        cuts = [0, *[int(i) for i in indices_or_sections], length]
+        sizes = [cuts[i + 1] - cuts[i] for i in range(len(cuts) - 1)]
+        return list(self.tf.split(x, sizes, axis=axis))
 
     def add_axis(self, x, new_position):
         return self.tf.expand_dims(x, new_position)
