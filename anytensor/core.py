@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import functools
 import inspect
-import math
 import warnings
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -534,39 +533,60 @@ def matmul(x, y):
     return array_namespace(x, y).matmul(x, y)
 
 
-# --- Portable constants / dtype introspection ------------------------------
-# Scalars are Python floats (Array API convention) — not backend objects.
-# Framework dtypes stay on the array's namespace (``like=`` / ``astype``);
-# use :func:`dtype` when you need ``xp.bool`` / ``xp.float32`` for a peer array.
+# --- Portable specials / dtype introspection --------------------------------
+# Resolve via the argument's backend (internal), then return that backend's
+# attribute. Floating specials are Python floats (Array API style) and promote
+# under ``@promote`` / ``@as_array_result`` when used in ops. ``newaxis`` is
+# always ``None``.
 
-inf = math.inf
-ninf = -math.inf
-nan = math.nan
-pi = math.pi
-e = math.e
+
+def _backend_attr(like, name: str):
+    from .backends import get_backend
+
+    return getattr(get_backend(like), name)
+
+
+def inf(like):
+    """``+inf`` from the backend of ``like``."""
+    return _backend_attr(like, "inf")
+
+
+def ninf(like):
+    """``-inf`` from the backend of ``like``."""
+    return _backend_attr(like, "ninf")
+
+
+def nan(like):
+    """``NaN`` from the backend of ``like``."""
+    return _backend_attr(like, "nan")
+
+
+def pi(like):
+    """``π`` from the backend of ``like``."""
+    return _backend_attr(like, "pi")
+
+
+def e(like):
+    """Euler's number from the backend of ``like``."""
+    return _backend_attr(like, "e")
+
+
 newaxis = None
 
 
 def finfo(x):
-    """Floating limits for ``x.dtype`` on ``x``'s Array API namespace."""
-    return array_namespace(x).finfo(x.dtype)
+    """Floating limits for ``x.dtype`` via ``x``'s backend."""
+    return _backend_attr(x, "finfo")(x.dtype)
 
 
 def iinfo(x):
-    """Integral limits for ``x.dtype`` on ``x``'s Array API namespace."""
-    return array_namespace(x).iinfo(x.dtype)
+    """Integral limits for ``x.dtype`` via ``x``'s backend."""
+    return _backend_attr(x, "iinfo")(x.dtype)
 
 
 def dtype(name: str, like):
-    """Framework dtype ``name`` for the namespace of ``like`` (e.g. ``\"bool\"``).
-
-    Prefer this over reaching into backends. Strings often also work directly in
-    ``astype`` / ``zeros(..., dtype=)``; use this when you need the dtype object.
-    """
-    xp = array_namespace(like)
-    if not hasattr(xp, name):
-        raise AttributeError(f"{xp} has no dtype attribute {name!r}")
-    return getattr(xp, name)
+    """Framework dtype ``name`` from the backend of ``like`` (e.g. ``\"bool\"``)."""
+    return _backend_attr(like, name)
 
 
 # --- NaN / finiteness utilities -------------------------------------------

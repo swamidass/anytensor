@@ -10,15 +10,23 @@ from helpers import BACKENDS, close, loaded_backends
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
-def test_public_constants_and_dtype(backend):
+def test_specials_from_backend_attrs(backend):
     import math
 
     b = loaded_backends[backend]
-    x = b.from_numpy(np.array([1.0], dtype=np.float32))
-    assert math.isinf(at.inf) and at.ninf == -at.inf and math.isnan(at.nan)
-    assert at.finfo(x).eps > 0
+    x = b.from_numpy(np.array([1.0, 2.0], dtype=np.float32))
+    assert at.inf(x) == b.inf and math.isinf(at.inf(x))
+    assert at.ninf(x) == b.ninf
+    assert math.isnan(at.nan(x)) and math.isnan(b.nan)
+    assert at.pi(x) == b.pi and at.e(x) == b.e
+    assert at.dtype("bool", like=x) is b.bool
+    assert at.dtype("float32", like=x) is b.float32
+    assert at.finfo(x).eps == b.finfo(x.dtype).eps
     y = at.zeros((2,), dtype=at.dtype("bool", like=x), like=x)
     assert list(b.to_numpy(y)) == [False, False]
+    z = b.from_numpy(np.array([1.0, np.nan], dtype=np.float32))
+    out = b.to_numpy(at.fill_nan(z, at.ninf(z)))
+    assert close(out, np.array([1.0, -np.inf], dtype=np.float32), equal_nan=True)
 
 
 @pytest.mark.parametrize("backend", BACKENDS)

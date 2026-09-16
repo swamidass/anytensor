@@ -89,7 +89,7 @@ Do not assume NumPy `int64` segment ids stay `int64` after upcast to JAX.
 - Cross-backend fuzz compares in **float32** where JAX defaults truncate `float64`.
 - NaN and ±inf are in-scope for portable math and segment ops; comparisons use `equal_nan=True` in tests.
 - Helpers: `is_nan` / `is_finite` / `is_inf` (aliases `isnan` / `isfinite` / `isinf`), `fill_nan` (alias `nan_fill`), `fill_nan_mask` → `(filled, mask)` with mask True where NaN was, Array API `nan_to_num`, and element-wise `equal_nan`.
-- Portable scalars on the package: `inf` / `ninf` / `nan` / `pi` / `e` / `newaxis` (Python floats). Framework dtypes via `dtype("bool", like=x)` or strings in `astype` / `zeros`; limits via `finfo(x)` / `iinfo(x)`. Backends stay internal.
+- Portable specials: `inf(x)` / `ninf(x)` / `nan(x)` / `pi(x)` / `e(x)` look up the attr on `get_backend(x)` (Python floats that promote in ops). `dtype("bool", like=x)`, `finfo(x)` / `iinfo(x)` same pattern. `newaxis` is `None`. Backends stay internal.
 - Empty **axis reductions** (`min`/`max` on length-0) remain framework-defined (often error); prefer nonempty for those.
 
 #### NumPy promotion / copy

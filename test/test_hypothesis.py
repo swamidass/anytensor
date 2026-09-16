@@ -11,7 +11,7 @@ import anytensor as at
 from helpers import BACKENDS, close, loaded_backends
 
 _settings = settings(
-    max_examples=500,
+    max_examples=1000,
     deadline=None,
     suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
 )

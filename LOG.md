@@ -2,8 +2,8 @@
 
 ## 2026-09-15
 
-- Public constants: `at.inf` / `ninf` / `nan` / `pi` / `e` / `newaxis` (Python floats). Framework dtypes via `at.dtype(name, like=x)`; limits via `at.finfo(x)` / `at.iinfo(x)`. Backend numeric attrs remain internal only.
-- Backend numeric attrs: `bool`, `inf`/`ninf`/`nan`, `pi`/`e`/`newaxis`, common dtypes (`float32`/`int64`/…); dtype limits via `finfo`/`iinfo` (not `eps` attrs).
+- Public specials are thin functions over `get_backend(x)` attrs: `inf(x)` / `ninf(x)` / `nan(x)` / `pi(x)` / `e(x)` / `dtype(name, like=x)` / `finfo` / `iinfo`. Backend objects stay internal; `newaxis` is `None`.
+- Cross-backend fuzz registers essentially all public ops/helpers (`@fuzz_op`); inventory test guards gaps. `max_examples=1000` (Hypothesis default is 100).
 - NaN utilities: `is_nan` / `is_finite` / `is_inf` (aliases `isnan` / `isfinite` / `isinf`), `fill_nan` (alias `nan_fill`), `fill_nan_mask` → `(filled, mask)` with True=was-NaN, Array API `nan_to_num`, element-wise `equal_nan`. Chose verb-first `fill_nan` over `nan_fill`; kept the latter as alias.
 - Hybrid architecture: ordinary ops via `array-api-compat`; segment ops keep einops-style input-adaptive backends (NumPy / JAX / Torch / TF).
 - Scalar policy: reductions return 0-d arrays; `@as_array_result` / `@promote_scalars` centralize wrapping (NumPy `np.generic` is not usable as a stable array type for methods / `type(x) is type(y)`).

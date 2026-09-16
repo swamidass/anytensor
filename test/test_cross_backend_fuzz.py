@@ -25,7 +25,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 _settings = settings(
-    max_examples=500,
+    max_examples=1000,
     deadline=None,
     suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
 )
@@ -89,7 +89,7 @@ def _f32_vec(
 
 def _pos_f32_elem(draw: Draw, *, allow_nan: bool = True, allow_infinity: bool = True):
     """Positive finite, or specials (NaN / +inf) that backends agree on for sqrt/log."""
-    # ~20% specials so NaN/inf show up often at max_examples=500.
+    # ~20% specials so NaN/inf show up often at max_examples=1000.
     roll = draw(st.integers(0, 4))
     if allow_nan and roll == 0:
         return np.float32("nan")
@@ -218,6 +218,98 @@ def sample_segment_ids_only(draw) -> tuple:
     return (seg, num_segments)
 
 
+def sample_f32_finite_vec(draw) -> tuple:
+    """Finite only — for softmax / log-domain ops where NaN paths diverge."""
+    return (
+        _f32_vec(
+            draw,
+            draw(st.integers(0, 8)),
+            allow_nan=False,
+            allow_infinity=False,
+        ),
+    )
+
+
+def sample_segment_finite(draw) -> tuple:
+    n = draw(st.integers(0, 8))
+    x = _f32_vec(draw, n, allow_nan=False, allow_infinity=False)
+    if n == 0:
+        seg = np.asarray([], dtype=np.int64)
+        num_segments = draw(st.integers(1, 6))
+    else:
+        seg = _i64_ids(draw, n)
+        num_segments = max(int(seg.max()) + 1, draw(st.integers(1, 6)))
+    return (x, seg, num_segments)
+
+
+def sample_clip(draw) -> tuple:
+    n = draw(st.integers(0, 8))
+    x = _f32_vec(draw, n, allow_nan=True, allow_infinity=True)
+    lo = draw(st.floats(min_value=-10, max_value=0, width=32, allow_nan=False, allow_infinity=False))
+    hi = draw(st.floats(min_value=0, max_value=10, width=32, allow_nan=False, allow_infinity=False))
+    return (x, np.float32(lo), np.float32(hi))
+
+
+def sample_fill_nan(draw) -> tuple:
+    n = draw(st.integers(0, 8))
+    x = _f32_vec(draw, n, allow_nan=True, allow_infinity=True)
+    fill = _f32_elem(draw, allow_nan=False, allow_infinity=True)
+    return (x, fill)
+
+
+def sample_nan_to_num(draw) -> tuple:
+    n = draw(st.integers(0, 8))
+    x = _f32_vec(draw, n, allow_nan=True, allow_infinity=True)
+    return (
+        x,
+        _f32_elem(draw, allow_nan=False, allow_infinity=False),
+        _f32_elem(draw, allow_nan=False, allow_infinity=False),
+        _f32_elem(draw, allow_nan=False, allow_infinity=False),
+    )
+
+
+def sample_repeat(draw) -> tuple:
+    n = draw(st.integers(0, 6))
+    x = _f32_vec(draw, n, allow_nan=True, allow_infinity=True)
+    repeats = draw(st.integers(0, 3))
+    return (x, repeats)
+
+
+def sample_stack_pair(draw) -> tuple:
+    """Two equal-shape vectors for stack / concatenate."""
+    return sample_f32_pair(draw)
+
+
+def sample_transpose_2x3(draw) -> tuple:
+    return (_f32_vec(draw, 6, allow_nan=True, allow_infinity=True).reshape(2, 3), (1, 0))
+
+
+def sample_arange(draw) -> tuple:
+    n = draw(st.integers(0, 8))
+    like = _f32_vec(draw, 1, allow_nan=False, allow_infinity=False)
+    return (n, like)
+
+
+def sample_i32_vec_nonempty(draw) -> tuple:
+    n = draw(st.integers(1, 8))
+    return (
+        np.asarray(
+            draw(st.lists(st.integers(-20, 20), min_size=n, max_size=n)),
+            dtype=np.int32,
+        ),
+    )
+
+
+def sample_partition_softmax(draw) -> tuple:
+    n_part = draw(st.integers(1, 4))
+    parts = [draw(st.integers(0, 3)) for _ in range(n_part)]
+    if sum(parts) == 0:
+        parts[0] = 1
+    n = sum(parts)
+    logits = _f32_vec(draw, n, allow_nan=False, allow_infinity=False)
+    return (logits, np.asarray(parts, dtype=np.int64))
+
+
 # --- registered ops -------------------------------------------------------
 
 
@@ -301,6 +393,153 @@ def fuzz_reshape(x, shape):
     return at.reshape(x, shape)
 
 
+@fuzz_op(sample_transpose_2x3)
+def fuzz_transpose(x, axes):
+    return at.transpose(x, axes)
+
+
+@fuzz_op(sample_stack_pair)
+def fuzz_concatenate(x, y):
+    return at.concatenate([x, y], axis=0)
+
+
+@fuzz_op(sample_stack_pair)
+def fuzz_stack(x, y):
+    return at.stack([x, y], axis=0)
+
+
+@fuzz_op(sample_clip)
+def fuzz_clip(x, min, max):
+    return at.clip(x, min=min, max=max)
+
+
+@fuzz_op(sample_f32_vec)
+def fuzz_astype(x):
+    return at.astype(x, at.dtype("float32", like=x))
+
+
+@fuzz_op(sample_f32_vec)
+def fuzz_zeros_like(x):
+    return at.zeros_like(x)
+
+
+@fuzz_op(sample_f32_vec)
+def fuzz_ones_like(x):
+    return at.ones_like(x)
+
+
+@fuzz_op(sample_f32_vec)
+def fuzz_full_like(x):
+    return at.full_like(x, 3.0)
+
+
+@fuzz_op(sample_f32_vec)
+def fuzz_zeros(x):
+    return at.zeros(at.shape(x), like=x)
+
+
+@fuzz_op(sample_f32_vec)
+def fuzz_ones(x):
+    return at.ones(at.shape(x), like=x)
+
+
+@fuzz_op(sample_f32_vec)
+def fuzz_full(x):
+    return at.full(at.shape(x), 2.0, like=x)
+
+
+@fuzz_op(sample_arange)
+def fuzz_arange(n, like):
+    return at.arange(n, like=like)
+
+
+@fuzz_op(sample_repeat)
+def fuzz_repeat(x, repeats):
+    return at.repeat(x, repeats)
+
+
+@fuzz_op(sample_f32_vec)
+def fuzz_shape(x):
+    return np.asarray(at.shape(x), dtype=np.int64)
+
+
+@fuzz_op(sample_f32_vec)
+def fuzz_inf(x):
+    return at.inf(x)
+
+
+@fuzz_op(sample_f32_vec)
+def fuzz_ninf(x):
+    return at.ninf(x)
+
+
+@fuzz_op(sample_f32_vec)
+def fuzz_nan(x):
+    return at.nan(x)
+
+
+@fuzz_op(sample_f32_vec)
+def fuzz_pi(x):
+    return at.pi(x)
+
+
+@fuzz_op(sample_f32_vec)
+def fuzz_e(x):
+    return at.e(x)
+
+
+@fuzz_op(sample_f32_vec)
+def fuzz_finfo(x):
+    fi = at.finfo(x)
+    return np.asarray([float(fi.eps), float(fi.max)], dtype=np.float64)
+
+
+@fuzz_op(sample_i32_vec_nonempty)
+def fuzz_iinfo(x):
+    ii = at.iinfo(x)
+    return np.asarray([int(ii.min), int(ii.max)], dtype=np.int64)
+
+
+@fuzz_op(sample_f32_vec)
+def fuzz_dtype(x):
+    return at.zeros((1,), dtype=at.dtype("float32", like=x), like=x)
+
+
+@fuzz_op(sample_f32_vec)
+def fuzz_is_nan(x):
+    return at.is_nan(x)
+
+
+@fuzz_op(sample_f32_vec)
+def fuzz_is_finite(x):
+    return at.is_finite(x)
+
+
+@fuzz_op(sample_f32_vec)
+def fuzz_is_inf(x):
+    return at.is_inf(x)
+
+
+@fuzz_op(sample_fill_nan)
+def fuzz_fill_nan(x, value):
+    return at.fill_nan(x, value)
+
+
+@fuzz_op(sample_fill_nan)
+def fuzz_fill_nan_mask(x, value):
+    return at.fill_nan_mask(x, value)
+
+
+@fuzz_op(sample_nan_to_num)
+def fuzz_nan_to_num(x, nan, posinf, neginf):
+    return at.nan_to_num(x, nan=nan, posinf=posinf, neginf=neginf)
+
+
+@fuzz_op(sample_f32_pair)
+def fuzz_equal_nan(x, y):
+    return at.equal_nan(x, y)
+
+
 @fuzz_op(sample_segment)
 def fuzz_segment_sum(x, segment_ids, num_segments):
     return at.segment_sum(x, segment_ids, num_segments)
@@ -322,8 +561,28 @@ def fuzz_segment_mean(x, segment_ids, num_segments):
 
 
 @fuzz_op(sample_segment)
+def fuzz_segment_variance(x, segment_ids, num_segments):
+    return at.segment_variance(x, segment_ids, num_segments)
+
+
+@fuzz_op(sample_segment)
 def fuzz_segment_normalize(x, segment_ids, num_segments):
     return at.segment_normalize(x, segment_ids, num_segments)
+
+
+@fuzz_op(sample_segment_finite)
+def fuzz_segment_softmax(x, segment_ids, num_segments):
+    return at.segment_softmax(x, segment_ids, num_segments)
+
+
+@fuzz_op(sample_segment)
+def fuzz_segment_min_or_constant(x, segment_ids, num_segments):
+    return at.segment_min_or_constant(x, segment_ids, num_segments, constant=0.0)
+
+
+@fuzz_op(sample_segment)
+def fuzz_segment_max_or_constant(x, segment_ids, num_segments):
+    return at.segment_max_or_constant(x, segment_ids, num_segments, constant=0.0)
 
 
 @fuzz_op(sample_segment_ids_only)
@@ -331,7 +590,61 @@ def fuzz_segment_count(segment_ids, num_segments):
     return at.segment_count(segment_ids, num_segments)
 
 
+@fuzz_op(sample_partition_softmax)
+def fuzz_partition_softmax(logits, partitions):
+    return at.partition_softmax(logits, partitions)
+
+
+# Public names that are infrastructure, aliases, or non-ops — not required in FUZZ_OPS.
+_NON_FUZZ_PUBLIC = frozenset(
+    {
+        "backends",
+        "get_backend",
+        "einsum",
+        "pack",
+        "unpack",
+        "rearrange",
+        "reduce",
+        "promote",
+        "promote_scalars",
+        "promote_options",
+        "align_arrays",
+        "newaxis",
+        "__version__",
+        "empty_segment_identity",
+        # aliases of fuzzed primaries
+        "nan_fill",
+        "nan_fill_mask",
+        "isnan",
+        "isfinite",
+        "isinf",
+        "cast",
+    }
+)
+
+
+def test_all_public_ops_have_fuzz_registration():
+    """Every public op/helper (minus infra/aliases) must appear as fuzz_<name>."""
+    covered = {fn.__name__[len("fuzz_") :] for fn, _ in FUZZ_OPS if fn.__name__.startswith("fuzz_")}
+    required = set(at.__all__) - _NON_FUZZ_PUBLIC
+    missing = sorted(required - covered)
+    extra = sorted(covered - required)
+    assert not missing, f"public ops missing @fuzz_op: {missing}"
+    assert not extra, f"fuzz regs without public name (rename or extend allowlist): {extra}"
+
+
 # --- runner ---------------------------------------------------------------
+
+
+def _to_numpy_result(backend_name: str, out):
+    backend = loaded_backends[backend_name]
+    if isinstance(out, tuple):
+        return tuple(_to_numpy_result(backend_name, o) for o in out)
+    if isinstance(out, np.ndarray) or np.isscalar(out):
+        return np.asarray(out)
+    if backend.is_appropriate_type(out):
+        return backend.to_numpy(out)
+    return np.asarray(out)
 
 
 def _run_on_backend(backend_name: str, fn: Callable, args_np: tuple):
@@ -340,26 +653,38 @@ def _run_on_backend(backend_name: str, fn: Callable, args_np: tuple):
         backend.from_numpy(np.asarray(a)) if isinstance(a, np.ndarray) else a
         for a in args_np
     ]
-    out = fn(*converted)
-    if hasattr(out, "shape") or hasattr(out, "dtype"):
-        return backend.to_numpy(out)
-    return np.asarray(out)
+    return _to_numpy_result(backend_name, fn(*converted))
 
 
-def _agree(fn: Callable, args_np: tuple, y_np, y_other):
-    name = getattr(fn, "__name__", str(fn))
+def _agree_arrays(name: str, y_np, y_other, args_np: tuple, fn: Callable):
     assert y_np.shape == y_other.shape, (name, y_np.shape, y_other.shape)
-    y_other = y_other.astype(y_np.dtype, copy=False)
+    if np.issubdtype(y_np.dtype, np.floating) or np.issubdtype(y_other.dtype, np.floating):
+        y_other = y_other.astype(y_np.dtype, copy=False)
+    elif y_np.dtype != y_other.dtype and np.can_cast(y_other.dtype, y_np.dtype):
+        y_other = y_other.astype(y_np.dtype, copy=False)
     if name in ("fuzz_segment_min", "fuzz_segment_max") and len(args_np) >= 3:
         seg = np.asarray(args_np[1])
         num = int(args_np[2])
-        counts = np.bincount(seg, minlength=num)
+        counts = np.bincount(seg, minlength=num) if seg.size else np.zeros(num, dtype=int)
         mask = counts > 0
         if not np.any(mask):
             return
         assert close(y_np[mask], y_other[mask], equal_nan=True), (name, y_np, y_other)
         return
+    if np.issubdtype(y_np.dtype, np.bool_) or y_np.dtype == bool:
+        assert np.array_equal(y_np, y_other), (name, y_np, y_other)
+        return
     assert close(y_np, y_other, equal_nan=True), (name, y_np, y_other)
+
+
+def _agree(fn: Callable, args_np: tuple, y_np, y_other):
+    name = getattr(fn, "__name__", str(fn))
+    if isinstance(y_np, tuple):
+        assert isinstance(y_other, tuple) and len(y_np) == len(y_other), (name, y_np, y_other)
+        for a, b in zip(y_np, y_other):
+            _agree_arrays(name, a, b, args_np, fn)
+        return
+    _agree_arrays(name, y_np, y_other, args_np, fn)
 
 
 @st.composite
