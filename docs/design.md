@@ -5,20 +5,6 @@ implies when you hit an edge case. For the concrete matrix of “framework A
 does X, we do Y,” see [Surprising differences](semantics.md). For runnable
 compile/script recipes, see [Worked examples](examples.md).
 
---
-
-## Mental model (short)
-
-1. Pass the tensors you already have.
-2. Tag operands with the right promote kind (`data` / `index` / `mask` / `shape`).
-3. Always pass shape-sizes (`num_segments`, …) as static-friendly values.
-4. Trust empty-segment identities and TF NaN OR-in for segment min/max.
-5. Treat index width, XLA NaN, and GPU ties as non-portable.
-6. For TorchScript, only rely on the `segment_sum` / `min` / `max` divert.
-
-That is the design: a small set of hard contracts, and clear warnings everywhere
-else.
-
 ---
 
 ## Design goals
@@ -260,16 +246,56 @@ When in doubt: read [Surprising differences](semantics.md), or check
 
 ---
 
-## Testing as design documentation
+## How we keep the contract honest
 
-The suite is layered so “what we promise” stays executable:
+Portability claims are cheap; **executable** ones are not. AnyTensor’s suite is
+part of the product:
 
-| Layer | Role |
+| Layer | What it buys you |
 |---|---|
-| Unit / contract (`pytest -m "not fuzz"`) | Empty identities, promotion, boundaries; coverage gate (omits `backends.py` / `torchscript.py`) |
-| Cross-backend fuzz | NumPy reference × random other backend on the `@fuzz_op` registry |
-| Symbolic fuzz | Eager vs `jax.jit` / `torch.compile` / `tf.function` (+ XLA); jaxtyping off |
-| Docs examples (Sybil) | GAT-style helper + compile/script recipes in [`examples.md`](examples.md) |
+| **Unit / contract** | Empty-segment identities, promotion rules, and backend contracts pinned in pytest — not tribal knowledge |
+| **100% coverage gate** | Non-fuzz suite must cover the portable surface (`fail_under=100`; `backends.py` / `torchscript.py` omitted as framework shims) |
+| **Cross-backend fuzz** | Hypothesis draws random ops and inputs; **NumPy is the reference**, a random other backend must agree (NaN-aware) |
+| **Symbolic fuzz** | Eager vs `jax.jit` / `torch.compile` / `tf.function` (+ XLA) on the same registry — compilers are not an afterthought |
+| **TorchScript fuzz** | Scripted `segment_sum` / `min` / `max` vs eager Torch after the divert |
+| **Minimal-NumPy CI** | Install **without** Hypothesis / JAX / Torch / TF and still import + run segment ops — deploy surface stays thin |
+| **Docs as tests** | Fenced examples in [`examples.md`](examples.md) run under pytest (Sybil), including jit / compile / script recipes |
+| **Runtime typecheck in tests** | jaxtyping + beartype on public annotations during the suite (off in normal installs) |
 
-If a behavior is not tested at one of these layers, do not assume it is part of
-the portability contract.
+Surprises found under fuzz become rows in [Surprising differences](semantics.md)
+or standardized behavior in `anytensor.semantics`. If it is not tested at one
+of these layers, do not treat it as part of the portability promise.
+
+---
+
+## Versioning and compatibility
+
+We follow [**Semantic Versioning**](https://semver.org/): `MAJOR.MINOR.PATCH`.
+
+- **Patch** — bug fixes, docs, tests; no intentional API or semantics change.
+- **Minor** — new ops, backends, or documented behavior that stays
+  backward-compatible for existing call sites.
+- **Major** — **breaking changes only**. Public signatures, promote defaults,
+  empty-segment identities, or other documented contracts do not change in a
+  minor or patch release.
+
+Until `1.0.0`, the surface may still grow quickly, but we still avoid silent
+breakage: deprecations and changelog fragments call out user-visible changes.
+After `1.0.0`, anything that would break a careful caller requires a **major**
+bump.
+
+Versions come from git tags via hatch-vcs — see [Release](release.md).
+
+---
+
+## Mental model (short)
+
+1. Pass the tensors you already have.
+2. Tag operands with the right promote kind (`data` / `index` / `mask` / `shape`).
+3. Always pass shape-sizes (`num_segments`, …) as static-friendly values.
+4. Trust empty-segment identities and TF NaN OR-in for segment min/max.
+5. Treat index width, XLA NaN, and GPU ties as non-portable.
+6. For TorchScript, only rely on the `segment_sum` / `min` / `max` divert.
+
+That is the design: a small set of hard contracts, and clear warnings everywhere
+else.
