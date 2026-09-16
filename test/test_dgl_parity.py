@@ -36,7 +36,7 @@ def _require_dgl():
 
         return dgl
     except Exception as exc:  # pragma: no cover - env-dependent
-        pytest.skip(f"dgl unavailable: {exc}")
+        pytest.skip(f"dgl unavailable: {exc}", allow_module_level=True)
 
 
 dgl = _require_dgl()
