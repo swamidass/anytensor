@@ -328,9 +328,11 @@ def _split_by_lengths(graph, sizes):
         )
     if not leaves:
         return []
-    split_leaves = [
-        array_split(x, tree.lengths_to_cuts(n)) for x, n in zip(leaves, size_leaves)
-    ]
+    split_leaves = tree.map(
+        lambda x, n: array_split(x, tree.lengths_to_cuts(n)),
+        leaves,
+        size_leaves,
+    )
     return [tree.unflatten(treedef, list(part)) for part in zip(*split_leaves)]
 
 

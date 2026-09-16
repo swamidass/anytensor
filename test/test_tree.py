@@ -544,9 +544,11 @@ def test_tree_length_cut_helpers_and_map_split():
 
     leaves, treedef = tree.flatten(data)
     size_leaves, _ = tree.flatten(sizes)
-    split_leaves = [
-        array_split(x, tree.lengths_to_cuts(n)) for x, n in zip(leaves, size_leaves)
-    ]
+    split_leaves = tree.map(
+        lambda x, n: array_split(x, tree.lengths_to_cuts(n)),
+        leaves,
+        size_leaves,
+    )
     parts = [tree.unflatten(treedef, list(part)) for part in zip(*split_leaves)]
     assert len(parts) == 2
     np.testing.assert_array_equal(parts[0]["n"], [0, 1])
@@ -561,7 +563,11 @@ def test_tree_length_cut_helpers_and_map_split():
     nested_parts = [
         tree.unflatten(n_def, list(part))
         for part in zip(
-            *[array_split(x, tree.lengths_to_cuts(n)) for x, n in zip(n_leaves, n_sizes)]
+            *tree.map(
+                lambda x, n: array_split(x, tree.lengths_to_cuts(n)),
+                n_leaves,
+                n_sizes,
+            )
         )
     ]
     assert nested_parts[0]["h"].shape == (1, 2)
