@@ -18,21 +18,17 @@ _SCALAR_TYPES = (bool, int, float, complex)
 def _is_scalar(x: Any) -> bool:
     if isinstance(x, _SCALAR_TYPES):
         return True
-    try:
-        import numpy as np
-
-        return isinstance(x, np.generic)
-    except ImportError:  # pragma: no cover
+    np = loaded("numpy")
+    if np is None:
         return False
+    return isinstance(x, np.generic)
 
 
 def _is_numpy_ndarray(x: Any) -> bool:
-    try:
-        import numpy as np
-
-        return isinstance(x, np.ndarray)
-    except ImportError:  # pragma: no cover
+    np = loaded("numpy")
+    if np is None:
         return False
+    return isinstance(x, np.ndarray)
 
 
 def _is_tensorflow_tensor(x: Any) -> bool:
@@ -46,7 +42,9 @@ class _TensorflowNumpyNamespace:
     """``tf.experimental.numpy`` plus Array API helpers array-api-compat would normally add."""
 
     def __init__(self):
-        import tensorflow as tf
+        tf = loaded("tensorflow")
+        if tf is None:
+            raise RuntimeError("tensorflow is not imported")
         import tensorflow.experimental.numpy as tnp
 
         self._tf = tf
@@ -97,7 +95,9 @@ class _TensorflowNumpyNamespace:
         return self._tnp.clip(x, a_min=min, a_max=max)
 
     def isdtype(self, dtype, kind) -> bool:
-        import numpy as np
+        np = loaded("numpy")
+        if np is None:
+            raise RuntimeError("numpy is not imported")
 
         np_dtype = getattr(dtype, "as_numpy_dtype", dtype)
         if isinstance(kind, tuple):

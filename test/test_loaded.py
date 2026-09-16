@@ -367,3 +367,40 @@ def test_namespace_tf_check_uses_already_loaded_module(monkeypatch):
     assert namespace._is_tensorflow_tensor(tensor_cls()) is True
     assert namespace._is_tensorflow_tensor(variable_cls()) is True
     assert namespace._is_tensorflow_tensor(object()) is False
+
+
+def test_numpy_type_checks_skip_when_not_loaded(monkeypatch):
+    import numpy as np
+    from anytensor import core, namespace, semantics
+    from anytensor.semantics import empty_segment_identity
+
+    monkeypatch.setattr(namespace, "loaded", lambda name, callback=None: None)
+    assert namespace._is_numpy_ndarray(np.array([1.0])) is False
+    assert namespace._is_scalar(1.5) is True
+    assert namespace._is_scalar(np.int64(1)) is False
+
+    monkeypatch.setattr(namespace, "loaded", at.loaded)
+    assert namespace._is_scalar(np.int64(1)) is True
+    assert namespace._is_numpy_ndarray(np.array([1.0])) is True
+
+    monkeypatch.setattr(core, "loaded", lambda name, callback=None: None)
+    assert core._normalize_shape_dim(4) == 4
+
+    monkeypatch.setattr(semantics, "loaded", lambda name, callback=None: None)
+
+    class KindF:
+        kind = "f"
+
+    assert empty_segment_identity(KindF(), "min", xp=np) == np.inf
+
+
+def test_tf_namespace_init_and_isdtype_require_loaded_modules(monkeypatch):
+    from anytensor import namespace
+
+    monkeypatch.setattr(namespace, "loaded", lambda name, callback=None: None)
+    with pytest.raises(RuntimeError, match="tensorflow is not imported"):
+        namespace._TensorflowNumpyNamespace()
+
+    ns = namespace._TensorflowNumpyNamespace.__new__(namespace._TensorflowNumpyNamespace)
+    with pytest.raises(RuntimeError, match="numpy is not imported"):
+        ns.isdtype(object(), "bool")

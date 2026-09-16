@@ -11,6 +11,7 @@ from contextvars import ContextVar
 from typing import Any, Literal, Optional, Union
 
 from .namespace import array_namespace, _is_numpy_ndarray, _is_scalar
+from .optional import loaded
 from .typing import ArrayT, Axes, DtypeLike, ShapeLike, ShapeSize, ShapedArray, IntArray
 
 Fallback = Literal["copy", "error"]
@@ -168,15 +169,12 @@ def _normalize_shape_dim(value: ShapeSize | None) -> ShapeSize | None:
     if _is_scalar(value):
         if isinstance(value, (bool,)):
             raise TypeError("shape dim cannot be bool")
-        try:
-            import numpy as np
-
+        np = loaded("numpy")
+        if np is not None:
             if isinstance(value, np.bool_):
                 raise TypeError("shape dim cannot be bool")
             if isinstance(value, np.generic):
                 return int(value.item())
-        except ImportError:  # pragma: no cover
-            pass
         if isinstance(value, float):
             if not value.is_integer():
                 raise TypeError(f"shape dim must be integral, got {value!r}")

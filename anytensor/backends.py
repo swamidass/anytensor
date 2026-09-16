@@ -29,6 +29,14 @@ from importlib.metadata import PackageNotFoundError, version as pkg_version
 
 from .optional import loaded
 
+
+def _framework(name: str):
+    """Return an already-imported framework module; never import it."""
+    mod = loaded(name)
+    if mod is None:
+        raise RuntimeError(f"{name} is not imported")
+    return mod
+
 _loaded_backends: dict = {}
 _type2backend: dict = {}
 _debug_importing = False
@@ -284,8 +292,7 @@ class NumpyBackend(AbstractBackend):
     framework_name = "numpy"
 
     def __init__(self):
-        import numpy
-
+        numpy = _framework("numpy")
         self.np = numpy
         self._install_numeric_attrs(numpy)
 
@@ -370,7 +377,7 @@ class JaxBackend(NumpyBackend):
         import jax.numpy
 
         self.np = jax.numpy
-        self._jax = __import__("jax")
+        self._jax = _framework("jax")
         self._install_numeric_attrs(self.np)
 
     def is_appropriate_type(self, tensor):
@@ -412,7 +419,7 @@ class TorchBackend(AbstractBackend):
 
     def __init__(self):
         _require_pkg_version("torch", "2.0")
-        import torch
+        torch = _framework("torch")
 
         self.torch = torch
         self._install_numeric_attrs(torch)
@@ -506,7 +513,7 @@ class TensorflowBackend(AbstractBackend):
 
     def __init__(self):
         _require_pkg_version("tensorflow", "2.10")
-        import tensorflow
+        tensorflow = _framework("tensorflow")
         import tensorflow.experimental.numpy as tnp
 
         self.tf = tensorflow
