@@ -1,7 +1,28 @@
 # Lab log
 
+## 2026-09-16
+
+- Ragged concat: ``axis=0`` always (offset ``row_ids``); ``axis>=2`` only when
+  partitions match exactly; ``axis=1`` unsupported. ``at.concatenate`` dispatches
+  via structured ``Type.concatenate``; NumPy/Torch cat hooked in the POC.
+- Ragged concat tracing: Python-int ``nrows``; feature-axis requires shared
+  ``row_ids`` object under jax/tf/torch compile (value-equality only eager);
+  clear ``ValueError`` when partition cannot be checked while tracing.
+
 ## 2026-09-15
 
+- Ragged: prefer ``at.*`` + magic ``__add__`` / ``__matmul__`` / … on values
+  (broadcast + ``r @ W``); ``row_ids`` untouched. NumPy/Torch dispatch kept as
+  convenience antipattern. Per-row gather broadcast still explicit via ``take``.
+- Ragged design: elementwise / library ops peel to ``values`` only; ``row_ids``
+  are a no-op (``with_values`` reuses the same index object). Added
+  ``anytensor.structure`` register/peel/rewrap wired into ``as_array_result`` +
+  ``promote``; ``ragged_poc.Ragged`` registers and adds NumPy/Torch dispatch +
+  JAX values-only pytree. Not every framework op can dispatch (esp. ``jnp.*``).
+- Scaffolded `ragged_poc/` prototype: `Ragged(values, row_ids, nrows)` on top of
+  `segment_*` / `repeat`; constructors from lengths / row_splits; reduce +
+  softmax / normalize. NumPy smoke tests under `pytest ragged_poc`. Not in the
+  public package or coverage gate yet — promote if the shape sticks.
 - Require current array-api-compat (≥1.15); fix coverage test that passed raw ``numpy`` into ``_pad_or_slice_leading`` (needs AAC ``concat`` under numpy 1.24).
 - GHA 35053243764: main test matrix green; min-backends still red on AAC 1.6 (no `cumulative_sum` / `concat` / Array-API `clip`) → raise AAC floor (now current 1.15).
 - GHA 35052980138: coverage fixed; min-backends hit AAC 1.4 `asarray(copy=False)` NotImplementedError → catch it in `_asarray` + floor AAC→1.6; fuzz SIGSEGV in `torch.compile` symbolic → skip on CI (same as Sybil).
