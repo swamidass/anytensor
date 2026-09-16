@@ -139,14 +139,27 @@ def as_array_result(fn: Callable[..., ShapedArray]) -> Callable[..., ShapedArray
 
     Reductions (and any op) may hand back ``np.float64`` / Python scalars;
     callers need a real array (``.shape``, ``.dtype``, methods).
+
+    Registered structured types (:mod:`anytensor.structure`) are peeled to
+    ``.values`` before the op; partition metadata (e.g. ragged ``row_ids``) is
+    never passed through the op — rewrap reuses the same index vector.
     """
 
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
-        out = fn(*args, **kwargs)
-        if not _is_scalar(out):
+        from .structure import apply_structured, is_structure, peel
+
+        if any(is_structure(a) for a in args) or any(
+            is_structure(v) for v in kwargs.values()
+        ):
+            out = apply_structured(fn, args, kwargs)
+        else:
+            out = fn(*args, **kwargs)
+        if is_structure(out) or not _is_scalar(out):
             return out
-        xp = _xp(*args, *kwargs.values())
+        ns_args = [peel(a)[0] for a in args]
+        ns_kwargs = [peel(v)[0] for v in kwargs.values()]
+        xp = _xp(*ns_args, *ns_kwargs)
         return xp.asarray(out)
 
     return wrapper
@@ -273,9 +286,22 @@ def promote(
 
             @functools.wraps(fn)
             def wrapper(*args, **kwargs):
+                from .structure import is_structure, merge_templates, peel, rewrap
+
                 bound = sig.bind(*args, **kwargs)
                 bound.apply_defaults()
                 names = [n for n in roles if n in bound.arguments]
+                # Structured args → payload only; row_ids / partition stay on template.
+                templates = []
+                for n in names:
+                    if roles[n] == "shape":
+                        continue
+                    v = bound.arguments[n]
+                    if is_structure(v):
+                        payload, tmpl = peel(v)
+                        bound.arguments[n] = payload
+                        templates.append(tmpl)
+                template = merge_templates(templates)
                 # Namespace from data/index/mask only — pure Python shape ints stay host.
                 ns_values = [
                     bound.arguments[n]
@@ -295,7 +321,10 @@ def promote(
                 _apply_dtype_roles(xp, converted, roles)
                 for n, v in converted.items():
                     bound.arguments[n] = v
-                return fn(*bound.args, **bound.kwargs)
+                out = fn(*bound.args, **bound.kwargs)
+                if isinstance(out, tuple):
+                    return tuple(rewrap(o, template) for o in out)
+                return rewrap(out, template)
 
             return wrapper
 
@@ -466,8 +495,21 @@ def transpose(x: ShapedArray, axes: Optional[Sequence[int]] = None) -> ShapedArr
 
 @as_array_result
 def concatenate(arrays: Sequence[ShapedArray], axis: int = 0) -> ShapedArray:
-    """Concatenate a sequence of arrays along ``axis``."""
-    return array_namespace(*arrays).concat(arrays, axis=axis)
+    """Concatenate a sequence of arrays along ``axis``.
+
+    When every element is the same registered structure type and that type
+    defines ``concatenate``, dispatch there (e.g. ragged batch-axis concat).
+    """
+    from .structure import is_structure
+
+    seq = list(arrays)
+    if seq and all(is_structure(a) for a in seq):
+        head_t = type(seq[0])
+        if all(type(a) is head_t for a in seq):
+            cat = getattr(head_t, "concatenate", None)
+            if callable(cat):
+                return cat(seq, axis=axis)
+    return array_namespace(*seq).concat(seq, axis=axis)
 
 
 @as_array_result

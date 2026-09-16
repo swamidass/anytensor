@@ -666,6 +666,13 @@ _NON_FUZZ_PUBLIC = frozenset(
         "isfinite",
         "isinf",
         "cast",
+        # structure peel/rewrap infra (ragged-ready; not numeric fuzz targets)
+        "register_structure",
+        "unregister_structure",
+        "is_structure",
+        "peel",
+        "rewrap",
+        "apply_structured",
     }
 )
 
