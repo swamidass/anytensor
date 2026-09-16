@@ -1,0 +1,84 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Runtime must work with only core deps (NumPy). Hypothesis / JAX / Torch / TF
+  # are not required to import or run basic ops.
+  minimal-numpy:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install package only (no extras, no dev / hypothesis)
+        run: |
+          uv venv
+          uv pip install .
+      - name: Assert optional / dev packages are absent
+        run: |
+          uv run python - <<'PY'
+          import importlib.util
+          for name in ("hypothesis", "torch", "jax", "tensorflow"):
+              spec = importlib.util.find_spec(name)
+              assert spec is None, f"unexpected dependency present: {name}"
+          print("optional/dev packages absent: ok")
+          PY
+      - name: Smoke import and NumPy segment ops
+        run: |
+          uv run python - <<'PY'
+          import anytensor as at
+          import numpy as np
+
+          x = np.arange(5.0)
+          ids = np.array([0, 0, 1, 1, 2])
+          y = at.segment_sum(x, ids, 3)
+          assert y.shape == (3,)
+          np.testing.assert_allclose(y, [1.0, 5.0, 4.0])
+          assert at.segment_min(x, ids, 3).shape == (3,)
+          assert at.segment_max(x, ids, 3).shape == (3,)
+          print("minimal-numpy smoke ok", getattr(at, "__version__", "?"))
+          PY
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install with all backends + dev
+        run: uv sync --extra all --group dev
+      - name: Confirm backends importable
+        run: |
+          uv run python - <<'PY'
+          import jax, torch, tensorflow, numpy  # noqa: F401
+          from helpers import loaded_backends
+          assert set(loaded_backends) >= {"numpy", "jax", "torch", "tensorflow"}, loaded_backends
+          print("backends:", sorted(loaded_backends))
+          PY
+      - name: Unit / contract tests (coverage gate)
+        run: uv run pytest -m "not fuzz" --cov=anytensor --cov-report=term-missing
+      - name: Fuzz (bounded for CI)
+        run: uv run pytest -m fuzz --fuzz-examples=200
