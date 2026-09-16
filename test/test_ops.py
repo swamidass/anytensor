@@ -262,7 +262,7 @@ def test_promote_index_keeps_integral_segment_ids(backend):
 
 @pytest.mark.parametrize("backend", BACKENDS)
 def test_where_clip_astype(backend):
-    from array_api_compat import array_namespace
+    from anytensor.namespace import array_namespace
 
     x = np.array([4.0, 9.0, 16.0])
     backend_impl = loaded_backends[backend]

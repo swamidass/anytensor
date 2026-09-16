@@ -45,12 +45,13 @@ def empty_segment_identity(dtype, reduction: str, *, xp: Any) -> Any:
     if reduction not in ("min", "max"):
         raise ValueError(f"reduction type {reduction} not supported")
 
-    # Prefer Array API / NumPy dtype checks.
+    # Prefer Array API / NumPy dtype checks; accept TF dtypes via as_numpy_dtype.
     is_float = False
     try:
         import numpy as np
 
-        is_float = np.issubdtype(dtype, np.floating)
+        np_dtype = getattr(dtype, "as_numpy_dtype", dtype)
+        is_float = np.issubdtype(np_dtype, np.floating)
     except Exception:
         kind = getattr(dtype, "kind", None)
         is_float = kind == "f"

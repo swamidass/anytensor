@@ -1,0 +1,106 @@
+warning: `VIRTUAL_ENV=/Users/swamidass/Workspaces/xenosite/xenosite-retrain-project/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+.......                                                                  [100%]
+=============================== warnings summary ===============================
+test/test_cross_backend_fuzz.py: 107 warnings
+  /Users/swamidass/Workspaces/anytensor/anytensor/segment.py:94: RuntimeWarning: invalid value encountered in subtract
+    centered = x - mean_gathered
+
+test/test_cross_backend_fuzz.py: 99 warnings
+  /Users/swamidass/Workspaces/anytensor/anytensor/segment.py:104: RuntimeWarning: invalid value encountered in divide
+    out = x / safe
+
+test/test_cross_backend_fuzz.py: 71 warnings
+test/test_hypothesis.py: 1 warning
+  /Users/swamidass/Workspaces/anytensor/.venv/lib/python3.13/site-packages/numpy/_core/fromnumeric.py:83: RuntimeWarning: invalid value encountered in reduce
+    return ufunc.reduce(obj, axis, dtype, out, **passkwargs)
+
+test/test_cross_backend_fuzz.py: 55 warnings
+test/test_hypothesis.py: 4608 warnings
+  /Users/swamidass/Workspaces/anytensor/anytensor/backends.py:355: RuntimeWarning: invalid value encountered in add
+    agg.at(s, seg_ids, x)
+
+test/test_cross_backend_fuzz.py::test_numpy_vs_random_backend_random_op
+test/test_cross_backend_fuzz.py::test_numpy_vs_random_backend_random_op
+test/test_hypothesis.py::test_fuzz_reductions_with_nan_inf_and_empty
+  /Users/swamidass/Workspaces/anytensor/.venv/lib/python3.13/site-packages/numpy/_core/fromnumeric.py:3862: RuntimeWarning: Mean of empty slice
+    return _methods._mean(a, axis=axis, dtype=dtype,
+
+test/test_cross_backend_fuzz.py::test_numpy_vs_random_backend_random_op
+test/test_cross_backend_fuzz.py::test_numpy_vs_random_backend_random_op
+  /Users/swamidass/Workspaces/anytensor/.venv/lib/python3.13/site-packages/numpy/_core/_methods.py:142: RuntimeWarning: invalid value encountered in divide
+    ret = ret.dtype.type(ret / rcount)
+
+test/test_cross_backend_fuzz.py: 8 warnings
+test/test_hypothesis.py: 1549 warnings
+  /Users/swamidass/Workspaces/anytensor/.venv/lib/python3.13/site-packages/numpy/_core/_methods.py:132: RuntimeWarning: invalid value encountered in reduce
+    ret = umr_sum(arr, axis, dtype, out, keepdims, where=where)
+
+test/test_cross_backend_fuzz.py: 14 warnings
+  /Users/swamidass/Workspaces/anytensor/.venv/lib/python3.13/site-packages/numpy/_core/fromnumeric.py:54: RuntimeWarning: invalid value encountered in accumulate
+    return bound(*args, **kwds)
+
+test/test_hypothesis.py: 1548 warnings
+  /Users/swamidass/Workspaces/anytensor/.venv/lib/python3.13/site-packages/numpy/_core/_methods.py:49: RuntimeWarning: invalid value encountered in reduce
+    return umr_sum(a, axis, dtype, out, keepdims, initial, where)
+
+test/test_hypothesis.py::test_fuzz_reductions_with_nan_inf_and_empty
+  /Users/swamidass/Workspaces/anytensor/.venv/lib/python3.13/site-packages/numpy/_core/_methods.py:142: RuntimeWarning: invalid value encountered in scalar divide
+    ret = ret.dtype.type(ret / rcount)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+============================ Hypothesis Statistics =============================
+test/test_cross_backend_fuzz.py::test_numpy_vs_random_backend_random_op:
+
+  - during generate phase (14.03 seconds):
+    - Typical runtimes: ~ 0-1 ms, of which < 1ms in data generation
+    - 10000 passing, 0 failing, and 742 invalid test cases
+
+  - Stopped because settings.max_examples=10000
+
+
+test/test_hypothesis.py::test_fuzz_segment_sum_count_mean_numpy:
+
+  - during generate phase (12.71 seconds):
+    - Typical runtimes: ~ 0-1 ms, of which < 1ms in data generation
+    - 10000 passing, 0 failing, and 2927 invalid test cases
+
+  - Stopped because settings.max_examples=10000
+
+
+test/test_hypothesis.py::test_fuzz_reductions_with_nan_inf_and_empty:
+
+  - during generate phase (9.11 seconds):
+    - Typical runtimes: < 1ms, of which < 1ms in data generation
+    - 10000 passing, 0 failing, and 646 invalid test cases
+
+  - Stopped because settings.max_examples=10000
+
+
+test/test_hypothesis.py::test_fuzz_maximum_matches_numpy_nan_inf:
+
+  - during generate phase (10.71 seconds):
+    - Typical runtimes: ~ 0-1 ms, of which < 1ms in data generation
+    - 10000 passing, 0 failing, and 483 invalid test cases
+
+  - Stopped because settings.max_examples=10000
+
+
+test/test_hypothesis.py::test_fuzz_segment_sum_matches_numpy_backend[jax]:
+
+  - during generate phase (15.00 seconds):
+    - Typical runtimes: ~ 0-1 ms, of which < 1ms in data generation
+    - 10000 passing, 0 failing, and 2890 invalid test cases
+
+  - Stopped because settings.max_examples=10000
+
+
+test/test_hypothesis.py::test_fuzz_segment_sum_matches_numpy_backend[torch]:
+
+  - during generate phase (11.87 seconds):
+    - Typical runtimes: ~ 0-1 ms, of which < 1ms in data generation
+    - 10000 passing, 0 failing, and 2924 invalid test cases
+
+  - Stopped because settings.max_examples=10000
+
+
+7 passed, 218 deselected, 8066 warnings in 74.23s (0:01:14)

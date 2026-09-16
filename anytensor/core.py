@@ -9,12 +9,10 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, Callable, Iterator, Literal, Optional, Sequence, Union
 
-from array_api_compat import array_namespace
+from .namespace import array_namespace, _is_numpy_ndarray, _is_scalar
 
 Axes = Union[int, Sequence[int], None]
 Fallback = Literal["copy", "error"]
-
-_SCALAR_TYPES = (bool, int, float, complex)
 
 # Library defaults for NumPy → framework promotion (decorators / align read these).
 _promote_copy: ContextVar[bool] = ContextVar("anytensor_promote_copy", default=False)
@@ -39,26 +37,6 @@ def promote_options(*, copy: bool = False, fallback: Fallback = "copy") -> Itera
     finally:
         _promote_copy.reset(t_copy)
         _promote_fallback.reset(t_fb)
-
-
-def _is_scalar(x: Any) -> bool:
-    if isinstance(x, _SCALAR_TYPES):
-        return True
-    try:
-        import numpy as np
-
-        return isinstance(x, np.generic)
-    except ImportError:  # pragma: no cover
-        return False
-
-
-def _is_numpy_ndarray(x: Any) -> bool:
-    try:
-        import numpy as np
-
-        return isinstance(x, np.ndarray)
-    except ImportError:  # pragma: no cover
-        return False
 
 
 def _xp(*values: Any):

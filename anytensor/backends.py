@@ -514,9 +514,29 @@ class TensorflowBackend(AbstractBackend):
     def __init__(self):
         _require_pkg_version("tensorflow", "2.10")
         import tensorflow
+        import tensorflow.experimental.numpy as tnp
 
         self.tf = tensorflow
-        self._install_numeric_attrs(tensorflow)
+        # Ordinary ops use tnp (via anytensor.namespace); attrs/finfo come from there.
+        self._install_numeric_attrs(tnp)
+        self.bool = tensorflow.bool
+        # Prefer TF dtypes when present on the root module.
+        for name in (
+            "float16",
+            "float32",
+            "float64",
+            "bfloat16",
+            "int8",
+            "int16",
+            "int32",
+            "int64",
+            "uint8",
+            "uint16",
+            "uint32",
+            "uint64",
+        ):
+            if hasattr(tensorflow, name):
+                setattr(self, name, getattr(tensorflow, name))
 
     def is_appropriate_type(self, tensor):
         return isinstance(tensor, (self.tf.Tensor, self.tf.Variable))
@@ -584,6 +604,20 @@ class TensorflowBackend(AbstractBackend):
     def is_float_type(self, x):
         return x.dtype in ("float16", "float32", "float64", "float128", "bfloat16")
 
+    def finfo(self, dtype):
+        """Floating dtype limits — accept TF dtypes via NumPy bridge."""
+        import numpy as np
+
+        np_dtype = getattr(dtype, "as_numpy_dtype", dtype)
+        return np.finfo(np_dtype)
+
+    def iinfo(self, dtype):
+        """Integral dtype limits — accept TF dtypes via NumPy bridge."""
+        import numpy as np
+
+        np_dtype = getattr(dtype, "as_numpy_dtype", dtype)
+        return np.iinfo(np_dtype)
+
     def segment_reduce(
         self,
         x,
@@ -595,13 +629,27 @@ class TensorflowBackend(AbstractBackend):
         tf = self.tf
         if reduction not in ("sum", "min", "max"):
             raise ValueError(f"reduction type {reduction} not supported")
-        # Sorted ops are ``segment_{sum,min,max}(data, ids)`` — no num_segments.
-        # Unsorted ops take ``(data, ids, num_segments)``.
-        if sorted:
-            op = getattr(tf.math, f"segment_{reduction}")
-            return op(x, seg_ids)
-        op = getattr(tf.math, f"unsorted_segment_{reduction}")
-        return op(x, seg_ids, num_segments)
+        # Sum: TF segment ops are fine (empty → 0).
+        if reduction == "sum":
+            if sorted:
+                return tf.math.segment_sum(x, seg_ids)
+            return tf.math.unsorted_segment_sum(x, seg_ids, num_segments)
+
+        # Min/max: TF unsorted_segment_{min,max} map ±inf to finfo limits and use
+        # those as empty fills. Scatter from an AnyTensor identity preserves
+        # ±inf and matches :mod:`anytensor.semantics` (sorted flag unused).
+        del sorted
+        # Normalize TF dtypes for the semantics helper (expects NumPy-ish dtypes).
+        import numpy as np
+
+        np_dtype = getattr(x.dtype, "as_numpy_dtype", x.dtype)
+        fill = empty_segment_identity(np_dtype, reduction, xp=np)
+        shape = (num_segments,) + tuple(s for s in x.shape[1:])
+        init = tf.fill(shape, value=tf.cast(fill, x.dtype))
+        indices = tf.expand_dims(tf.cast(seg_ids, tf.int64), -1)
+        if reduction == "min":
+            return tf.tensor_scatter_nd_min(init, indices, x)
+        return tf.tensor_scatter_nd_max(init, indices, x)
 
 
 class HashableTuple:

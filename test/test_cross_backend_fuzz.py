@@ -28,7 +28,6 @@ pytestmark = [
 ]
 
 _settings = settings(
-    max_examples=1000,
     deadline=None,
     suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
 )

@@ -8,8 +8,6 @@ from __future__ import annotations
 
 from typing import Optional
 
-from array_api_compat import array_namespace
-
 from .backends import get_backend
 from .core import (
     take,
@@ -24,6 +22,7 @@ from .core import (
     _asarray,
     _apply_dtype_roles,
 )
+from .namespace import array_namespace
 
 
 def _align_segment_args(x, segment_ids):
@@ -84,6 +83,7 @@ def segment_mean(x, segment_ids, num_segments: int, sorted: bool = False):
     while counts.ndim < total.ndim:
         counts = xp.expand_dims(counts, axis=-1)
     denom = maximum(counts, xp.asarray(1.0, dtype=counts.dtype))
+    denom = xp.astype(denom, total.dtype)
     return total / denom
 
 

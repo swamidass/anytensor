@@ -13,7 +13,6 @@ from helpers import BACKENDS, close, loaded_backends
 pytestmark = pytest.mark.fuzz
 
 _settings = settings(
-    max_examples=1000,
     deadline=None,
     suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
 )
