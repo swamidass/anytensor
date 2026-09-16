@@ -48,22 +48,3 @@ Pushing `v*` runs `.github/workflows/release.yml`:
 3. Towncrier compiles `CHANGELOG.md` onto the default branch
 4. GitHub Release with the dist artifacts
 5. **PyPI** via Trusted Publishing (OIDC, environment `pypi`)
-
-### One-time PyPI setup
-
-The GitHub environment **`pypi`** is created and restricted to **`v*` tags**
-(only `release.yml` tag pushes can deploy). Remaining step: register the
-trusted publisher on PyPI.
-
-Until that trust is configured, the `pypi-publish` job will fail on missing
-OIDC trust — that is expected.
-
-1. [PyPI trusted publishers](https://docs.pypi.org/trusted-publishers/)
-   (pending publisher if the project name is new):
-   - Owner: `swamidass`
-   - Repo: `anytensor`
-   - Workflow: `release.yml`
-   - Environment: `pypi`
-
-No API tokens. After that, tagging `v*` publishes to
-<https://pypi.org/project/anytensor/>.
