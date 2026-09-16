@@ -42,9 +42,9 @@ CI (`.github/workflows/test.yml`):
   (`fail_under=100`, XML artifact on 3.12) + bounded fuzz (typecheck hook on
   by default)
 - `min-backends` — Python 3.10 with tensor libraries pinned to the declared
-  floors in [`ci/min-versions.txt`](../ci/min-versions.txt) (mirrors
-  `pyproject.toml` `>=` mins). If install or tests fail, bisect those pins
-  upward and raise the corresponding floors in `pyproject.toml`.
+  floors in `ci/min-versions.txt` (mirrors `pyproject.toml` `>=` mins). If
+  install or tests fail, bisect those pins upward and raise the corresponding
+  floors in `pyproject.toml`.
 
 Tag releases (`.github/workflows/release.yml`) re-run the coverage gate, build
 wheels, create a GitHub Release, and publish to PyPI via Trusted Publishing

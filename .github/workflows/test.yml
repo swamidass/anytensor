@@ -28,7 +28,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install package only (no extras, no dev / hypothesis)
         run: |
-          uv venv
+          uv venv --clear
           uv pip install .
       - name: Assert optional / dev packages are absent
         run: |
@@ -72,7 +72,7 @@ jobs:
         run: uv sync --extra all --group dev
       - name: Confirm backends importable
         run: |
-          uv run python - <<'PY'
+          PYTHONPATH=test uv run python - <<'PY'
           import jax, torch, tensorflow, numpy  # noqa: F401
           from helpers import loaded_backends
           assert set(loaded_backends) >= {"numpy", "jax", "torch", "tensorflow"}, loaded_backends
@@ -113,7 +113,7 @@ jobs:
           python-version: "3.10"
       - name: Install package + backends at declared minimum pins
         run: |
-          uv venv
+          uv venv --clear
           uv pip install -e . --constraint ci/min-versions.txt
           uv pip install --constraint ci/min-versions.txt \
             jax jaxlib torch tensorflow beartype
@@ -137,7 +137,7 @@ jobs:
           PY
       - name: Confirm backends importable
         run: |
-          uv run python - <<'PY'
+          PYTHONPATH=test uv run python - <<'PY'
           import jax, torch, tensorflow, numpy  # noqa: F401
           from helpers import loaded_backends
           assert set(loaded_backends) >= {"numpy", "jax", "torch", "tensorflow"}, loaded_backends
