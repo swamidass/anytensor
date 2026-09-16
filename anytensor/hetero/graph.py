@@ -4,16 +4,15 @@ Separate from the jraph-mirroring package. Batching goes through
 :func:`anytensor.tree.batch` / ``unbatch`` via ``__tree_batch__`` /
 ``__tree_unbatch__`` (same hooks as :class:`~anytensor.jraph.GraphsTuple`).
 
-Missing keys in a merge are filled with empty arrays; fillers are recorded on
-:class:`HeteroBatch` (Policy C) so ``unbatch`` can restore absent keys without
-polluting the model-facing graph fields.
+Batched inputs must share the same ntype / etype keys. Callers that need to
+merge unequal schemas should insert empty (length-0) features and zero
+``n_node`` / ``n_edge`` entries themselves before calling ``batch``.
 """
 
 from __future__ import annotations
 
 from typing import (
     Any,
-    Dict,
     Iterable,
     Iterator,
     Mapping,
@@ -33,6 +32,8 @@ from anytensor.namespace import array_namespace
 ArrayTree = Union[Any, Iterable["ArrayTree"], Mapping[Any, "ArrayTree"]]
 CanonicalEtype = Tuple[str, str, str]
 Ntype = str
+
+_UNSET = object()
 
 
 def _as_np_vec(x) -> np.ndarray:
@@ -64,54 +65,11 @@ def _empty_like_leading(proto, leading: int = 0):
     return tree.map(_one, proto)
 
 
-def _zeros_n(n_graphs: int, like) -> Any:
-    return zeros((n_graphs,), dtype=np.asarray(like).dtype, like=like)
-
-
-def _empty_index(like) -> Any:
-    return zeros((0,), dtype=np.asarray(like).dtype, like=like)
-
-
 def _offset_index(index, offset: int):
     if index is None:
         return None
     xp = array_namespace(index)
     return index + xp.asarray(offset, dtype=index.dtype)
-
-
-def schemas_equal(
-    a: "HeteroGraphsTuple",
-    b: "HeteroGraphsTuple",
-    *,
-    empty_means_absent: bool = True,
-) -> bool:
-    """Return True if ``a`` and ``b`` have the same ntypes / etypes under rules.
-
-    With ``empty_means_absent=True`` (default), size-0 node/edge types are
-    treated as missing (same as an absent key).
-    """
-    return canonicalize_schema(a, empty_means_absent=empty_means_absent) == canonicalize_schema(
-        b, empty_means_absent=empty_means_absent
-    )
-
-
-def canonicalize_schema(
-    g: "HeteroGraphsTuple",
-    *,
-    empty_means_absent: bool = True,
-) -> Tuple[Tuple[str, ...], Tuple[CanonicalEtype, ...]]:
-    """Sorted ``(ntypes, etypes)`` after optional empty→absent normalization."""
-    ntypes = []
-    for k, n in g.n_node.items():
-        if empty_means_absent and _sum_int(n) == 0:
-            continue
-        ntypes.append(k)
-    etypes = []
-    for k, n in g.n_edge.items():
-        if empty_means_absent and _sum_int(n) == 0:
-            continue
-        etypes.append(k)
-    return tuple(sorted(ntypes)), tuple(sorted(etypes))
 
 
 def _merge_map(base: Mapping, patch: Optional[Mapping]):
@@ -122,7 +80,14 @@ def _merge_map(base: Mapping, patch: Optional[Mapping]):
     return out
 
 
-_UNSET = object()
+def key_schema(g: "HeteroGraphsTuple") -> Tuple[Tuple[str, ...], Tuple[CanonicalEtype, ...]]:
+    """Sorted ``(ntypes, etypes)`` from present keys (empties still count)."""
+    return tuple(sorted(g.n_node.keys())), tuple(sorted(g.n_edge.keys()))
+
+
+def schemas_equal(a: "HeteroGraphsTuple", b: "HeteroGraphsTuple") -> bool:
+    """True if ``a`` and ``b`` have the same ntype / etype key sets."""
+    return key_schema(a) == key_schema(b)
 
 
 class SendRecvTuple(NamedTuple):
@@ -154,6 +119,8 @@ class HeteroGraphsTuple(NamedTuple):
 
     ``n_node[ntype]`` and ``n_edge[etype]`` are integer vectors of length
     ``n_graphs`` (jraph-style batching within one object).
+
+    :func:`anytensor.tree.batch` requires every input to share the same keys.
     """
 
     nodes: Mapping[Ntype, Optional[ArrayTree]]
@@ -281,36 +248,6 @@ class HeteroGraphsTuple(NamedTuple):
         return _unbatch_hetero(self)
 
 
-class HeteroBatch(NamedTuple):
-    """Stacked hetero graphs plus Policy-C filler metadata for round-trip.
-
-    Models should consume ``graph`` (or its iterators). Filler sets are
-    **per input** to :func:`anytensor.tree.batch` (not a union applied to every
-    slice), so unbatch restores absent keys without dropping real types.
-    """
-
-    graph: HeteroGraphsTuple
-    # Parallel to the batch inputs: fillers introduced while aligning each one.
-    filled_ntypes: Tuple[frozenset, ...]
-    filled_etypes: Tuple[frozenset, ...]
-    # Atomic graph count contributed by each input (``g.n_graphs()``).
-    input_n_graphs: Tuple[int, ...]
-
-    def __tree_unbatch__(self, axis: int = 0):
-        if axis != 0:
-            raise ValueError("HeteroBatch unbatch only supports axis=0")
-        parts = _unbatch_hetero(self.graph)
-        out = []
-        i = 0
-        for n, fn, fe in zip(
-            self.input_n_graphs, self.filled_ntypes, self.filled_etypes
-        ):
-            for _ in range(n):
-                out.append(_strip_filled(parts[i], fn, fe))
-                i += 1
-        return out
-
-
 def graphs_tuple_as_send_recv(graph) -> SendRecvTuple:
     """View a jraph :class:`~anytensor.jraph.GraphsTuple` as send→recv (aliased pools)."""
     return SendRecvTuple(
@@ -329,167 +266,71 @@ def graphs_tuple_as_send_recv(graph) -> SendRecvTuple:
     )
 
 
-def _prototype_node(graphs: Sequence[HeteroGraphsTuple], ntype: Ntype):
-    # Prefer a non-empty pool, then any present features for trailing shape/dtype.
-    nonempty = None
-    any_feat = None
-    for g in graphs:
-        if ntype not in g.nodes or g.nodes[ntype] is None:
-            continue
-        any_feat = g.nodes[ntype]
-        if _sum_int(g.n_node.get(ntype, [0])) > 0:
-            nonempty = g.nodes[ntype]
-            break
-    return nonempty if nonempty is not None else any_feat
+def _require_same_keys(graphs: Sequence[HeteroGraphsTuple]) -> None:
+    schema0 = key_schema(graphs[0])
+    for i, g in enumerate(graphs[1:], start=1):
+        if key_schema(g) != schema0:
+            raise ValueError(
+                "HeteroGraphsTuple batch requires identical ntype/etype keys; "
+                f"graph[0] has {schema0}, graph[{i}] has {key_schema(g)}. "
+                "Insert empty (length-0) features and zero n_node/n_edge for "
+                "missing types before batching."
+            )
+    # Structural maps should agree with n_node / n_edge keys.
+    g0 = graphs[0]
+    node_keys = set(g0.n_node)
+    edge_keys = set(g0.n_edge)
+    for i, g in enumerate(graphs):
+        if set(g.nodes) != node_keys:
+            raise ValueError(
+                f"graph[{i}].nodes keys {set(g.nodes)!r} != n_node keys {node_keys!r}"
+            )
+        if set(g.edges) != edge_keys or set(g.senders) != edge_keys or set(g.receivers) != edge_keys:
+            raise ValueError(
+                f"graph[{i}] edge maps must share keys with n_edge {edge_keys!r}"
+            )
 
 
-def _prototype_edge(graphs: Sequence[HeteroGraphsTuple], etype: CanonicalEtype):
-    nonempty = None
-    any_feat = None
-    for g in graphs:
-        if etype not in g.edges or g.edges[etype] is None:
-            continue
-        any_feat = g.edges[etype]
-        if _sum_int(g.n_edge.get(etype, [0])) > 0:
-            nonempty = g.edges[etype]
-            break
-    return nonempty if nonempty is not None else any_feat
-
-
-def _prototype_index(graphs: Sequence[HeteroGraphsTuple], etype: CanonicalEtype, field: str):
-    for g in graphs:
-        m = getattr(g, field)
-        if etype in m and m[etype] is not None:
-            return m[etype]
-    for g in graphs:
-        for v in g.senders.values():
-            if v is not None:
-                return v
-        for v in g.n_node.values():
-            return v
-    raise ValueError("cannot infer index dtype for empty filler")
-
-
-def _align_graph(
-    g: HeteroGraphsTuple,
-    ntypes: Sequence[Ntype],
-    etypes: Sequence[CanonicalEtype],
-    graphs: Sequence[HeteroGraphsTuple],
-) -> Tuple[HeteroGraphsTuple, frozenset, frozenset]:
-    """Pad ``g`` to ``ntypes``/``etypes`` with empty arrays; return fillers used."""
-    n_graphs = g.n_graphs()
-    filled_n: set = set()
-    filled_e: set = set()
-
-    nodes = dict(g.nodes)
-    n_node = dict(g.n_node)
-    # Reference size vector for missing n_node length.
-    size_like = next(iter(g.n_node.values())) if g.n_node else zeros((n_graphs,), dtype=np.int32)
-
-    for ntype in ntypes:
-        if ntype not in n_node:
-            filled_n.add(ntype)
-            proto = _prototype_node(graphs, ntype)
-            n_node[ntype] = _zeros_n(n_graphs, size_like)
-            nodes[ntype] = None if proto is None else _empty_like_leading(proto, 0)
-
-    edges = dict(g.edges)
-    senders = dict(g.senders)
-    receivers = dict(g.receivers)
-    n_edge = dict(g.n_edge)
-    for etype in etypes:
-        if etype not in n_edge:
-            filled_e.add(etype)
-            proto = _prototype_edge(graphs, etype)
-            idx_like = _prototype_index(graphs, etype, "senders")
-            n_edge[etype] = _zeros_n(n_graphs, size_like)
-            edges[etype] = None if proto is None else _empty_like_leading(proto, 0)
-            senders[etype] = _empty_index(idx_like)
-            receivers[etype] = _empty_index(idx_like)
-
-    aligned = HeteroGraphsTuple(
-        nodes=nodes,
-        edges=edges,
-        senders=senders,
-        receivers=receivers,
-        n_node=n_node,
-        n_edge=n_edge,
-        globals=g.globals,
-    )
-    return aligned, frozenset(filled_n), frozenset(filled_e)
-
-
-def _batch_hetero(graphs: Sequence[HeteroGraphsTuple]) -> HeteroBatch:
+def _batch_hetero(graphs: Sequence[HeteroGraphsTuple]) -> HeteroGraphsTuple:
     if not graphs:
         raise ValueError("batch() requires at least one HeteroGraphsTuple")
+    _require_same_keys(graphs)
 
-    ntypes = tuple(sorted({t for g in graphs for t in g.n_node}))
-    etypes = tuple(sorted({t for g in graphs for t in g.n_edge}))
+    ntypes = graphs[0].ntypes()
+    etypes = graphs[0].canonical_etypes()
 
-    aligned = []
-    filled_n_list = []
-    filled_e_list = []
-    input_n_graphs = []
-    for g in graphs:
-        ag, fn, fe = _align_graph(g, ntypes, etypes, graphs)
-        aligned.append(ag)
-        filled_n_list.append(fn)
-        filled_e_list.append(fe)
-        input_n_graphs.append(ag.n_graphs())
-
-    # Per-ntype offsets for sender/receiver rebasing.
     offsets = {t: [] for t in ntypes}
     running = {t: 0 for t in ntypes}
-    for g in aligned:
+    for g in graphs:
         for t in ntypes:
             offsets[t].append(running[t])
             running[t] += _sum_int(g.n_node[t])
 
-    nodes = {
-        t: tree.batch([g.nodes[t] for g in aligned], axis=0)
-        for t in ntypes
-    }
-    n_node = {
-        t: tree.batch([g.n_node[t] for g in aligned], axis=0)
-        for t in ntypes
-    }
-    edges = {
-        e: tree.batch([g.edges[e] for g in aligned], axis=0)
-        for e in etypes
-    }
-    n_edge = {
-        e: tree.batch([g.n_edge[e] for g in aligned], axis=0)
-        for e in etypes
-    }
+    nodes = {t: tree.batch([g.nodes[t] for g in graphs], axis=0) for t in ntypes}
+    n_node = {t: tree.batch([g.n_node[t] for g in graphs], axis=0) for t in ntypes}
+    edges = {e: tree.batch([g.edges[e] for g in graphs], axis=0) for e in etypes}
+    n_edge = {e: tree.batch([g.n_edge[e] for g in graphs], axis=0) for e in etypes}
     senders = {}
     receivers = {}
     for e in etypes:
         src, _r, dst = e
         senders[e] = concatenate(
-            [_offset_index(g.senders[e], offsets[src][i]) for i, g in enumerate(aligned)],
+            [_offset_index(g.senders[e], offsets[src][i]) for i, g in enumerate(graphs)],
             axis=0,
         )
         receivers[e] = concatenate(
-            [_offset_index(g.receivers[e], offsets[dst][i]) for i, g in enumerate(aligned)],
+            [_offset_index(g.receivers[e], offsets[dst][i]) for i, g in enumerate(graphs)],
             axis=0,
         )
 
-    globals_ = tree.batch([g.globals for g in aligned], axis=0)
-
-    stacked = HeteroGraphsTuple(
+    return HeteroGraphsTuple(
         nodes=nodes,
         edges=edges,
         senders=senders,
         receivers=receivers,
         n_node=n_node,
         n_edge=n_edge,
-        globals=globals_,
-    )
-    return HeteroBatch(
-        graph=stacked,
-        filled_ntypes=tuple(filled_n_list),
-        filled_etypes=tuple(filled_e_list),
-        input_n_graphs=tuple(input_n_graphs),
+        globals=tree.batch([g.globals for g in graphs], axis=0),
     )
 
 
@@ -502,11 +343,9 @@ def _unbatch_hetero(graph: HeteroGraphsTuple) -> list[HeteroGraphsTuple]:
     if n_graphs == 0:
         return []
 
-    # Per-graph node counts for each type.
     n_node_lists = {t: _partition_sizes(graph.n_node[t]) for t in graph.n_node}
     n_edge_lists = {e: _partition_sizes(graph.n_edge[e]) for e in graph.n_edge}
 
-    # Cumulative node offsets within the stacked batch (per type).
     node_offsets = {}
     for t, counts in n_node_lists.items():
         offs = [0]
@@ -514,8 +353,6 @@ def _unbatch_hetero(graph: HeteroGraphsTuple) -> list[HeteroGraphsTuple]:
             offs.append(offs[-1] + c)
         node_offsets[t] = offs
 
-    # Split features via tree.unbatch units then regroup — reuse jraph approach
-    # by splitting with cumsum indices manually for variable sizes.
     def split_feat(feat, sizes):
         if feat is None:
             return [None] * len(sizes)
@@ -535,12 +372,8 @@ def _unbatch_hetero(graph: HeteroGraphsTuple) -> list[HeteroGraphsTuple]:
                 out.append(tree.batch(chunk, axis=0))
         return out
 
-    nodes_parts = {
-        t: split_feat(graph.nodes[t], n_node_lists[t]) for t in graph.n_node
-    }
-    edges_parts = {
-        e: split_feat(graph.edges[e], n_edge_lists[e]) for e in graph.n_edge
-    }
+    nodes_parts = {t: split_feat(graph.nodes[t], n_node_lists[t]) for t in graph.n_node}
+    edges_parts = {e: split_feat(graph.edges[e], n_edge_lists[e]) for e in graph.n_edge}
     senders_parts = {
         e: split_feat(graph.senders[e], n_edge_lists[e]) for e in graph.n_edge
     }
@@ -557,7 +390,6 @@ def _unbatch_hetero(graph: HeteroGraphsTuple) -> list[HeteroGraphsTuple]:
             src, _r, dst = e
             s = senders_parts[e][i]
             r = receivers_parts[e][i]
-            # Undo batch offsets (offset is start of this graph's nodes in the stack).
             senders_i[e] = None if s is None else s - node_offsets[src][i]
             receivers_i[e] = None if r is None else r - node_offsets[dst][i]
         out.append(
@@ -572,25 +404,3 @@ def _unbatch_hetero(graph: HeteroGraphsTuple) -> list[HeteroGraphsTuple]:
             )
         )
     return out
-
-
-def _strip_filled(
-    g: HeteroGraphsTuple,
-    filled_ntypes: frozenset,
-    filled_etypes: frozenset,
-) -> HeteroGraphsTuple:
-    nodes = {k: v for k, v in g.nodes.items() if k not in filled_ntypes}
-    n_node = {k: v for k, v in g.n_node.items() if k not in filled_ntypes}
-    edges = {k: v for k, v in g.edges.items() if k not in filled_etypes}
-    n_edge = {k: v for k, v in g.n_edge.items() if k not in filled_etypes}
-    senders = {k: v for k, v in g.senders.items() if k not in filled_etypes}
-    receivers = {k: v for k, v in g.receivers.items() if k not in filled_etypes}
-    return HeteroGraphsTuple(
-        nodes=nodes,
-        edges=edges,
-        senders=senders,
-        receivers=receivers,
-        n_node=n_node,
-        n_edge=n_edge,
-        globals=g.globals,
-    )
