@@ -2,6 +2,7 @@
 
 ## 2026-09-15
 
+- GHA 35053243764: main test matrix green; min-backends still red on AAC 1.6 (no `cumulative_sum` / `concat` / Array-API `clip`) → raise AAC floor to 1.12.
 - GHA 35052980138: coverage fixed; min-backends hit AAC 1.4 `asarray(copy=False)` NotImplementedError → catch it in `_asarray` + floor AAC→1.6; fuzz SIGSEGV in `torch.compile` symbolic → skip on CI (same as Sybil).
 - GHA 35052455676 red: (1) min-backends jaxtyping 0.2.28 `Shaped[ArrayT,…]` → TypeError; floor →0.2.34 (+ beartype 0.18.2, yanked 0.18.0). (2) coverage miss `enable_torchscript` return-False — pytest `filterwarnings` with `torch.jit.TracerWarning` imported torch before anytensor; switched to message-only filters + explicit unit test.
 - CI min-backends: raised Torch→2.1 / TF→2.13 after first GHA pass (TF 2.10≠numpy 1.24; export needs ≥2.1). Skip torch.compile Sybil on CI (dynamo/triton SIGSEGV). minimal-numpy uses `.venv/bin/python` to avoid uv syncing hypothesis.
