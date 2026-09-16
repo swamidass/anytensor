@@ -38,11 +38,16 @@ CI (`.github/workflows/test.yml`):
 
 - `minimal-numpy` — install the package alone; assert hypothesis / jax / torch /
   tensorflow are absent; smoke NumPy segment ops (runtime deploy surface)
-- `test` — `uv sync --extra all --group dev`; coverage gate + bounded fuzz
-  (typecheck hook on by default)
+- `test` — `uv sync --extra all --group dev`; **coverage gate**
+  (`fail_under=100`, XML artifact on 3.12) + bounded fuzz (typecheck hook on
+  by default)
+
+Tag releases (`.github/workflows/release.yml`) re-run the coverage gate, build
+wheels, create a GitHub Release, and publish to PyPI via Trusted Publishing
+(see [Release](release.md)).
 
 Docs deploy to GitHub Pages on pushes to `main` (`.github/workflows/docs.yml`):
-`uv sync --group docs` then `mkdocs build` (no Hypothesis / optional backends).
+`uv sync --group docs` then `mkdocs build --strict` (no Hypothesis / optional backends).
 Site: <https://swamidass.github.io/anytensor/>.
 
 `fuzz_examples` lives under `[tool.pytest.ini_options]` in `pyproject.toml`.
@@ -57,7 +62,7 @@ fuzz registrations in `test/test_cross_backend_fuzz.py`, contracts in
 
 ```bash
 uv run mkdocs serve    # http://127.0.0.1:8000
-uv run mkdocs build    # site/ (gitignored)
+uv run mkdocs build --strict    # site/ (gitignored)
 ```
 
 API pages are generated from docstrings via

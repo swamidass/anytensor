@@ -27,6 +27,27 @@ git tag -a v0.1.0 -m "0.1.0"
 git push origin v0.1.0
 ```
 
-Pushing `v*` should run release CI (tests, clean `X.Y.Z`, build, GitHub
-Release, towncrier compiling `CHANGELOG.md`). PyPI is **opt-in** — add Trusted
-Publishing only when publishing is requested.
+Pushing `v*` runs `.github/workflows/release.yml`:
+
+1. Test matrix (3.11–3.13) with the **coverage gate** (`fail_under=100`,
+   non-fuzz) and bounded fuzz
+2. `uv build` (sdist + wheel)
+3. Towncrier compiles `CHANGELOG.md` onto the default branch
+4. GitHub Release with the dist artifacts
+5. **PyPI** via Trusted Publishing (OIDC, environment `pypi`)
+
+### One-time PyPI setup
+
+Until Trusted Publishing is configured, the `pypi-publish` job will fail on
+missing OIDC trust — that is expected.
+
+1. GitHub → Settings → Environments → create **`pypi`**
+2. [PyPI trusted publishers](https://docs.pypi.org/trusted-publishers/)
+   (pending publisher if the project name is new):
+   - Owner: `swamidass`
+   - Repo: `anytensor`
+   - Workflow: `release.yml`
+   - Environment: `pypi`
+
+No API tokens. After that, tagging `v*` publishes to
+<https://pypi.org/project/anytensor/>.
