@@ -4,7 +4,9 @@ Portable tensor ops across **NumPy**, **JAX**, **PyTorch**, and **TensorFlow**, 
 
 Write a helper once; run it on whatever tensor the caller already has. Ordinary math uses the [Python Array API](https://data-apis.org/array-api/latest/) via [`array-api-compat`](https://github.com/data-apis/array-api-compat). Segment reductions stay on thin input-adaptive backends.
 
-**Docs** (motivation, GAT-style case study, API): <https://swamidass.github.io/anytensor/> — or `uv run --group docs mkdocs serve` from a checkout ([`docs/`](docs/index.md)).
+**Docs** (motivation, GAT-style case study, design, API): <https://swamidass.github.io/anytensor/> — or `uv run --group docs mkdocs serve` from a checkout ([`docs/`](docs/index.md)).
+
+We follow [Semantic Versioning](https://semver.org/): breaking changes require a **major** bump. Portability is backed by cross-backend / symbolic fuzz, a coverage gate, and pytest-run docs examples ([Design](docs/design.md#how-we-keep-the-contract-honest)).
 
 ## Install
 
@@ -34,6 +36,7 @@ The same call works on JAX / Torch / TF tensors. `num_segments` is **required** 
 Read next:
 
 - [Home / motivation](docs/index.md) — why AnyTensor, GAT neighbor-softmax case study across four backends
+- [Design](docs/design.md) — principles, edge cases, **testing as contract**, SemVer
 - [Usage](docs/usage.md) — promotion, segment helpers, TorchScript (`enable_torchscript`), typing
 - [Surprising differences](docs/semantics.md) — NaN / ±inf / graph / GPU gotchas from fuzz
 - [API reference](docs/api/index.md) — generated from docstrings

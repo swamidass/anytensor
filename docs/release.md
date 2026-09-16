@@ -1,5 +1,18 @@
 # Release
 
+AnyTensor follows [**Semantic Versioning**](https://semver.org/)
+(`MAJOR.MINOR.PATCH`):
+
+| Bump | When |
+|---|---|
+| **MAJOR** | Breaking changes to the public API or documented semantics (signatures, promote defaults, empty-segment identities, …) |
+| **MINOR** | Backward-compatible features |
+| **PATCH** | Bug fixes, docs, tests |
+
+We do **not** ship breaking changes in minor or patch releases. Prefer a
+deprecation + changelog note when behavior must evolve; remove or flip it on
+the next major.
+
 Package version comes from git tags
 ([hatch-vcs](https://github.com/ofek/hatch-vcs)), not a static `version` in
 `pyproject.toml`. Do not bump a version field. Do not run `towncrier build`

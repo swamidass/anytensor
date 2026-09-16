@@ -47,6 +47,12 @@ native tensors; AnyTensor dispatches.
    tensors stay on their device/dtype world.
 4. **Honest about differences.** When TF XLA and NumPy disagree on
    `inf * tiny`, we [document it](semantics.md) instead of papering over it.
+5. **Tests are the contract.** Cross-backend and symbolic fuzz, a 100%
+   coverage gate, TorchScript parity, minimal-NumPy CI, and pytest-run docs
+   examples keep portability claims executable — see
+   [Design → How we keep the contract honest](design.md#how-we-keep-the-contract-honest).
+6. **Semantic Versioning.** No breaking public API or documented semantics
+   changes without a **major** version bump ([Release](release.md)).
 
 ---
 

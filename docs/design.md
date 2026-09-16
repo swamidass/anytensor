@@ -5,6 +5,20 @@ implies when you hit an edge case. For the concrete matrix of “framework A
 does X, we do Y,” see [Surprising differences](semantics.md). For runnable
 compile/script recipes, see [Worked examples](examples.md).
 
+--
+
+## Mental model (short)
+
+1. Pass the tensors you already have.
+2. Tag operands with the right promote kind (`data` / `index` / `mask` / `shape`).
+3. Always pass shape-sizes (`num_segments`, …) as static-friendly values.
+4. Trust empty-segment identities and TF NaN OR-in for segment min/max.
+5. Treat index width, XLA NaN, and GPU ties as non-portable.
+6. For TorchScript, only rely on the `segment_sum` / `min` / `max` divert.
+
+That is the design: a small set of hard contracts, and clear warnings everywhere
+else.
+
 ---
 
 ## Design goals
@@ -259,17 +273,3 @@ The suite is layered so “what we promise” stays executable:
 
 If a behavior is not tested at one of these layers, do not assume it is part of
 the portability contract.
-
----
-
-## Mental model (short)
-
-1. Pass the tensors you already have.
-2. Tag operands with the right promote kind (`data` / `index` / `mask` / `shape`).
-3. Always pass shape-sizes (`num_segments`, …) as static-friendly values.
-4. Trust empty-segment identities and TF NaN OR-in for segment min/max.
-5. Treat index width, XLA NaN, and GPU ties as non-portable.
-6. For TorchScript, only rely on the `segment_sum` / `min` / `max` divert.
-
-That is the design: a small set of hard contracts, and clear warnings everywhere
-else.
