@@ -31,7 +31,7 @@ from .optional import loaded
 
 
 def _framework(name: str):
-    """Return an already-imported framework module; never import it."""
+    """Return an already-imported optional extra (jax / torch / tensorflow)."""
     mod = loaded(name)
     if mod is None:
         raise RuntimeError(f"{name} is not imported")
@@ -292,7 +292,8 @@ class NumpyBackend(AbstractBackend):
     framework_name = "numpy"
 
     def __init__(self):
-        numpy = _framework("numpy")
+        import numpy
+
         self.np = numpy
         self._install_numeric_attrs(numpy)
 

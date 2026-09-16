@@ -66,8 +66,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from .optional import loaded
-
 
 def empty_segment_identity(dtype: Any, reduction: str, *, xp: Any) -> Any:
     """Return the AnyTensor empty-segment identity for ``reduction`` on ``dtype``.
@@ -98,10 +96,9 @@ def empty_segment_identity(dtype: Any, reduction: str, *, xp: Any) -> Any:
 
     # Prefer Array API / NumPy dtype checks; accept TF dtypes via as_numpy_dtype.
     is_float = False
-    np = loaded("numpy")
     try:
-        if np is None:
-            raise TypeError("numpy is not imported")
+        import numpy as np
+
         np_dtype = getattr(dtype, "as_numpy_dtype", dtype)
         is_float = np.issubdtype(np_dtype, np.floating)
     except Exception:

@@ -18,16 +18,14 @@ _SCALAR_TYPES = (bool, int, float, complex)
 def _is_scalar(x: Any) -> bool:
     if isinstance(x, _SCALAR_TYPES):
         return True
-    np = loaded("numpy")
-    if np is None:
-        return False
+    import numpy as np
+
     return isinstance(x, np.generic)
 
 
 def _is_numpy_ndarray(x: Any) -> bool:
-    np = loaded("numpy")
-    if np is None:
-        return False
+    import numpy as np
+
     return isinstance(x, np.ndarray)
 
 
@@ -95,9 +93,7 @@ class _TensorflowNumpyNamespace:
         return self._tnp.clip(x, a_min=min, a_max=max)
 
     def isdtype(self, dtype, kind) -> bool:
-        np = loaded("numpy")
-        if np is None:
-            raise RuntimeError("numpy is not imported")
+        import numpy as np
 
         np_dtype = getattr(dtype, "as_numpy_dtype", dtype)
         if isinstance(kind, tuple):
