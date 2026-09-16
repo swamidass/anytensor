@@ -4,7 +4,7 @@
 #
 # PyPI uses Trusted Publishing (OIDC) — no API token secret. One-time setup
 # when the project is ready on PyPI:
-#   1. GitHub → Settings → Environments → create "pypi"
+#   1. GitHub environment "pypi" (tag-restricted to v*) — already created
 #   2. PyPI → Publishing → add trusted publisher (pending if the project is new):
 #        owner: swamidass
 #        repo: anytensor

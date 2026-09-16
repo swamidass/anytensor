@@ -51,11 +51,14 @@ Pushing `v*` runs `.github/workflows/release.yml`:
 
 ### One-time PyPI setup
 
-Until Trusted Publishing is configured, the `pypi-publish` job will fail on
-missing OIDC trust — that is expected.
+The GitHub environment **`pypi`** is created and restricted to **`v*` tags**
+(only `release.yml` tag pushes can deploy). Remaining step: register the
+trusted publisher on PyPI.
 
-1. GitHub → Settings → Environments → create **`pypi`**
-2. [PyPI trusted publishers](https://docs.pypi.org/trusted-publishers/)
+Until that trust is configured, the `pypi-publish` job will fail on missing
+OIDC trust — that is expected.
+
+1. [PyPI trusted publishers](https://docs.pypi.org/trusted-publishers/)
    (pending publisher if the project name is new):
    - Owner: `swamidass`
    - Repo: `anytensor`
