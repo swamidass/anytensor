@@ -105,7 +105,9 @@ do not use them in new code.
 
 `anytensor.enable_torchscript()` remains for legacy `torch.jit.script` call
 sites that still hit `segment_sum` / `min` / `max`; it is not the recommended
-path.
+path. It does not import Torch and does not care about import order: a helper
+registered with `module_if_loaded("torch", …)` enables the divert as soon as
+Torch is imported.
 
 ## Typing
 
@@ -134,3 +136,7 @@ group. Set `JAXTYPING_DISABLE=1` to force runtime checks off.
 - Array API `nan_to_num`, element-wise `equal_nan`
 - `inf(x)` / `ninf(x)` / `nan(x)` / `pi(x)` / `e(x)`, `dtype(...)`, `finfo` / `iinfo`
 - `newaxis` is `None`
+
+Nested structures and graphs have their own sections:
+[Tree](tree/index.md), [Jraph](jraph/index.md).
+

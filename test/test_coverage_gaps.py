@@ -266,7 +266,7 @@ def test_enable_typecheck_installs_hook():
 
 
 def test_enable_torchscript_returns_false_without_torch():
-    """``enable_torchscript`` is a no-op until ``torch`` is imported."""
+    """``enable_torchscript`` returns False until ``torch`` is imported; it still queues the helper."""
     from anytensor import segment
 
     was = segment._TORCHSCRIPT_ENABLED
@@ -277,6 +277,8 @@ def test_enable_torchscript_returns_false_without_torch():
     }
     try:
         assert segment.enable_torchscript() is False
+        segment._TORCHSCRIPT_ENABLED = True
+        assert segment._enable_torchscript(object()) is True
     finally:
         if torch_mod is not None:
             sys.modules["torch"] = torch_mod
@@ -284,6 +286,7 @@ def test_enable_torchscript_returns_false_without_torch():
         segment._TORCHSCRIPT_ENABLED = was
         if was:
             assert segment.enable_torchscript() is True
+            assert segment._enable_torchscript(torch_mod) is True
 
 
 def test_repeat_host_concrete_and_pad_fallback(monkeypatch):

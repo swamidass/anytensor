@@ -624,6 +624,8 @@ def fuzz_partition_softmax(logits, partitions, sum_partitions):
 _NON_FUZZ_PUBLIC = frozenset(
     {
         "backends",
+        "tree",
+        "jraph",
         "get_backend",
         "einsum",
         "pack",
@@ -639,6 +641,7 @@ _NON_FUZZ_PUBLIC = frozenset(
         "empty_segment_identity",
         "enable_torchscript",
         "enable_typecheck",
+        "module_if_loaded",
         # typing helpers / jaxtyping re-exports (not runtime ops)
         "ArrayT",
         "Axes",

@@ -8,18 +8,19 @@ Python int, a jit/compile symbolic constant, or a 0-d tensor scalar — never
 inferred from ``segment_ids``.
 
 TorchScript: :func:`enable_torchscript` wraps ``segment_sum`` / ``min`` /
-``max`` with a ``torch.jit.is_scripting()`` divert. Eager calls still dispatch
-by tensor type (NumPy / JAX / Torch / TF); only the scripted path uses
-:mod:`anytensor.torchscript`. That lets a library call ``at.segment_sum`` while
-an end user ``torch.jit.script``s the library. See docs/usage.md.
+``max`` with a ``torch.jit.is_scripting()`` divert. Import order does not
+matter: a :func:`module_if_loaded` helper enables the divert as soon as
+``torch`` is imported. Eager calls still dispatch by tensor type
+(NumPy / JAX / Torch / TF); only the scripted path uses
+:mod:`anytensor.torchscript`. See docs/usage.md.
 """
 
 from __future__ import annotations
 
-import sys
 from typing import Optional
 
 from .backends import get_backend
+from .optional import module_if_loaded
 from .typing import ArrayT, ShapeSize, SegmentValues, SegmentIds, SegmentOut, ShapedArray, IntArray
 from .core import (
     take,
@@ -91,9 +92,10 @@ def segment_sum(x: SegmentValues, segment_ids: SegmentIds, num_segments: ShapeSi
         JAX without ``jax_enable_x64`` often keeps int32 and may warn on int64
         ids.
 
-        Under ``torch.jit.script``, call :func:`enable_torchscript` first (or
-        import ``torch`` before ``anytensor``). Eager calls still dispatch by
-        tensor type; only the scripted path uses :mod:`anytensor.torchscript`.
+        Under ``torch.jit.script``, import ``torch`` in either order relative to
+        AnyTensor — the divert auto-enables via :func:`anytensor.module_if_loaded`.
+        Eager calls still dispatch by tensor type; only the scripted path uses
+        :mod:`anytensor.torchscript`.
 
     Examples:
         >>> import numpy as np
@@ -180,30 +182,11 @@ def segment_min(x: SegmentValues, segment_ids: SegmentIds, num_segments: ShapeSi
     return _segment_reduce(x, segment_ids, num_segments, "min", sorted)
 
 
-def enable_torchscript() -> bool:
-    """Enable ``torch.jit.script`` through public ``segment_sum`` / ``min`` / ``max``.
-
-    Wraps those helpers with a ``torch.jit.is_scripting()`` divert to
-    :mod:`anytensor.torchscript`. **Eager behavior is unchanged**: NumPy, JAX,
-    Torch, and TF tensors still dispatch via backends. Only while scripting
-    (or inside an already-scripted graph) do we take the pure-Torch kernels.
-
-    That lets a third-party library call ``anytensor.segment_sum`` in ordinary
-    Python, while an end user of that library can ``torch.jit.script`` their
-    own code that reaches those calls.
-
-    Requires ``torch`` to be imported already (AnyTensor does not import it).
-    Safe to call more than once. Returns whether TorchScript support is active.
-
-    Prefer importing ``torch`` before ``anytensor`` so this runs at package
-    load; otherwise call ``anytensor.enable_torchscript()`` before scripting.
-    """
+def _enable_torchscript(torch) -> bool:
+    """Install the TorchScript divert. ``torch`` is the already-imported module."""
     global _TORCHSCRIPT_ENABLED, segment_sum, segment_min, segment_max, _segment_reduce
     if _TORCHSCRIPT_ENABLED:
         return True
-    torch = sys.modules.get("torch")
-    if torch is None:
-        return False
 
     from . import torchscript
 
@@ -223,7 +206,7 @@ def enable_torchscript() -> bool:
     segment_min = divert_min
     _TORCHSCRIPT_ENABLED = True
 
-    pkg = sys.modules.get("anytensor")
+    pkg = module_if_loaded("anytensor")
     if pkg is not None:  # pragma: no branch - package always loaded in normal use
         pkg.segment_sum = segment_sum
         pkg.segment_max = segment_max
@@ -232,7 +215,29 @@ def enable_torchscript() -> bool:
     return True
 
 
-# If the user already imported torch, enable scripting divert at load time.
+def enable_torchscript() -> bool:
+    """Enable ``torch.jit.script`` through public ``segment_sum`` / ``min`` / ``max``.
+
+    Wraps those helpers with a ``torch.jit.is_scripting()`` divert to
+    :mod:`anytensor.torchscript`. **Eager behavior is unchanged**: NumPy, JAX,
+    Torch, and TF tensors still dispatch via backends. Only while scripting
+    (or inside an already-scripted graph) do we take the pure-Torch kernels.
+
+    That lets a third-party library call ``anytensor.segment_sum`` in ordinary
+    Python, while an end user of that library can ``torch.jit.script`` their
+    own code that reaches those calls.
+
+    Does not import ``torch`` and does not require a particular import order.
+    If Torch is not loaded yet, a helper is registered with
+    :func:`anytensor.module_if_loaded` and the divert enables on a later
+    ``import torch``. Returns ``False`` until then; safe to call more than once.
+    """
+    if _TORCHSCRIPT_ENABLED:
+        return True
+    return module_if_loaded("torch", _enable_torchscript) is not None
+
+
+# Enable now if torch is already imported; otherwise when it is first imported.
 enable_torchscript()
 
 

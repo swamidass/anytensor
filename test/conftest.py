@@ -31,6 +31,7 @@ _TYPECHECK_MODULES = (
     "anytensor.semantics",
     "anytensor.backends",
     "anytensor.typing",
+    "anytensor.tree",
 )
 if os.environ.get("ANYTENSOR_TYPECHECK", "1") not in ("0", "false", "False"):
     try:

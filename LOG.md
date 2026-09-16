@@ -1,5 +1,25 @@
 # Lab log
 
+## 2026-09-16
+
+- Folded `anytensor.jraph` into the 100% coverage gate (None connectivity,
+  padding without senders, dynamically_batch flush/split, 1-d zero-out,
+  `_flip0` fallbacks, extra jraph pad parity). Minimal-numpy CI smokes
+  GraphsTuple batch + GraphNetwork. Fuzz inventory allowlists `tree` /
+  `jraph` (modules, not ops).
+- Docs: dedicated Tree and Jraph sections (examples moved off usage /
+  worked-examples). Tree marks flatten-style registration as beta; public
+  tree/jraph API is stable. Jraph overview links upstream and discusses
+  why the library’s data model is worth following. Tree overview links
+  jax.tree / dm-tree / optree / Torch pytree and positions the module as
+  a nest walker for any structured record, not only GNN features. Tree is
+  pure Python; NumPy is the only binary dependency. Official-jraph public
+  `__all__` is a subset of `anytensor.jraph` (full public-API coverage);
+  Hypothesis parity fuzz vs upstream jraph when JAX is installed, including
+  GAT (self-edges added, not skipped) and the rest of the model zoo.
+  `jraph.batch` / `unbatch` are `tree.batch` / `tree.unbatch`; GraphsTuple
+  implements `__tree_batch__` / `__tree_unbatch__` (no sized-split API).
+
 ## 2026-09-15
 
 - Require current array-api-compat (≥1.15); fix coverage test that passed raw ``numpy`` into ``_pad_or_slice_leading`` (needs AAC ``concat`` under numpy 1.24).
@@ -37,4 +57,10 @@
 - `promote_options(copy=True)` / decorator `copy=True` when host NumPy buffers mutate.
 - Added boundary tests + Hypothesis fuzz; coverage ~74% (backends TF paths / unused AbstractBackend methods dominate miss). `segment_normalize` avoids 0/0 warnings via safe denominator.
 - Backend patches: Torch `from_numpy` no longer sets `requires_grad`; dtype-safe min/max fills + int64 segment ids; JAX `jax.Array` detection; TF sorted `segment_*` arity (no `num_segments`); version floors at backend init.
-- Deferred: GraphsTuple / RaggedTensor; ORT not a v1 backend.
+- Jraph: portable GraphsTuple / GraphNetwork (`anytensor.jraph`) on AnyTensor
+  segment ops; `anytensor.tree` follows the `jax.tree` API in pure Python with
+  `__tree_flatten__` / `__tree_unflatten__` and JAX/Torch/optree registry hooks.
+  `tree.batch` / `tree.unbatch` dispatch to `__tree_batch__` / `__tree_unbatch__`
+  so GraphsTuple and custom feature objects own batch/unbatch. Dev extra
+  installs `jraph` for parity tests. `anytensor.jraph` is in the 100%
+  coverage gate (only `backends.py` / `torchscript.py` remain omitted).

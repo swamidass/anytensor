@@ -41,8 +41,10 @@ else.
    `fullgraph=False` is always valid; `fullgraph=True` works for most ops on
    recent PyTorch (`partition_softmax` still needs breaks).
 
-Non-goals (for now): a full GraphsTuple / RaggedTensor API, ONNX Runtime as a
-backend, or papering over every XLA vs eager disagreement.
+Non-goals (for now): a RaggedTensor API, ONNX Runtime as a backend, or
+papering over every XLA vs eager disagreement. GraphsTuple lives in
+[`anytensor.jraph`](jraph/index.md) (jraph-compatible, any backend);
+nested features use [`anytensor.tree`](tree/index.md).
 
 ---
 
@@ -206,7 +208,9 @@ rely on NaN under XLA for portability.
 `enable_torchscript()` divert exists so old scripted call sites that reach
 `segment_sum` / `min` / `max` keep working: under `is_scripting()` those ops
 take pure-Torch kernels while eager stays multi-backend. Do not build new
-APIs around scripting.
+APIs around scripting. A :func:`anytensor.module_if_loaded` helper enables the
+divert whenever Torch is imported — before or after AnyTensor — without
+importing Torch as a side effect.
 
 ### 10. Typing is for humans; runtime checks are opt-in
 
@@ -257,7 +261,7 @@ part of the product:
 | Layer | What it buys you |
 |---|---|
 | **Unit / contract** | Empty-segment identities, promotion rules, and backend contracts pinned in pytest — not tribal knowledge |
-| **100% coverage gate** | Non-fuzz suite must cover the portable surface (`fail_under=100`; `backends.py` / `torchscript.py` omitted as framework shims) |
+| **100% coverage gate** | Non-fuzz suite must cover the portable surface (`fail_under=100`; `backends.py` / `torchscript.py` omitted as framework shims; `jraph` is in the gate) |
 | **Cross-backend fuzz** | Hypothesis draws random ops and inputs; **NumPy is the reference**, a random other backend must agree (NaN-aware) |
 | **Symbolic fuzz** | Eager vs `jax.jit` / `torch.compile` / `tf.function` (+ XLA) on the same registry — compilers are not an afterthought |
 | **`torch.compile` public API** | Deterministic `test/test_torch_compile.py`: every public tensor op vs eager (`fullgraph=False`; `fullgraph=True` except `partition_softmax`) |
