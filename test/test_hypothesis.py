@@ -10,6 +10,8 @@ from hypothesis import strategies as st
 import anytensor as at
 from helpers import BACKENDS, close, loaded_backends
 
+pytestmark = pytest.mark.fuzz
+
 _settings = settings(
     max_examples=1000,
     deadline=None,

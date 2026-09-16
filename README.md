@@ -134,7 +134,10 @@ PRs welcome. Prefer adding portable helpers in `anytensor/core.py` or `segment.p
 
 ```bash
 uv sync --extra jax --extra torch --group dev
-uv run pytest --cov=anytensor --cov-report=term-missing
+# Coverage gate: unit/contract tests only (no fuzz); backends.py omitted; fail_under=90
+uv run pytest -m "not fuzz" --cov=anytensor --cov-report=term-missing
+# Full suite including Hypothesis fuzz
+uv run pytest
 ```
 
 ## License

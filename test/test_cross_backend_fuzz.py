@@ -19,10 +19,13 @@ from helpers import BACKENDS, close, loaded_backends
 
 _OTHER_BACKENDS = [b for b in BACKENDS if b != "numpy"]
 
-pytestmark = pytest.mark.skipif(
-    not _OTHER_BACKENDS,
-    reason="Need NumPy plus at least one other importable backend",
-)
+pytestmark = [
+    pytest.mark.fuzz,
+    pytest.mark.skipif(
+        not _OTHER_BACKENDS,
+        reason="Need NumPy plus at least one other importable backend",
+    ),
+]
 
 _settings = settings(
     max_examples=1000,

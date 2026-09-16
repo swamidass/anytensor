@@ -68,18 +68,23 @@ include = [
 addopts = "--import-mode=importlib"
 testpaths = ["test"]
 pythonpath = [".", "test"]
+markers = [
+  "fuzz: Hypothesis / cross-backend fuzz (excluded from the coverage gate)",
+]
 
 [tool.coverage.run]
 branch = true
 source = ["anytensor"]
 omit = [
   "anytensor/_version.py",
+  "anytensor/backends.py",
   "anytensor/jraph/*",
 ]
 
 [tool.coverage.report]
 show_missing = true
 skip_empty = true
+fail_under = 90
 exclude_lines = [
   "pragma: no cover",
   "raise NotImplementedError",
