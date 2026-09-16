@@ -129,6 +129,33 @@ class _TensorflowNumpyNamespace:
         x = tnp.where(neg, tf.cast(neginf, dtype), x)
         return x
 
+    def repeat(self, x, repeats, axis=None):
+        # ``tnp.repeat`` converts repeats via NumPy and breaks under ``tf.function``.
+        # ``tf.repeat`` accepts Python ints and symbolic tensor repeats.
+        if axis is None:
+            return self._tf.repeat(x, repeats)
+        return self._tf.repeat(x, repeats, axis=axis)
+
+    def arange(self, start, /, stop=None, step=1, dtype=None, **kwargs):
+        del kwargs
+        if stop is None:
+            start, stop = 0, start
+        # ``tf.range`` accepts symbolic ``stop`` (unlike ``tnp.arange``).
+        if dtype is None:
+            return self._tf.range(start, stop, step)
+        return self._tf.range(start, stop, step, dtype=dtype)
+
+    def zeros(self, shape, dtype=None):
+        return self._tf.zeros(shape, dtype=dtype)
+
+    def ones(self, shape, dtype=None):
+        return self._tf.ones(shape, dtype=dtype)
+
+    def full(self, shape, fill_value, dtype=None):
+        if dtype is None:
+            return self._tf.fill(shape, fill_value)
+        return self._tf.cast(self._tf.fill(shape, fill_value), dtype)
+
 
 _TF_NS: _TensorflowNumpyNamespace | None = None
 
@@ -140,7 +167,7 @@ def _tensorflow_namespace() -> _TensorflowNumpyNamespace:
     return _TF_NS
 
 
-def array_namespace(*arrays: Any):
+def array_namespace(*arrays: Any) -> Any:
     """Like ``array_api_compat.array_namespace``, with TensorFlow EagerTensor support."""
     from array_api_compat import array_namespace as aac_namespace
 

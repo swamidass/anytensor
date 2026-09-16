@@ -24,7 +24,7 @@ A new backend can be added by creating a subclass of `AbstractBackend` and imple
 """
 
 import sys
-from typing import Literal, Tuple
+from typing import Literal
 from contextlib import nullcontext
 from importlib.metadata import PackageNotFoundError, version as pkg_version
 
@@ -33,7 +33,7 @@ _type2backend: dict = {}
 _debug_importing = False
 
 
-def _parse_version(v: str) -> Tuple[int, ...]:
+def _parse_version(v: str) -> tuple[int, ...]:
     parts = []
     for p in v.split(".")[:3]:
         digits = "".join(c for c in p if c.isdigit())
@@ -61,7 +61,7 @@ def _require_pkg_version(distribution: str, minimum: str, *, import_name: str | 
         )
 
 
-def get_backend(tensor) -> "AbstractBackend":
+def get_backend(tensor: Any) -> "AbstractBackend":
     """
     Takes a correct backend (e.g. numpy backend if tensor is numpy.ndarray) for a tensor.
     If needed, imports package and creates backend
@@ -352,7 +352,10 @@ class NumpyBackend(AbstractBackend):
         else:
             raise ValueError(f"reduction type {reduction} not supported")
 
-        agg.at(s, seg_ids, x)
+        # NaN / ±inf in ``x`` are in-scope; ``ufunc.at`` otherwise spams
+        # RuntimeWarning: invalid value encountered in add/….
+        with self.np.errstate(invalid="ignore", over="ignore"):
+            agg.at(s, seg_ids, x)
         return s
     
 class JaxBackend(NumpyBackend):
@@ -382,6 +385,9 @@ class JaxBackend(NumpyBackend):
     def to_numpy(self, x):
         return self.onp.asarray(x)
 
+    def repeat(self, x, repeats, total_repeat_length):
+        return self.np.repeat(x, repeats, total_repeat_length=total_repeat_length)
+
     def segment_reduce(self, x, seg_ids, num_segments, reduction, sorted: bool = False):
         import jax.ops
 
@@ -409,42 +415,28 @@ class TorchBackend(AbstractBackend):
 
         self.torch = torch
         self._install_numeric_attrs(torch)
+        # Late torch import: enable scripting divert without replacing eager
+        # multi-backend behavior (see :func:`anytensor.enable_torchscript`).
+        from .segment import enable_torchscript
+
+        enable_torchscript()
 
     def is_appropriate_type(self, tensor):
         return isinstance(tensor, self.torch.Tensor)
 
-    def _scatter_fill_value(self, x, reduction: str):
-        """Empty-segment identity (see :mod:`anytensor.semantics`)."""
-        if reduction == "sum":
-            return 0
-        if x.dtype.is_floating_point:
-            return self.inf if reduction == "min" else self.ninf
-        if reduction == "min":
-            return self.iinfo(x.dtype).max
-        if reduction == "max":
-            return self.iinfo(x.dtype).min
-        raise ValueError(f"reduction type {reduction} not supported")
-
     def segment_reduce(self, x, seg_ids, num_segments, reduction, sorted: bool = False):
         # ``sorted`` is currently a no-op on Torch (scatter path is unsorted-safe).
         del sorted
-        shape = (num_segments,) + x.shape[1:]
-        ndim = len(self.shape(x))
-        dim = 0
+        from . import torchscript
 
-        seg_ids = seg_ids.to(dtype=self.torch.int64)
-        for _ in range(1, ndim):
-            seg_ids = seg_ids.unsqueeze(-1)
-        seg_ids = seg_ids.expand_as(x)
-
+        # Torch scatter needs a host int length; symbolic sizes belong under compile.
+        n = int(num_segments)
         if reduction == "sum":
-            out = self.torch.zeros(shape, dtype=x.dtype, device=x.device)
-            return out.scatter_add(dim, seg_ids, x)
-        if reduction in ("min", "max"):
-            fill = self._scatter_fill_value(x, reduction)
-            out = self.torch.full(shape, fill, dtype=x.dtype, device=x.device)
-            reduce = "amin" if reduction == "min" else "amax"
-            return out.scatter_reduce(dim, seg_ids, x, reduce=reduce, include_self=True)
+            return torchscript.segment_sum(x, seg_ids, n)
+        if reduction == "min":
+            return torchscript.segment_min(x, seg_ids, n)
+        if reduction == "max":
+            return torchscript.segment_max(x, seg_ids, n)
         raise ValueError(f"reduction type {reduction} not supported")
 
     def from_numpy(self, x):
@@ -637,7 +629,7 @@ class TensorflowBackend(AbstractBackend):
 
         # Min/max: TF unsorted_segment_{min,max} map ±inf to finfo limits and use
         # those as empty fills. Scatter from an AnyTensor identity preserves
-        # ±inf and matches :mod:`anytensor.semantics` (sorted flag unused).
+        # ±inf. Scatter ignores NaN updates, so OR-in segment NaN afterward.
         del sorted
         # Normalize TF dtypes for the semantics helper (expects NumPy-ish dtypes).
         import numpy as np
@@ -648,8 +640,19 @@ class TensorflowBackend(AbstractBackend):
         init = tf.fill(shape, value=tf.cast(fill, x.dtype))
         indices = tf.expand_dims(tf.cast(seg_ids, tf.int64), -1)
         if reduction == "min":
-            return tf.tensor_scatter_nd_min(init, indices, x)
-        return tf.tensor_scatter_nd_max(init, indices, x)
+            out = tf.tensor_scatter_nd_min(init, indices, x)
+        else:
+            out = tf.tensor_scatter_nd_max(init, indices, x)
+
+        if np.issubdtype(np_dtype, np.floating):
+            # Any NaN in a segment → NaN (scatter leaves the ±inf identity).
+            nan_as_one = tf.cast(tf.math.is_nan(x), x.dtype)
+            has_nan = tf.math.unsorted_segment_max(nan_as_one, seg_ids, num_segments)
+            # Broadcast has_nan over trailing dims of x.
+            while len(has_nan.shape) < len(out.shape):
+                has_nan = tf.expand_dims(has_nan, -1)
+            out = tf.where(has_nan > 0, tf.cast(float("nan"), x.dtype), out)
+        return out
 
 
 class HashableTuple:

@@ -72,10 +72,10 @@ def test_iinfo_and_align_none():
     assert a is None
 
 
-def test_segment_softmax_infers_num_segments_and_2d_or_constant():
+def test_segment_softmax_requires_num_segments_and_2d_or_constant():
     logits = np.array([1.0, 2.0, 3.0], dtype=np.float32)
     seg = np.array([0, 0, 1], dtype=np.int64)
-    out = at.segment_softmax(logits, seg)  # num_segments inferred
+    out = at.segment_softmax(logits, seg, 2)
     assert out.shape == (3,)
     assert close(float(np.sum(out[:2])), 1.0)
     x2 = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)

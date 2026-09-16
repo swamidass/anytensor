@@ -53,9 +53,10 @@ def test_fuzz_segment_sum_count_mean_numpy(data):
     x, seg, num_segments = data
     if seg.size:
         num_segments = max(num_segments, int(seg.max()) + 1)
-    total = at.segment_sum(x, seg, num_segments)
-    counts = at.segment_count(seg, num_segments)
-    mean = at.segment_mean(x, seg, num_segments)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        total = at.segment_sum(x, seg, num_segments)
+        counts = at.segment_count(seg, num_segments)
+        mean = at.segment_mean(x, seg, num_segments)
     assert total.shape == (num_segments,)
     assert counts.shape == (num_segments,)
     for i in range(num_segments):
@@ -65,9 +66,10 @@ def test_fuzz_segment_sum_count_mean_numpy(data):
             assert counts[i] == 0.0
             assert mean[i] == 0.0
         else:
-            assert close(total[i], x[mask].sum(), equal_nan=True)
-            assert np.isclose(counts[i], mask.sum())
-            assert close(mean[i], x[mask].mean(), equal_nan=True)
+            with np.errstate(invalid="ignore"):
+                assert close(total[i], x[mask].sum(), equal_nan=True)
+                assert np.isclose(counts[i], mask.sum())
+                assert close(mean[i], x[mask].mean(), equal_nan=True)
 
 
 @_settings
@@ -75,19 +77,21 @@ def test_fuzz_segment_sum_count_mean_numpy(data):
 def test_fuzz_reductions_with_nan_inf_and_empty(xs):
     x = np.asarray(xs, dtype=np.float64)
     # Empty: sum/prod/mean/cumsum ok; min/max need nonempty.
-    if x.size == 0:
+    with np.errstate(invalid="ignore", divide="ignore"):
+        if x.size == 0:
+            assert close(at.sum(x), np.sum(x), equal_nan=True)
+            assert close(at.prod(x), np.prod(x), equal_nan=True)
+            # Empty mean is NaN; avoid np.mean's "Mean of empty slice" warning.
+            assert np.isnan(np.asarray(at.mean(x)))
+            assert close(at.cumsum(x), np.cumsum(x), equal_nan=True)
+            return
+        for op in (at.sum, at.min, at.max, at.mean, at.prod):
+            out = op(x)
+            assert isinstance(out, np.ndarray) and out.ndim == 0
         assert close(at.sum(x), np.sum(x), equal_nan=True)
-        assert close(at.prod(x), np.prod(x), equal_nan=True)
         assert close(at.mean(x), np.mean(x), equal_nan=True)
-        assert close(at.cumsum(x), np.cumsum(x), equal_nan=True)
-        return
-    for op in (at.sum, at.min, at.max, at.mean, at.prod):
-        out = op(x)
-        assert isinstance(out, np.ndarray) and out.ndim == 0
-    assert close(at.sum(x), np.sum(x), equal_nan=True)
-    assert close(at.mean(x), np.mean(x), equal_nan=True)
-    assert close(at.min(x), np.min(x), equal_nan=True)
-    assert close(at.max(x), np.max(x), equal_nan=True)
+        assert close(at.min(x), np.min(x), equal_nan=True)
+        assert close(at.max(x), np.max(x), equal_nan=True)
 
 
 @_settings
@@ -96,8 +100,9 @@ def test_fuzz_maximum_matches_numpy_nan_inf(a, b):
     n = min(len(a), len(b))
     aa = np.asarray(a[:n], dtype=np.float64)
     bb = np.asarray(b[:n], dtype=np.float64)
-    assert close(at.maximum(aa, bb), np.maximum(aa, bb), equal_nan=True)
-    assert close(at.minimum(aa, bb), np.minimum(aa, bb), equal_nan=True)
+    with np.errstate(invalid="ignore"):
+        assert close(at.maximum(aa, bb), np.maximum(aa, bb), equal_nan=True)
+        assert close(at.minimum(aa, bb), np.minimum(aa, bb), equal_nan=True)
 
 
 @pytest.mark.parametrize("backend", [b for b in BACKENDS if b != "numpy"])

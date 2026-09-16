@@ -34,6 +34,9 @@ _settings = settings(
 
 _LO, _HI = np.float32(-20), np.float32(20)
 _POS_LO, _POS_HI = np.float32(0.05), np.float32(20)
+# Keep finite samples away from float32 underflow; ``inf * tiny`` is ``inf`` on
+# NumPy/eager TF but ``nan`` on JAX / TF XLA when the tiny flushes to 0.
+_MIN_ABS = float(np.float32(1e-3))  # exact float32
 
 Draw = Any
 Sampler = Callable[[Draw], tuple]
@@ -50,6 +53,41 @@ def fuzz_op(sampler: Sampler):
     return decorator
 
 
+def _finite_f32(draw: Draw, *, lo: float, hi: float) -> np.float32:
+    """Finite float32 with ``0`` or ``|x| >= _MIN_ABS`` (no underflow zone)."""
+    def f32(x: float) -> float:
+        return float(np.float32(x))
+
+    lo_f, hi_f = f32(lo), f32(hi)
+    min_abs = f32(_MIN_ABS)
+    branches = []
+    if lo_f <= 0.0 <= hi_f:
+        branches.append(st.just(0.0))
+    if hi_f >= min_abs:
+        branches.append(
+            st.floats(
+                min_value=f32(max(lo_f, min_abs)),
+                max_value=hi_f,
+                allow_nan=False,
+                allow_infinity=False,
+                allow_subnormal=False,
+                width=32,
+            )
+        )
+    if lo_f <= -min_abs:
+        branches.append(
+            st.floats(
+                min_value=lo_f,
+                max_value=f32(min(hi_f, -min_abs)),
+                allow_nan=False,
+                allow_infinity=False,
+                allow_subnormal=False,
+                width=32,
+            )
+        )
+    return np.float32(draw(st.one_of(*branches)))
+
+
 def _f32_elem(draw: Draw, *, lo=_LO, hi=_HI, allow_nan: bool = True, allow_infinity: bool = True):
     # Enrich specials so NaN / ±inf appear often at high example counts.
     roll = draw(st.integers(0, 9))
@@ -59,15 +97,7 @@ def _f32_elem(draw: Draw, *, lo=_LO, hi=_HI, allow_nan: bool = True, allow_infin
         return np.float32("inf")
     if allow_infinity and roll == 2:
         return np.float32("-inf")
-    return draw(
-        st.floats(
-            min_value=float(lo),
-            max_value=float(hi),
-            allow_nan=False,
-            allow_infinity=False,
-            width=32,
-        )
-    )
+    return _finite_f32(draw, lo=float(lo), hi=float(hi))
 
 
 def _f32_vec(
@@ -97,15 +127,7 @@ def _pos_f32_elem(draw: Draw, *, allow_nan: bool = True, allow_infinity: bool = 
         return np.float32("nan")
     if allow_infinity and roll == 1:
         return np.float32("inf")
-    return draw(
-        st.floats(
-            min_value=float(_POS_LO),
-            max_value=float(_POS_HI),
-            allow_nan=False,
-            allow_infinity=False,
-            width=32,
-        )
-    )
+    return _finite_f32(draw, lo=float(_POS_LO), hi=float(_POS_HI))
 
 
 def _pos_f32_vec(
@@ -309,7 +331,8 @@ def sample_partition_softmax(draw) -> tuple:
         parts[0] = 1
     n = sum(parts)
     logits = _f32_vec(draw, n, allow_nan=False, allow_infinity=False)
-    return (logits, np.asarray(parts, dtype=np.int64))
+    # Static sum_partitions (shape-size) so jax.jit can compile jnp.repeat.
+    return (logits, np.asarray(parts, dtype=np.int64), int(n))
 
 
 # --- registered ops -------------------------------------------------------
@@ -593,8 +616,8 @@ def fuzz_segment_count(segment_ids, num_segments):
 
 
 @fuzz_op(sample_partition_softmax)
-def fuzz_partition_softmax(logits, partitions):
-    return at.partition_softmax(logits, partitions)
+def fuzz_partition_softmax(logits, partitions, sum_partitions):
+    return at.partition_softmax(logits, partitions, sum_partitions=sum_partitions)
 
 
 # Public names that are infrastructure, aliases, or non-ops — not required in FUZZ_OPS.
