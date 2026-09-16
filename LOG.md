@@ -2,7 +2,7 @@
 
 ## 2026-09-15
 
-- Require current array-api-compat (≥1.15) rather than bisecting older AAC for Array API aliases; min-backends pins 1.15.0.
+- Require current array-api-compat (≥1.15); fix coverage test that passed raw ``numpy`` into ``_pad_or_slice_leading`` (needs AAC ``concat`` under numpy 1.24).
 - GHA 35053243764: main test matrix green; min-backends still red on AAC 1.6 (no `cumulative_sum` / `concat` / Array-API `clip`) → raise AAC floor (now current 1.15).
 - GHA 35052980138: coverage fixed; min-backends hit AAC 1.4 `asarray(copy=False)` NotImplementedError → catch it in `_asarray` + floor AAC→1.6; fuzz SIGSEGV in `torch.compile` symbolic → skip on CI (same as Sybil).
 - GHA 35052455676 red: (1) min-backends jaxtyping 0.2.28 `Shaped[ArrayT,…]` → TypeError; floor →0.2.34 (+ beartype 0.18.2, yanked 0.18.0). (2) coverage miss `enable_torchscript` return-False — pytest `filterwarnings` with `torch.jit.TracerWarning` imported torch before anytensor; switched to message-only filters + explicit unit test.

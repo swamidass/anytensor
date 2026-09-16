@@ -218,8 +218,10 @@ def test_mean_empty_and_repeat_guards():
     assert _repeats_are_host_concrete(np.array([1, 2])) is True
 
     x = np.array([1.0, 2.0, 3.0])
-    assert close(_pad_or_slice_leading(np, x, 5), np.array([1.0, 2.0, 3.0, 0.0, 0.0]))
-    assert close(_pad_or_slice_leading(np, x, 2), np.array([1.0, 2.0]))
+    import array_api_compat.numpy as xp_np
+
+    assert close(_pad_or_slice_leading(xp_np, x, 5), np.array([1.0, 2.0, 3.0, 0.0, 0.0]))
+    assert close(_pad_or_slice_leading(xp_np, x, 2), np.array([1.0, 2.0]))
 
     torch = pytest.importorskip("torch")
     from anytensor.namespace import array_namespace
