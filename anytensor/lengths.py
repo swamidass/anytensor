@@ -69,20 +69,15 @@ def unbatch_ids(ids, lengths, part_lengths):
     return list(array_split(local, splits[:-1] if splits else splits))
 
 
-def _split_structure(structure, indices_or_sections, axis: int = 0):
+def _split_structure(structure, cuts, axis: int = 0):
     """Split every array leaf with the same cut indices; return list of pytrees."""
-    if isinstance(indices_or_sections, int):
-        n = int(indices_or_sections)
-    else:
-        n = len(list(indices_or_sections)) + 1
+    n = len(list(cuts)) + 1
     if structure is None:
         return [None] * n
     leaf_list, treedef = tree.flatten(structure)
     if not leaf_list:
         return [tree.unflatten(treedef, []) for _ in range(n)]
-    parts_per_leaf = [
-        list(array_split(leaf, indices_or_sections, axis=axis)) for leaf in leaf_list
-    ]
+    parts_per_leaf = [list(array_split(leaf, cuts, axis=axis)) for leaf in leaf_list]
     return [
         tree.unflatten(treedef, [parts[i] for parts in parts_per_leaf]) for i in range(n)
     ]
@@ -91,6 +86,4 @@ def _split_structure(structure, indices_or_sections, axis: int = 0):
 def split_by_lengths(structure, lengths, axis: int = 0):
     """Split a pytree by a length vector: ``cumsum(lengths)[:-1]`` cuts."""
     splits = np.asarray(lengths_to_splits(lengths)).reshape(-1).tolist()
-    return _split_structure(
-        structure, splits[:-1] if len(splits) > 1 else [], axis=axis
-    )
+    return _split_structure(structure, splits[:-1] if len(splits) > 1 else [], axis=axis)
