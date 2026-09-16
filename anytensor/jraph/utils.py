@@ -17,6 +17,7 @@ import numpy as np
 
 from anytensor import tree
 from anytensor.tree import batch, unbatch
+from anytensor.lengths import batch_ids, split_by_lengths, unbatch_ids
 from anytensor.core import (
     arange,
     astype,
@@ -256,8 +257,8 @@ def _batch_graphs(graphs: Sequence[GraphsTuple]) -> GraphsTuple:
     if batched.senders is None:
         return batched
     return batched._replace(
-        senders=tree.batch_ids(batched.senders, batched.n_node, batched.n_edge),
-        receivers=tree.batch_ids(batched.receivers, batched.n_node, batched.n_edge),
+        senders=batch_ids(batched.senders, batched.n_node, batched.n_edge),
+        receivers=batch_ids(batched.receivers, batched.n_node, batched.n_edge),
     )
 
 
@@ -297,21 +298,21 @@ def _unbatch_graphs(graph: GraphsTuple) -> List[GraphsTuple]:
     if n_graphs == 0:
         return []
 
-    nodes = tree.split_by_lengths(graph.nodes, graph.n_node)
-    edges = tree.split_by_lengths(graph.edges, graph.n_edge)
+    nodes = split_by_lengths(graph.nodes, graph.n_node)
+    edges = split_by_lengths(graph.edges, graph.n_edge)
     if graph.senders is None:
         senders = [None] * n_graphs
         receivers = [None] * n_graphs
     else:
-        senders = tree.unbatch_ids(graph.senders, graph.n_node, graph.n_edge)
-        receivers = tree.unbatch_ids(graph.receivers, graph.n_node, graph.n_edge)
-    globals_ = tree.split_by_lengths(
+        senders = unbatch_ids(graph.senders, graph.n_node, graph.n_edge)
+        receivers = unbatch_ids(graph.receivers, graph.n_node, graph.n_edge)
+    globals_ = split_by_lengths(
         graph.globals, np.ones((n_graphs,), dtype=np.asarray(graph.n_node).dtype)
     )
-    n_node = tree.split_by_lengths(
+    n_node = split_by_lengths(
         graph.n_node, np.ones((n_graphs,), dtype=np.asarray(graph.n_node).dtype)
     )
-    n_edge = tree.split_by_lengths(
+    n_edge = split_by_lengths(
         graph.n_edge, np.ones((n_graphs,), dtype=np.asarray(graph.n_edge).dtype)
     )
 

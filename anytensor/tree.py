@@ -61,23 +61,15 @@ __all__ = [
     "SequenceKey",
     "all",
     "batch",
-    "batch_ids",
-    "cuts_to_lengths",
     "flatten",
     "flatten_with_path",
     "leaves",
     "leaves_with_path",
-    "lengths_to_ids",
-    "lengths_to_splits",
     "map",
     "map_with_path",
-    "match_sizes",
     "reduce",
-    "split",
-    "split_by_lengths",
     "structure",
     "unbatch",
-    "unbatch_ids",
     "tree_flatten",
     "tree_flatten_with_path",
     "tree_leaves",
@@ -573,153 +565,6 @@ def batch(trees, axis: int = 0):
     if not xs:
         raise ValueError("batch() requires at least one structure")
     return _batch_impl(xs, axis=axis)
-
-
-def _split_part_count(indices_or_sections) -> int:
-    if isinstance(indices_or_sections, int):
-        return int(indices_or_sections)
-    return len(list(indices_or_sections)) + 1
-
-
-def split(structure, indices_or_sections, axis: int = 0):
-    """Split a pytree along ``axis`` into a list of pytrees (NumPy cut semantics).
-
-    Each array leaf is passed to :func:`anytensor.split`. ``None`` yields a
-    list of ``None`` of the appropriate length. Empty nests (no leaves) are
-    rebuilt for each part.
-
-    >>> import numpy as np
-    >>> import anytensor.tree as tree
-    >>> tree.split(np.arange(4), [2])
-    [array([0, 1]), array([2, 3])]
-    """
-    from anytensor.core import split as array_split
-
-    n = _split_part_count(indices_or_sections)
-    if structure is None:
-        return [None] * n
-    leaf_list, treedef = flatten(structure)
-    if not leaf_list:
-        return [unflatten(treedef, []) for _ in range(n)]
-    parts_per_leaf = [
-        list(array_split(leaf, indices_or_sections, axis=axis)) for leaf in leaf_list
-    ]
-    return [
-        unflatten(treedef, [parts[i] for parts in parts_per_leaf]) for i in range(n)
-    ]
-
-
-def lengths_to_ids(lengths, *, total=None):
-    """Length vector → segment ids: ``repeat(arange(n), lengths)``.
-
-    >>> import numpy as np
-    >>> import anytensor.tree as tree
-    >>> tree.lengths_to_ids(np.array([2, 1])).tolist()
-    [0, 0, 1]
-    """
-    from anytensor.core import arange, repeat
-
-    n = int(np.asarray(lengths).reshape(-1).shape[0])
-    return repeat(arange(n, like=lengths), lengths, total_repeat_length=total)
-
-
-def lengths_to_splits(lengths):
-    """Length vector → cumulative split points: ``cumsum(lengths)``.
-
-    Pass ``splits[:-1]`` to :func:`anytensor.split` (NumPy cut-index semantics).
-
-    >>> import numpy as np
-    >>> import anytensor.tree as tree
-    >>> tree.lengths_to_splits(np.array([2, 1, 3])).tolist()
-    [2, 3, 6]
-    """
-    from anytensor.core import cumsum
-
-    return cumsum(np.asarray(lengths).reshape(-1))
-
-
-def cuts_to_lengths(cuts, total) -> np.ndarray:
-    """Cut indices + total length → length vector.
-
-    >>> import anytensor.tree as tree
-    >>> tree.cuts_to_lengths([2, 3], 6).tolist()
-    [2, 1, 3]
-    """
-    edges = [0, *[int(c) for c in np.asarray(cuts).reshape(-1).tolist()], int(total)]
-    return np.asarray([edges[i + 1] - edges[i] for i in range(len(edges) - 1)], dtype=np.int64)
-
-
-def _exclusive_offsets(lengths):
-    """Per-part start offsets: ``cumsum(lengths) - lengths``."""
-    lengths = np.asarray(lengths).reshape(-1)
-    return np.cumsum(lengths) - lengths
-
-
-def batch_ids(ids, lengths, part_lengths):
-    """Offset concatenated local ids into a batched id space.
-
-    ``ids + repeat(cumsum(lengths) - lengths, part_lengths)``.
-
-    Args:
-        ids: Already-concatenated local indices (no offsets yet).
-        lengths: Per-graph sizes of the id space (e.g. ``n_node``).
-        part_lengths: Per-graph sizes along ``ids`` (e.g. ``n_edge``).
-    """
-    from anytensor.core import repeat
-    from anytensor.namespace import array_namespace
-
-    offsets = _exclusive_offsets(lengths)
-    xp = array_namespace(ids)
-    off = xp.asarray(offsets, dtype=getattr(ids, "dtype", offsets.dtype))
-    return ids + repeat(off, part_lengths)
-
-
-def unbatch_ids(ids, lengths, part_lengths):
-    """Undo :func:`batch_ids`, then split into per-graph id arrays."""
-    from anytensor.core import repeat, split as array_split
-    from anytensor.namespace import array_namespace
-
-    offsets = _exclusive_offsets(lengths)
-    xp = array_namespace(ids)
-    off = xp.asarray(offsets, dtype=getattr(ids, "dtype", offsets.dtype))
-    local = ids - repeat(off, part_lengths)
-    splits = np.asarray(lengths_to_splits(part_lengths)).reshape(-1).tolist()
-    return list(array_split(local, splits[:-1] if splits else splits))
-
-
-def split_by_lengths(structure, lengths, axis: int = 0):
-    """``split(structure, cumsum(lengths)[:-1])`` → list of pytrees."""
-    splits = np.asarray(lengths_to_splits(lengths)).reshape(-1).tolist()
-    return split(structure, splits[:-1] if len(splits) > 1 else [], axis=axis)
-
-
-def match_sizes(template, sizes):
-    """Broadcast length vectors onto ``template``.
-
-    An array ``sizes`` is placed at every leaf of ``template``. A pytree
-    ``sizes`` walks in parallel until each array leaf is broadcast onto the
-    remaining ``template`` subtree — so one ``n_node`` vector works for a
-    ``GraphsTuple`` feature nest, and a dict of per-type vectors works for
-    hetero node maps.
-    """
-    if template is None or sizes is None:
-        return None
-    if _one_level(sizes) is None:
-        return map(lambda _: sizes, template)
-    t_entry = _one_level(template)
-    if t_entry is None:
-        raise ValueError("match_sizes: sizes is nested but template is a leaf")
-    t_kind, t_meta, t_children, t_restore = t_entry
-    s_kind, s_meta, s_children, _s_restore = _one_level(sizes)
-    if (t_kind, t_meta) != (s_kind, s_meta) or len(t_children) != len(s_children):
-        raise ValueError(
-            "pytree structure error: template and sizes must align."
-        )
-    matched = [match_sizes(t, s) for t, s in zip(t_children, s_children)]
-    return _rebuild(
-        PyTreeDef(t_kind, t_meta, [_LEAF] * len(matched), restore=t_restore),
-        matched,
-    )
 
 
 def _batch_impl(xs, axis: int = 0):

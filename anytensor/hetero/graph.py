@@ -27,6 +27,7 @@ import numpy as np
 
 from anytensor import tree
 from anytensor.core import concatenate
+from anytensor.lengths import batch_ids, split_by_lengths, unbatch_ids
 
 ArrayTree = Union[Any, Iterable["ArrayTree"], Mapping[Any, "ArrayTree"]]
 CanonicalEtype = Tuple[str, str, str]
@@ -284,10 +285,10 @@ def _batch_hetero(graphs: Sequence[HeteroGraphsTuple]) -> HeteroGraphsTuple:
     }
     # Offset ids: send uses src ntype lengths, recv uses dst.
     senders = {
-        e: tree.batch_ids(senders[e], n_node[e[0]], n_edge[e]) for e in etypes
+        e: batch_ids(senders[e], n_node[e[0]], n_edge[e]) for e in etypes
     }
     receivers = {
-        e: tree.batch_ids(receivers[e], n_node[e[2]], n_edge[e]) for e in etypes
+        e: batch_ids(receivers[e], n_node[e[2]], n_edge[e]) for e in etypes
     }
 
     return HeteroGraphsTuple(
@@ -312,19 +313,19 @@ def _unbatch_hetero(graph: HeteroGraphsTuple) -> list[HeteroGraphsTuple]:
     ntypes = graph.ntypes()
     etypes = graph.canonical_etypes()
 
-    nodes = {t: tree.split_by_lengths(graph.nodes[t], graph.n_node[t]) for t in ntypes}
-    edges = {e: tree.split_by_lengths(graph.edges[e], graph.n_edge[e]) for e in etypes}
+    nodes = {t: split_by_lengths(graph.nodes[t], graph.n_node[t]) for t in ntypes}
+    edges = {e: split_by_lengths(graph.edges[e], graph.n_edge[e]) for e in etypes}
     senders = {
-        e: tree.unbatch_ids(graph.senders[e], graph.n_node[e[0]], graph.n_edge[e])
+        e: unbatch_ids(graph.senders[e], graph.n_node[e[0]], graph.n_edge[e])
         for e in etypes
     }
     receivers = {
-        e: tree.unbatch_ids(graph.receivers[e], graph.n_node[e[2]], graph.n_edge[e])
+        e: unbatch_ids(graph.receivers[e], graph.n_node[e[2]], graph.n_edge[e])
         for e in etypes
     }
-    n_node = {t: tree.split_by_lengths(graph.n_node[t], ones) for t in ntypes}
-    n_edge = {e: tree.split_by_lengths(graph.n_edge[e], ones) for e in etypes}
-    globals_ = tree.split_by_lengths(graph.globals, ones)
+    n_node = {t: split_by_lengths(graph.n_node[t], ones) for t in ntypes}
+    n_edge = {e: split_by_lengths(graph.n_edge[e], ones) for e in etypes}
+    globals_ = split_by_lengths(graph.globals, ones)
 
     out = []
     for i in range(n_graphs):

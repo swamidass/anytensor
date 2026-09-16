@@ -1,8 +1,8 @@
 ### Added
 
-- ``anytensor.split`` / backend ``split``, plus length helpers
-  ``tree.lengths_to_ids`` / ``lengths_to_splits`` / ``batch_ids`` /
-  ``unbatch_ids`` / ``split_by_lengths``.
+- ``anytensor.split`` / backend ``split``, plus ``anytensor.lengths`` helpers
+  (``lengths_to_ids`` / ``lengths_to_splits`` / ``batch_ids`` / ``unbatch_ids`` /
+  ``split_by_lengths``) used by graph batch/unbatch — not part of ``tree``.
 - Graph batch: fieldwise concat, then offset send/recv ids from length
   vectors. Unbatch: ``split_by_lengths`` / ``unbatch_ids``, then zip into
   graphs.

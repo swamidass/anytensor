@@ -517,70 +517,18 @@ def test_batch_unbatch_arrays_and_nests():
     assert empty == []
 
 
-def test_tree_split_nests_and_none():
-    parts = tree.split(np.arange(4), [2])
-    assert len(parts) == 2
-    np.testing.assert_array_equal(parts[0], [0, 1])
-    nested = tree.split({"a": np.arange(3), "b": np.arange(3, 6)}, [1, 1])
-    assert len(nested) == 3
-    np.testing.assert_array_equal(nested[0]["a"], [0])
-    np.testing.assert_array_equal(nested[1]["a"], [])
-    np.testing.assert_array_equal(nested[2]["b"], [4, 5])
-    assert tree.split(None, [1, 2]) == [None, None, None]
-    assert tree.split({}, 3) == [{}, {}, {}]
-    assert tree.split(np.arange(4), 2)[0].shape == (2,)
-
-
-def test_tree_length_split_and_id_helpers():
-    assert tree.lengths_to_splits(np.array([2, 1, 3])).tolist() == [2, 3, 6]
-    assert tree.lengths_to_splits(np.array([5])).tolist() == [5]
-    np.testing.assert_array_equal(tree.cuts_to_lengths([2, 3], 6), [2, 1, 3])
-    np.testing.assert_array_equal(tree.lengths_to_ids(np.array([2, 1])), [0, 0, 1])
-
-    # batch_ids / unbatch_ids roundtrip
-    local = [np.array([0, 1], dtype=np.int32), np.array([0], dtype=np.int32)]
-    n_node = np.array([3, 2], dtype=np.int32)
-    n_edge = np.array([2, 1], dtype=np.int32)
-    concat = np.concatenate(local)
-    batched = tree.batch_ids(concat, n_node, n_edge)
-    np.testing.assert_array_equal(batched, [0, 1, 3])
-    parts = tree.unbatch_ids(batched, n_node, n_edge)
-    assert len(parts) == 2
-    np.testing.assert_array_equal(parts[0], [0, 1])
-    np.testing.assert_array_equal(parts[1], [0])
-
-    data = {"n": np.arange(3), "e": np.arange(10, 12)}
-    # Shared cuts when one length vector applies to a whole nest:
-    node_parts = tree.split_by_lengths(data["n"], np.array([2, 1]))
-    np.testing.assert_array_equal(node_parts[0], [0, 1])
-    np.testing.assert_array_equal(node_parts[1], [2])
-
-    nested = {"h": np.arange(4).reshape(2, 2)}
-    nested_parts = tree.split_by_lengths(nested, np.array([1, 1]))
-    assert nested_parts[0]["h"].shape == (1, 2)
-
-    feats = {"a": np.arange(3), "b": {"x": np.arange(4, 6)}}
-    guides = {"a": np.array([2, 1]), "b": np.array([1, 1])}
-    matched = tree.match_sizes(feats, guides)
-    np.testing.assert_array_equal(matched["a"], [2, 1])
-    np.testing.assert_array_equal(matched["b"]["x"], [1, 1])
-    assert tree.unbatch(np.zeros((0, 2))) == []
-    assert tree.unbatch({"a": None}) == []
-    none_notes = tree.unbatch({"a": np.array([1, 2]), "b": None})
-    np.testing.assert_array_equal(none_notes[0]["a"], [1])
-    assert none_notes[1]["b"] is None
-    with pytest.raises(ValueError, match="must align"):
-        tree.match_sizes({"a": np.arange(2)}, {"b": np.array([1, 1])})
-    with pytest.raises(ValueError, match="nested but template is a leaf"):
-        tree.match_sizes(np.arange(2), {"a": np.array([1, 1])})
-    assert tree.match_sizes(None, np.array([1])) is None
-    assert tree.match_sizes(np.array([1]), None) is None
+def test_flatten_up_to_and_unbatch_edges():
     # flatten_up_to: None prefix and arity mismatch
     _, none_def = tree.flatten(None)
     assert none_def.flatten_up_to(None) == []
     _, list_def = tree.flatten([1, 2])
     with pytest.raises(ValueError, match="same structure"):
         list_def.flatten_up_to([1])
+    assert tree.unbatch(np.zeros((0, 2))) == []
+    assert tree.unbatch({"a": None}) == []
+    none_notes = tree.unbatch({"a": np.array([1, 2]), "b": None})
+    np.testing.assert_array_equal(none_notes[0]["a"], [1])
+    assert none_notes[1]["b"] is None
 
 
 def test_batch_unbatch_magic_methods():
