@@ -65,6 +65,14 @@ nav:
   - Usage: usage.md
   - Surprising differences: semantics.md
   - Design: design.md
+  - Tree:
+      - Overview: tree/index.md
+      - Examples: tree/examples.md
+      - API: tree/api.md
+  - Jraph:
+      - Overview: jraph/index.md
+      - Examples: jraph/examples.md
+      - API: jraph/api.md
   - API:
       - Overview: api/index.md
       - Package root: api/anytensor.md

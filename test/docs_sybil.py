@@ -1,4 +1,4 @@
-"""Sybil collector for fenced Python examples in ``docs/*.md``.
+"""Sybil collector for fenced Python examples in docs.
 
 Kept separate from Hypothesis / typecheck setup so doc failures are obvious.
 Registered from ``conftest.py`` (pytest only loads ``pytest_collect_file`` from
@@ -15,8 +15,10 @@ from pathlib import Path
 
 from sybil import Sybil
 from sybil.parsers.markdown import PythonCodeBlockParser, SkipParser
+from sybil.sybil import SybilCollection
 
 _DOCS = Path(__file__).resolve().parents[1] / "docs"
+_PARSERS = [SkipParser(), PythonCodeBlockParser()]
 
 
 def _setup(namespace: dict) -> None:
@@ -65,10 +67,20 @@ def _setup(namespace: dict) -> None:
     )
 
 
-docs_sybil = Sybil(
-    parsers=[SkipParser(), PythonCodeBlockParser()],
-    path=str(_DOCS),
-    filenames=["examples.md"],
-    setup=_setup,
-    name="docs",
+def _examples(path: Path, name: str) -> Sybil:
+    return Sybil(
+        parsers=_PARSERS,
+        path=str(path),
+        filenames=["examples.md"],
+        setup=_setup,
+        name=name,
+    )
+
+
+docs_sybil = SybilCollection(
+    [
+        _examples(_DOCS, "docs"),
+        _examples(_DOCS / "tree", "docs_tree"),
+        _examples(_DOCS / "jraph", "docs_jraph"),
+    ]
 )

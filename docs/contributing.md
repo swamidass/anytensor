@@ -18,7 +18,7 @@ NumPy ops — see the `minimal-numpy` CI job. Pytest assumes the `dev` group
 ## Tests
 
 ```bash
-# Coverage gate: unit/contract only (no fuzz); backends.py omitted; fail_under=100
+# Coverage gate: unit/contract only (no fuzz); backends.py / torchscript.py omitted; fail_under=100
 uv run pytest -m "not fuzz" --cov=anytensor --cov-report=term-missing
 
 # Full suite (fuzz uses fuzz_examples from pyproject, default 1000)
@@ -37,7 +37,8 @@ suite. Disable with `ANYTENSOR_TYPECHECK=0`. Dedicated checks live in
 CI (`.github/workflows/test.yml`):
 
 - `minimal-numpy` — install the package alone; assert hypothesis / jax / torch /
-  tensorflow are absent; smoke NumPy segment ops (runtime deploy surface)
+  tensorflow are absent; smoke NumPy segment ops and a GraphsTuple batch
+  (runtime deploy surface)
 - `test` — `uv sync --extra all --group dev`; **coverage gate**
   (`fail_under=100`, XML artifact on 3.12) + bounded fuzz (typecheck hook on
   by default)
@@ -60,8 +61,12 @@ Override order: `--fuzz-examples` > `ANYTENSOR_FUZZ_EXAMPLES` > pyproject.
 Add coverage in `test/test_ops.py`, boundaries in `test/test_boundaries.py`,
 fuzz registrations in `test/test_cross_backend_fuzz.py`, contracts in
 `test/test_backend_contracts.py`, symbolic/compiled coverage in
-`test/test_symbolic_fuzz.py`. Fenced examples under `docs/*.md` (except
-`docs/api/`) are executed by Sybil via `test/test_docs.py`.
+`test/test_symbolic_fuzz.py`, tree/jraph in `test/test_tree.py` and
+`test/test_jraph.py`, official-jraph parity fuzz in
+`test/test_jraph_parity_fuzz.py` (batch/pad, GraphNetwork, model zoo including
+GAT with self-edges). Fenced examples in `docs/examples.md`,
+`docs/tree/examples.md`, and `docs/jraph/examples.md` are executed by Sybil
+(`test/docs_sybil.py`).
 
 ## Docs
 

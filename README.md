@@ -33,9 +33,17 @@ y = at.segment_sum(x, seg_ids, num_segments=2)
 
 The same call works on JAX / Torch / TF tensors. `num_segments` is **required** (JAX convention).
 
+`anytensor.jraph` is a portable [jraph](https://github.com/google-deepmind/jraph):
+`GraphsTuple`, batching/padding, and `GraphNetwork` on any backend. Nested
+feature trees use `anytensor.tree` (`jax.tree` API; pure Python, NumPy is the
+only binary dep). See the docs
+[Jraph](docs/jraph/index.md) and [Tree](docs/tree/index.md) sections.
+
 Read next:
 
 - [Home / motivation](docs/index.md) — why AnyTensor, GAT neighbor-softmax case study across four backends
+- [Jraph](docs/jraph/index.md) — portable GraphsTuple / GraphNetwork
+- [Tree](docs/tree/index.md) — nest helpers (pure Python + NumPy) for graphs and any structured record
 - [Design](docs/design.md) — principles, edge cases, **testing as contract**, SemVer
 - [Usage](docs/usage.md) — promotion, segment helpers, `torch.compile`, typing
 - [Surprising differences](docs/semantics.md) — NaN / ±inf / graph / GPU gotchas from fuzz

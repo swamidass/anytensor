@@ -54,6 +54,21 @@ jobs:
           np.testing.assert_allclose(y, [1.0, 5.0, 4.0])
           assert at.segment_min(x, ids, 3).shape == (3,)
           assert at.segment_max(x, ids, 3).shape == (3,)
+
+          from anytensor import jraph as atj
+          g = atj.GraphsTuple(
+              nodes=np.arange(6.0).reshape(3, 2),
+              edges=np.arange(4.0).reshape(2, 2),
+              senders=np.array([0, 1]),
+              receivers=np.array([1, 2]),
+              globals=np.array([[1.0, 2.0]]),
+              n_node=np.array([3]),
+              n_edge=np.array([2]),
+          )
+          b = atj.batch([g, g])
+          assert b.nodes.shape == (6, 2)
+          net = atj.GraphNetwork(lambda e, s, r, gl: e, lambda n, s, r, gl: n)
+          assert net(g).nodes.shape == (3, 2)
           print("minimal-numpy smoke ok", getattr(at, "__version__", "?"))
           PY
 

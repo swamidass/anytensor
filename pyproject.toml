@@ -42,6 +42,7 @@ dev = [
   "pytest-cov>=5",
   "hypothesis>=6.100",
   "beartype>=0.18",
+  "jraph",
   "towncrier>=24",
   "hatch>=1.12",
   "ruff>=0.8",
@@ -124,7 +125,6 @@ omit = [
   "anytensor/_version.py",
   "anytensor/backends.py",
   "anytensor/torchscript.py",
-  "anytensor/jraph/*",
 ]
 
 [tool.coverage.report]

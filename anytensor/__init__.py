@@ -1,4 +1,6 @@
 from . import backends
+from . import jraph
+from . import tree
 from .backends import get_backend
 
 # Import einops functions, which work the same way as anytensor.
@@ -109,6 +111,8 @@ except ImportError:  # pragma: no cover
 
 __all__ = [
     "backends",
+    "jraph",
+    "tree",
     "get_backend",
     "ArrayT",
     "Axes",

@@ -204,3 +204,6 @@ np.testing.assert_allclose(np.asarray(out_xla), out_np)
 | `torch.export` | Wrap the helper in `nn.Module.forward` (bare functions are rejected) |
 
 See also [Usage](usage.md) and [Surprising differences](semantics.md).
+GraphsTuple / GraphNetwork recipes: [Jraph examples](jraph/examples.md).
+Nest helpers: [Tree examples](tree/examples.md).
+

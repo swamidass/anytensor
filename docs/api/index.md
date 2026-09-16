@@ -11,5 +11,9 @@ Generated from package docstrings with
 | [Semantics](semantics_api.md) | `empty_segment_identity` |
 | [Namespace](namespace.md) | TF Array-API shim (`array_namespace`) |
 
+Graphs and nests have their own sections: [Tree](../tree/index.md),
+[Jraph](../jraph/index.md) (API pages [tree/api](../tree/api.md) and
+[jraph/api](../jraph/api.md)).
+
 Backends (`anytensor.backends`) are internal; use public helpers instead of
 `get_backend` unless you are extending the library.
