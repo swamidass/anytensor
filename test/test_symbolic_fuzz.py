@@ -8,6 +8,10 @@ Each backend is tested on its own (import skips are per-test, not module-wide):
 
 Python ints / tuples / floats are closed over as static args so frameworks do
 not trace them as data. Return values and shapes must agree.
+
+Runtime jaxtyping is disabled for this module: graph/compile paths produce
+dynamic shapes (e.g. TF ``shape=(None,)``) that fail ``SegmentIds`` matching
+even when the eager numerics are correct.
 """
 
 from __future__ import annotations
@@ -23,6 +27,23 @@ from helpers import loaded_backends
 from test_cross_backend_fuzz import FUZZ_OPS, _agree
 
 pytestmark = [pytest.mark.fuzz]
+
+
+@pytest.fixture(autouse=True)
+def _disable_jaxtyping_for_symbolic():
+    """Skip shape/dtype runtime checks while tracing/compiling."""
+    try:
+        from jaxtyping import config
+    except ImportError:  # pragma: no cover
+        yield
+        return
+    prev = config.jaxtyping_disable
+    config.update("jaxtyping_disable", True)
+    try:
+        yield
+    finally:
+        config.update("jaxtyping_disable", prev)
+
 
 _settings = settings(
     deadline=None,
