@@ -3,6 +3,7 @@
 ## 2026-09-15
 
 - Added TensorFlow to the local matrix (`uv sync --extra tensorflow`). Ordinary ops via `tf.experimental.numpy` shim (`anytensor.namespace`); segment min/max use scatter so ±inf semantics match. Fuzz peers: numpy × {jax, torch, tensorflow}.
+- TF graph coverage: Hypothesis fuzz compares eager vs `tf.function` on FUZZ_OPS (skip `repeat`, `partition_softmax` for now — Python `int(tensor)` / NumPy conversion under trace).
 - Fuzz budget: `fuzz_examples = 1000` in pyproject `[tool.pytest.ini_options]`; override with `--fuzz-examples=N` or `ANYTENSOR_FUZZ_EXAMPLES`.
 - Coverage gate: `pytest -m "not fuzz" --cov=anytensor` with `fail_under=100`; `backends.py` omitted. Non-fuzz total at 100%.
 - Public specials are thin functions over `get_backend(x)` attrs: `inf(x)` / `ninf(x)` / `nan(x)` / `pi(x)` / `e(x)` / `dtype(name, like=x)` / `finfo` / `iinfo`. Backend objects stay internal; `newaxis` is `None`.

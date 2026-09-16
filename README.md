@@ -91,6 +91,7 @@ Do not assume NumPy `int64` segment ids stay `int64` after upcast to JAX.
 - Helpers: `is_nan` / `is_finite` / `is_inf` (aliases `isnan` / `isfinite` / `isinf`), `fill_nan` (alias `nan_fill`), `fill_nan_mask` → `(filled, mask)` with mask True where NaN was, Array API `nan_to_num`, and element-wise `equal_nan`.
 - Portable specials: `inf(x)` / `ninf(x)` / `nan(x)` / `pi(x)` / `e(x)` look up the attr on `get_backend(x)` (Python floats that promote in ops). `dtype("bool", like=x)`, `finfo(x)` / `iinfo(x)` same pattern. `newaxis` is `None`. Backends stay internal.
 - TensorFlow: ordinary ops via `tf.experimental.numpy` shim (AAC has no TF backend yet); segment min/max use `tensor_scatter_nd_{min,max}` so ±inf / empty identities match other backends.
+- Fuzz also compares TF **eager vs `tf.function`** on the shared op registry (skips `repeat` / `partition_softmax` until graph-safe).
 - Empty **axis reductions** (`min`/`max` on length-0) remain framework-defined (often error); prefer nonempty for those.
 
 #### NumPy promotion / copy
