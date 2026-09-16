@@ -79,14 +79,6 @@ from .core import (
 )
 
 from .semantics import empty_segment_identity
-from .structure import (
-    apply_structured,
-    is_structure,
-    peel,
-    register_structure,
-    rewrap,
-    unregister_structure,
-)
 from .typing import (
     ArrayT,
     Axes,
@@ -212,11 +204,5 @@ __all__ = [
     "promote_options",
     "align_arrays",
     "empty_segment_identity",
-    "register_structure",
-    "unregister_structure",
-    "is_structure",
-    "peel",
-    "rewrap",
-    "apply_structured",
     "__version__",
 ]
