@@ -1,0 +1,1 @@
+Add ``module_if_loaded()`` to peek at already-imported optional libraries without importing them, run a callback now or when the module is first imported, and optionally raise after that callback is registered. TorchScript divert uses that callback so ``import torch`` before or after AnyTensor both work.

@@ -10,6 +10,7 @@ Generated from package docstrings with
 | [Segment ops](segment.md) | Segment reductions and `partition_softmax` |
 | [Semantics](semantics_api.md) | `empty_segment_identity` |
 | [Namespace](namespace.md) | TF Array-API shim (`array_namespace`) |
+| [Optional imports](optional.md) | `module_if_loaded()` — already-imported extras, with callbacks |
 
 Graphs and nests have their own sections: [Tree](../tree/index.md),
 [Jraph](../jraph/index.md) (API pages [tree/api](../tree/api.md) and

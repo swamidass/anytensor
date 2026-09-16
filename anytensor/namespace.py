@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from .optional import module_if_loaded
+
 
 _SCALAR_TYPES = (bool, int, float, complex)
 
@@ -16,37 +18,29 @@ _SCALAR_TYPES = (bool, int, float, complex)
 def _is_scalar(x: Any) -> bool:
     if isinstance(x, _SCALAR_TYPES):
         return True
-    try:
-        import numpy as np
+    import numpy as np
 
-        return isinstance(x, np.generic)
-    except ImportError:  # pragma: no cover
-        return False
+    return isinstance(x, np.generic)
 
 
 def _is_numpy_ndarray(x: Any) -> bool:
-    try:
-        import numpy as np
+    import numpy as np
 
-        return isinstance(x, np.ndarray)
-    except ImportError:  # pragma: no cover
-        return False
+    return isinstance(x, np.ndarray)
 
 
 def _is_tensorflow_tensor(x: Any) -> bool:
-    try:
-        import tensorflow as tf
-
-        return isinstance(x, (tf.Tensor, tf.Variable))
-    except ImportError:
+    tf = module_if_loaded("tensorflow")
+    if tf is None:
         return False
+    return isinstance(x, (tf.Tensor, tf.Variable))
 
 
 class _TensorflowNumpyNamespace:
     """``tf.experimental.numpy`` plus Array API helpers array-api-compat would normally add."""
 
     def __init__(self):
-        import tensorflow as tf
+        tf = module_if_loaded("tensorflow", raises=True)
         import tensorflow.experimental.numpy as tnp
 
         self._tf = tf

@@ -23,10 +23,11 @@ Currently supported backends are:
 A new backend can be added by creating a subclass of `AbstractBackend` and implementing the required methods. 
 """
 
-import sys
 from typing import Literal
 from contextlib import nullcontext
 from importlib.metadata import PackageNotFoundError, version as pkg_version
+
+from .optional import module_if_loaded
 
 _loaded_backends: dict = {}
 _type2backend: dict = {}
@@ -50,7 +51,7 @@ def _require_pkg_version(distribution: str, minimum: str, *, import_name: str | 
         current = pkg_version(distribution)
     except PackageNotFoundError:
         # Module may be present without metadata; fall back to __version__.
-        mod = sys.modules.get(name)
+        mod = module_if_loaded(name)
         current = getattr(mod, "__version__", None)
         if current is None:
             return
@@ -62,9 +63,11 @@ def _require_pkg_version(distribution: str, minimum: str, *, import_name: str | 
 
 
 def get_backend(tensor: Any) -> "AbstractBackend":
-    """
-    Takes a correct backend (e.g. numpy backend if tensor is numpy.ndarray) for a tensor.
-    If needed, imports package and creates backend
+    """Return the backend for ``tensor`` (e.g. NumPy for ``numpy.ndarray``).
+
+    Optional extras (JAX, Torch, TensorFlow) are used only if already imported;
+    this never imports them. NumPy is a required dependency and is the fallback
+    for ndarrays.
     """
     _type = type(tensor)
     _result = _type2backend.get(_type, None)
@@ -88,8 +91,8 @@ def get_backend(tensor: Any) -> "AbstractBackend":
         if _debug_importing:
             print("Testing for subclass of ", BackendSubclass)
         if BackendSubclass.framework_name not in _loaded_backends:
-            # check that module was already imported. Otherwise it can't be imported
-            if BackendSubclass.framework_name in sys.modules:
+            # Construct only if the extra is already imported; never import it here.
+            if module_if_loaded(BackendSubclass.framework_name) is not None:
                 if _debug_importing:
                     print("Imported backend for ", BackendSubclass.framework_name)
                 backend = BackendSubclass()
@@ -363,13 +366,14 @@ class JaxBackend(NumpyBackend):
 
     def __init__(self):
         _require_pkg_version("jax", "0.4.32")
+        jax = module_if_loaded("jax", raises=True)
         super(JaxBackend, self).__init__()
         self.onp = self.np
 
         import jax.numpy
 
         self.np = jax.numpy
-        self._jax = __import__("jax")
+        self._jax = jax
         self._install_numeric_attrs(self.np)
 
     def is_appropriate_type(self, tensor):
@@ -411,15 +415,10 @@ class TorchBackend(AbstractBackend):
 
     def __init__(self):
         _require_pkg_version("torch", "2.0")
-        import torch
+        torch = module_if_loaded("torch", raises=True)
 
         self.torch = torch
         self._install_numeric_attrs(torch)
-        # Late torch import: enable scripting divert without replacing eager
-        # multi-backend behavior (see :func:`anytensor.enable_torchscript`).
-        from .segment import enable_torchscript
-
-        enable_torchscript()
 
     def is_appropriate_type(self, tensor):
         return isinstance(tensor, self.torch.Tensor)
@@ -505,7 +504,7 @@ class TensorflowBackend(AbstractBackend):
 
     def __init__(self):
         _require_pkg_version("tensorflow", "2.10")
-        import tensorflow
+        tensorflow = module_if_loaded("tensorflow", raises=True)
         import tensorflow.experimental.numpy as tnp
 
         self.tf = tensorflow

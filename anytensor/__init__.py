@@ -2,6 +2,7 @@ from . import backends
 from . import jraph
 from . import tree
 from .backends import get_backend
+from .optional import module_if_loaded
 
 # Import einops functions, which work the same way as anytensor.
 from einops import einsum, pack, unpack, rearrange, reduce
@@ -114,6 +115,7 @@ __all__ = [
     "jraph",
     "tree",
     "get_backend",
+    "module_if_loaded",
     "ArrayT",
     "Axes",
     "Bool",
