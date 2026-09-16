@@ -24,7 +24,7 @@ from typing import (
 )
 
 from anytensor import tree
-from anytensor.core import concatenate, ones, shape, sum as at_sum
+from anytensor.core import concatenate, ones, reshape, shape, sum as at_sum
 from anytensor.core import _host_concrete_int
 from anytensor.lengths import batch_ids, split_by_lengths, unbatch_ids
 
@@ -267,7 +267,11 @@ def _require_same_keys(graphs: Sequence[HeteroGraphsTuple]) -> None:
 
 
 def _batch_hetero(graphs: Sequence[HeteroGraphsTuple]) -> HeteroGraphsTuple:
-    """Fieldwise concat, then offset senders/receivers per ntype."""
+    """Fieldwise concat, then offset senders/receivers per input graph.
+
+    Offsets use per-input ``sum(n_node[ntype])`` / ``sum(n_edge[etype])`` (same
+    as jraph homo batch), not the flattened multi-graph length vectors.
+    """
     if not graphs:
         raise ValueError("batch() requires at least one HeteroGraphsTuple")
     _require_same_keys(graphs)
@@ -285,12 +289,20 @@ def _batch_hetero(graphs: Sequence[HeteroGraphsTuple]) -> HeteroGraphsTuple:
     receivers = {
         e: concatenate([g.receivers[e] for g in graphs], axis=0) for e in etypes
     }
-    # Offset ids: send uses src ntype lengths, recv uses dst.
+    node_totals = {
+        t: concatenate([reshape(at_sum(g.n_node[t]), (1,)) for g in graphs])
+        for t in ntypes
+    }
+    edge_totals = {
+        e: concatenate([reshape(at_sum(g.n_edge[e]), (1,)) for g in graphs])
+        for e in etypes
+    }
+    # Offset ids: send uses src ntype totals, recv uses dst.
     senders = {
-        e: batch_ids(senders[e], n_node[e[0]], n_edge[e]) for e in etypes
+        e: batch_ids(senders[e], node_totals[e[0]], edge_totals[e]) for e in etypes
     }
     receivers = {
-        e: batch_ids(receivers[e], n_node[e[2]], n_edge[e]) for e in etypes
+        e: batch_ids(receivers[e], node_totals[e[2]], edge_totals[e]) for e in etypes
     }
 
     return HeteroGraphsTuple(

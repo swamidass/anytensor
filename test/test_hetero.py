@@ -179,6 +179,25 @@ def test_batch_unbatch_same_schema_all_backends(name):
         backend.to_numpy(parts[1].senders[et]), g2.senders[et]
     )
 
+
+def test_batch_already_batched_hetero_offsets():
+    """Per-input ``sum(n_node)`` offsets when inputs are already multi-graph."""
+    et = ("a", "r", "a")
+    g = HeteroGraphsTuple(
+        nodes={"a": np.arange(2, dtype=np.float32).reshape(2, 1)},
+        edges={et: np.zeros((1, 1), dtype=np.float32)},
+        senders={et: np.asarray([1], dtype=np.int32)},
+        receivers={et: np.asarray([1], dtype=np.int32)},
+        n_node={"a": np.asarray([1, 1], dtype=np.int32)},
+        n_edge={et: np.asarray([0, 1], dtype=np.int32)},
+    )
+    batched = tree.batch([g, g])
+    np.testing.assert_array_equal(batched.n_node["a"], [1, 1, 1, 1])
+    np.testing.assert_array_equal(batched.senders[et], [1, 3])
+    parts = tree.unbatch(batched)
+    assert len(parts) == 4
+    np.testing.assert_array_equal(parts[3].senders[et], [0])
+
 def test_batch_rejects_mismatched_keys():
     et_writes = ("author", "writes", "paper")
     et_cites = ("paper", "cites", "paper")

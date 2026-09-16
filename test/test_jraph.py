@@ -81,6 +81,28 @@ def test_batch_unbatch_roundtrip():
     np.testing.assert_array_equal(_np(parts[1].senders), g2.senders)
 
 
+def test_batch_already_batched_graphs_matches_jraph_offsets():
+    """Offsets use per-GraphsTuple ``sum(n_node)``, not flattened segments."""
+    g = atj.GraphsTuple(
+        nodes=np.zeros((2, 3), dtype=np.float32),
+        edges=np.zeros((1, 3), dtype=np.float32),
+        receivers=np.array([1], dtype=np.int32),
+        senders=np.array([1], dtype=np.int32),
+        globals=np.zeros((2, 2), dtype=np.float32),
+        n_node=np.array([1, 1], dtype=np.int32),
+        n_edge=np.array([0, 1], dtype=np.int32),
+    )
+    batched = atj.batch([g, g])
+    np.testing.assert_array_equal(_np(batched.n_node), [1, 1, 1, 1])
+    np.testing.assert_array_equal(_np(batched.senders), [1, 3])
+    np.testing.assert_array_equal(_np(batched.receivers), [1, 3])
+    parts = atj.unbatch(batched)
+    assert len(parts) == 4
+    np.testing.assert_array_equal(_np(parts[1].senders), [0])
+    np.testing.assert_array_equal(_np(parts[3].senders), [0])
+
+
+
 @pytest.mark.parametrize("name", BACKENDS)
 def test_batch_unbatch_roundtrip_all_backends(name):
     backend = loaded_backends[name]

@@ -27,6 +27,7 @@ from anytensor.core import (
     reshape,
     rsqrt,
     shape,
+    sum as at_sum,
     take,
     zeros,
 )
@@ -246,8 +247,17 @@ def _zeros_like_leading(leaf, leading: int):
     return zeros((leading,) + rest, dtype=leaf.dtype, like=leaf)
 
 
+def _batch_size_totals(size_vectors):
+    """Per-GraphsTuple totals: ``[sum(n_node_i), ...]`` (jraph batch offsets)."""
+    return concatenate([reshape(at_sum(s), (1,)) for s in size_vectors])
+
+
 def _batch_graphs(graphs: Sequence[GraphsTuple]) -> GraphsTuple:
-    """Fieldwise concat, then offset senders/receivers from ``n_node``."""
+    """Fieldwise concat, then offset senders/receivers per input GraphsTuple.
+
+    Offsets use ``sum(n_node)`` / ``sum(n_edge)`` of each input (jraph), not the
+    flattened per-component ``n_node`` vector — inputs may already be batched.
+    """
     graphs = [g for g in graphs if _n_graphs(g) > 0]
     if not graphs:
         raise ValueError("batch() requires at least one non-empty GraphsTuple")
@@ -262,9 +272,11 @@ def _batch_graphs(graphs: Sequence[GraphsTuple]) -> GraphsTuple:
     )
     if batched.senders is None:
         return batched
+    node_totals = _batch_size_totals([g.n_node for g in graphs])
+    edge_totals = _batch_size_totals([g.n_edge for g in graphs])
     return batched._replace(
-        senders=batch_ids(batched.senders, batched.n_node, batched.n_edge),
-        receivers=batch_ids(batched.receivers, batched.n_node, batched.n_edge),
+        senders=batch_ids(batched.senders, node_totals, edge_totals),
+        receivers=batch_ids(batched.receivers, node_totals, edge_totals),
     )
 
 
