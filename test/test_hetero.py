@@ -11,6 +11,7 @@ from anytensor.hetero import (
     SendRecvTuple,
     graphs_tuple_as_send_recv,
     key_schema,
+    multi_update_all,
     schemas_equal,
 )
 from anytensor.jraph import GraphsTuple
@@ -414,3 +415,114 @@ def test_n_graphs_rejects_nonconcrete_batch_size(monkeypatch):
     )
     with pytest.raises(ValueError, match="concrete batch size"):
         g.n_graphs()
+
+def _kernel_update_graph():
+    writes = ("author", "writes", "paper")
+    cites = ("paper", "cites", "paper")
+    return HeteroGraphsTuple(
+        nodes={
+            "author": np.asarray([[1.0], [2.0], [3.0]], dtype=np.float32),
+            "paper": np.asarray([[10.0], [20.0]], dtype=np.float32),
+        },
+        edges={
+            writes: np.ones((3, 1), dtype=np.float32),
+            cites: np.ones((1, 1), dtype=np.float32),
+        },
+        senders={
+            writes: np.asarray([0, 1, 2], dtype=np.int32),
+            cites: np.asarray([0], dtype=np.int32),
+        },
+        receivers={
+            writes: np.asarray([0, 0, 1], dtype=np.int32),
+            cites: np.asarray([1], dtype=np.int32),
+        },
+        n_node={
+            "author": np.asarray([3], dtype=np.int32),
+            "paper": np.asarray([2], dtype=np.int32),
+        },
+        n_edge={
+            writes: np.asarray([3], dtype=np.int32),
+            cites: np.asarray([1], dtype=np.int32),
+        },
+    )
+
+
+def test_multi_update_all_copy_u_sum_values():
+    g = _kernel_update_graph()
+    out = multi_update_all(g, cross_reducer="sum", reduce="sum")
+    # paper0 <- author0+author1 = 3; paper1 <- author2 + paper0 = 3+10 = 13
+    np.testing.assert_allclose(out.nodes["paper"], [[3.0], [13.0]])
+    np.testing.assert_allclose(out.nodes["author"], g.nodes["author"])
+
+
+@pytest.mark.parametrize("name", BACKENDS)
+@pytest.mark.parametrize("cross_reducer", ["sum", "max", "min", "mean"])
+def test_multi_update_all_values_all_backends(name, cross_reducer):
+    """Tensor values after kernel update match the NumPy reference on every backend."""
+    backend = loaded_backends[name]
+    g_np = _kernel_update_graph()
+    ref = multi_update_all(g_np, cross_reducer=cross_reducer, reduce="sum")
+    g_b = _to_backend_hetero(g_np, backend)
+    out = multi_update_all(g_b, cross_reducer=cross_reducer, reduce="sum")
+    assert backend.is_appropriate_type(out.nodes["paper"])
+    np.testing.assert_allclose(
+        backend.to_numpy(out.nodes["paper"]),
+        np.asarray(ref.nodes["paper"]),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+    np.testing.assert_allclose(
+        backend.to_numpy(out.nodes["author"]),
+        np.asarray(ref.nodes["author"]),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+
+def test_multi_update_all_edge_cases_and_stack():
+    import anytensor.hetero.message as hm
+
+    g = _kernel_update_graph()
+    writes = ("author", "writes", "paper")
+    # single-relation path (len(parts)==1 in cross reduce)
+    one = multi_update_all(g, etypes=[writes], cross_reducer="sum")
+    np.testing.assert_allclose(one.nodes["paper"], [[3.0], [3.0]])
+    # stack cross-reducer
+    stacked = multi_update_all(g, cross_reducer="stack", reduce="sum")
+    assert stacked.nodes["paper"].shape[0] == 2
+    # etype_dict with (message_fn, reduce) tuple
+    custom = multi_update_all(
+        g,
+        {writes: (hm.copy_u_message, "mean")},
+        cross_reducer="sum",
+    )
+    assert custom.nodes["paper"].shape == (2, 1)
+    # empty etype_dict returns graph unchanged
+    assert multi_update_all(g, {}) is g
+    # error paths
+    with pytest.raises(KeyError):
+        hm.relation_mailbox(g, ("x", "y", "z"))
+    with pytest.raises(ValueError, match="unknown reduce"):
+        hm.relation_mailbox(g, writes, reduce="nope")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="unknown cross_reducer"):
+        hm._cross_reduce_leaves([np.ones(2), np.ones(2)], "nope")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="at least one"):
+        hm._cross_reduce_leaves([], "sum")
+    with pytest.raises(ValueError, match="at least one"):
+        hm._cross_reduce([], "sum")
+    with pytest.raises(ValueError, match="no feature leaves"):
+        hm._leading({})
+    # single-part leaf cross-reduce shortcut
+    np.testing.assert_array_equal(
+        hm._cross_reduce_leaves([np.asarray([1.0, 2.0])], "sum"), [1.0, 2.0]
+    )
+    # monkeypatch concrete size failure
+    real = hm._host_concrete_int
+    hm._host_concrete_int = lambda _v: None
+    try:
+        with pytest.raises(ValueError, match="concrete destination"):
+            multi_update_all(g, etypes=[writes])
+    finally:
+        hm._host_concrete_int = real
+    # None nodes take path
+    assert hm._take_nodes(None, g.senders[writes]) is None

@@ -18,7 +18,7 @@ torch = pytest.importorskip("torch")
 
 from anytensor import jraph as atj
 from anytensor import tree
-from anytensor.hetero import HeteroGraphsTuple
+from anytensor.hetero import HeteroGraphsTuple, multi_update_all
 
 
 def _require_dgl():
@@ -196,3 +196,73 @@ def test_dgl_hetero_batch_unbatch_parity():
         np.testing.assert_array_equal(
             _np(ap.receivers[et]), _np(orig.receivers[et])
         )
+
+
+def _kernel_hetero_pair():
+    """Two relations into ``paper`` (for cross-reducer parity)."""
+    writes = ("author", "writes", "paper")
+    cites = ("paper", "cites", "paper")
+    g = HeteroGraphsTuple(
+        nodes={
+            "author": torch.tensor([[1.0], [2.0], [3.0]]),
+            "paper": torch.tensor([[10.0], [20.0]]),
+        },
+        edges={writes: torch.ones(3, 1), cites: torch.ones(1, 1)},
+        senders={
+            writes: torch.tensor([0, 1, 2], dtype=torch.int64),
+            cites: torch.tensor([0], dtype=torch.int64),
+        },
+        receivers={
+            writes: torch.tensor([0, 0, 1], dtype=torch.int64),
+            cites: torch.tensor([1], dtype=torch.int64),
+        },
+        n_node={
+            "author": torch.tensor([3], dtype=torch.int64),
+            "paper": torch.tensor([2], dtype=torch.int64),
+        },
+        n_edge={
+            writes: torch.tensor([3], dtype=torch.int64),
+            cites: torch.tensor([1], dtype=torch.int64),
+        },
+    )
+    return g, writes, cites
+
+
+@pytest.mark.parametrize("cross_reducer", ["sum", "max", "min", "mean"])
+def test_dgl_hetero_multi_update_all_value_parity(cross_reducer):
+    """Kernel update values match DGL ``multi_update_all`` (copy_u + sum)."""
+    import dgl.function as fn
+
+    g, writes, cites = _kernel_hetero_pair()
+    at_out = multi_update_all(g, cross_reducer=cross_reducer, reduce="sum")
+
+    dg = dgl.heterograph(
+        {
+            writes: (g.senders[writes], g.receivers[writes]),
+            cites: (g.senders[cites], g.receivers[cites]),
+        },
+        num_nodes_dict={"author": 3, "paper": 2},
+    )
+    dg.nodes["author"].data["h"] = g.nodes["author"].clone()
+    dg.nodes["paper"].data["h"] = g.nodes["paper"].clone()
+    dg.multi_update_all(
+        {
+            writes: (fn.copy_u("h", "m"), fn.sum("m", "h")),
+            cites: (fn.copy_u("h", "m"), fn.sum("m", "h")),
+        },
+        cross_reducer,
+    )
+
+    np.testing.assert_allclose(
+        _np(at_out.nodes["paper"]),
+        _np(dg.nodes["paper"].data["h"]),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+    # Source-only ntype unchanged on both sides.
+    np.testing.assert_allclose(
+        _np(at_out.nodes["author"]), _np(g.nodes["author"])
+    )
+    np.testing.assert_allclose(
+        _np(dg.nodes["author"].data["h"]), _np(g.nodes["author"])
+    )

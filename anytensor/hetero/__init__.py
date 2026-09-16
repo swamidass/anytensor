@@ -17,6 +17,11 @@ from .graph import (
     key_schema,
     schemas_equal,
 )
+from .message import (
+    copy_u_message,
+    multi_update_all,
+    relation_mailbox,
+)
 
 __all__ = [
     "ArrayTree",
@@ -24,7 +29,10 @@ __all__ = [
     "HeteroGraphsTuple",
     "Ntype",
     "SendRecvTuple",
+    "copy_u_message",
     "graphs_tuple_as_send_recv",
     "key_schema",
+    "multi_update_all",
+    "relation_mailbox",
     "schemas_equal",
 ]
