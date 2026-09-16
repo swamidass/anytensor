@@ -212,6 +212,23 @@ def test_numpy_upcast_copy_true_isolates_mutations():
     assert float(up2[0]) == 0.0
 
 
+def test_promote_options_copy_true_on_numpy():
+    """copy=True / promote_options must be covered without a framework extra."""
+    from anytensor.core import _asarray, align_arrays, promote_options
+    import array_api_compat.numpy as xp
+
+    host = np.arange(4, dtype=np.float64)
+    out = _asarray(xp, host, copy=True)
+    host[0] = 99.0
+    assert float(out[0]) == 0.0
+
+    host2 = np.arange(4, dtype=np.float64)
+    with promote_options(copy=True):
+        copied, _ = align_arrays(host2, np.array([1.0, 2.0, 3.0, 4.0]))
+    host2[0] = 77.0
+    assert float(copied[0]) == 0.0
+
+
 def test_numpy_upcast_fallback_warn_or_error():
     """When zero-copy fails: fallback='copy' warns; fallback='error' raises."""
     from anytensor.core import _asarray

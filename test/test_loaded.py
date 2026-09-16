@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import importlib.machinery
 import sys
 import types
 
@@ -10,7 +11,7 @@ import pytest
 
 import anytensor as at
 from anytensor import optional as opt
-from anytensor.optional import _install_hook, loaded
+from anytensor.optional import _NotifyLoader, _install_hook, loaded
 
 
 @pytest.fixture(autouse=True)
@@ -86,14 +87,13 @@ def test_callback_survives_failed_import():
     assert loaded(name) is None
 
 
-def test_callback_on_module_stuffed_then_any_import():
+def test_callback_on_module_stuffed_then_fire_ready():
     name = "anytensor_loaded_stuffed"
     sys.modules.pop(name, None)
     seen = []
     loaded(name, seen.append)
     sys.modules[name] = types.ModuleType(name)
-    import json  # noqa: F401  — any import drains pending names
-
+    opt._fire_ready()
     assert seen == [sys.modules[name]]
     sys.modules.pop(name, None)
 
@@ -111,8 +111,7 @@ def test_fire_ready_drains_chained_pending():
     loaded(a, on_a)
     loaded(b, lambda _m: seen.append("b"))
     sys.modules[a] = types.ModuleType(a)
-    import json  # noqa: F401
-
+    opt._fire_ready()
     assert seen == ["a", "b"]
     sys.modules.pop(a, None)
     sys.modules.pop(b, None)
@@ -178,24 +177,25 @@ def test_fire_ready_skips_if_unloaded_after_snapshot(monkeypatch):
     assert seen == []
 
 
-def test_install_hook_is_idempotent():
+def test_install_hook_is_idempotent_and_reinserts():
     _install_hook()
-    assert opt._hook_installed is True
+    assert opt._finder is not None
+    assert sys.meta_path[0] is opt._finder
     _install_hook()
-    assert opt._hook_installed is True
+    assert sys.meta_path[0] is opt._finder
 
-
-def test_import_wrappers_noop_when_nothing_pending():
-    _install_hook()
-    with opt._lock:
-        saved = {k: list(v) for k, v in opt._pending.items()}
-        opt._pending.clear()
+    sentinel = object()
+    sys.meta_path.insert(0, sentinel)
     try:
-        import json as json_mod
-        assert importlib.import_module("json") is json_mod
+        _install_hook()
+        assert sys.meta_path[0] is opt._finder
     finally:
-        with opt._lock:
-            opt._pending.update(saved)
+        if sentinel in sys.meta_path:
+            sys.meta_path.remove(sentinel)
+
+    sys.meta_path.remove(opt._finder)
+    _install_hook()
+    assert sys.meta_path[0] is opt._finder
 
 
 def test_callback_on_import_statement(tmp_path, monkeypatch):
@@ -209,6 +209,132 @@ def test_callback_on_import_statement(tmp_path, monkeypatch):
     assert seen == [mod]
     assert mod.VALUE == 3
     sys.modules.pop(name, None)
+
+
+def test_finder_skips_when_busy_or_unwatched():
+    _install_hook()
+    finder = opt._finder
+    assert finder.find_spec("json", None) is None
+    name = "anytensor_loaded_busy"
+    with opt._lock:
+        opt._pending.setdefault(name, []).append(lambda _m: None)
+    finder._busy.add(name)
+    try:
+        assert finder.find_spec(name, None) is None
+    finally:
+        finder._busy.discard(name)
+
+
+def test_finder_wraps_loader_once_and_skips_finders_without_find_spec():
+    name = "anytensor_loaded_wrap_once"
+    seen = []
+    loaded(name, seen.append)
+
+    class NoSpec:
+        pass
+
+    class DummyLoader:
+        def create_module(self, spec):
+            return None
+
+        def exec_module(self, module):
+            module.ok = True
+
+    loader = DummyLoader()
+    spec = importlib.machinery.ModuleSpec(name, loader)
+
+    class DummyFinder:
+        def find_spec(self, fullname, path=None, target=None):
+            if fullname == name:
+                return spec
+            return None
+
+    dummy = DummyFinder()
+    nospec = NoSpec()
+    sys.meta_path.insert(0, dummy)
+    sys.meta_path.insert(0, nospec)
+    # Finder must sit in front so it wraps DummyFinder after skipping NoSpec.
+    _install_hook()
+    try:
+        wrapped = opt._finder.find_spec(name, None)
+        assert wrapped is spec
+        assert isinstance(spec.loader, _NotifyLoader)
+        again = opt._finder.find_spec(name, None)
+        assert again is spec
+        assert again.loader is spec.loader
+
+        module = types.ModuleType(name)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+        assert module.ok is True
+        assert seen == [module]
+        loader.marker = 1
+        assert spec.loader.marker == 1
+    finally:
+        sys.meta_path.remove(dummy)
+        sys.meta_path.remove(nospec)
+        sys.modules.pop(name, None)
+
+
+def test_notify_loader_create_module_and_legacy_load_module():
+    name = "anytensor_loaded_legacy"
+
+    class LegacyLoader:
+        def load_module(self, n):
+            mod = types.ModuleType(n)
+            sys.modules[n] = mod
+            mod.legacy = True
+            return mod
+
+    wrap_legacy = _NotifyLoader(LegacyLoader(), name)
+    assert wrap_legacy.create_module(None) is None
+    with opt._lock:
+        opt._pending.clear()
+    wrap_legacy.exec_module(types.ModuleType(name))
+    assert sys.modules[name].legacy is True
+    sys.modules.pop(name, None)
+
+    created = types.ModuleType(name)
+
+    class Creates:
+        def create_module(self, spec):
+            return created
+
+        def exec_module(self, module):
+            module.created = True
+
+    wrap_create = _NotifyLoader(Creates(), name)
+    assert wrap_create.create_module(None) is created
+    wrap_create.exec_module(created)
+    assert created.created is True
+
+
+def test_finder_namespace_spec_without_loader():
+    name = "anytensor_loaded_noloader"
+    loaded(name, lambda _m: None)
+    spec = importlib.machinery.ModuleSpec(name, None, is_package=True)
+
+    class NSFinder:
+        def find_spec(self, fullname, path=None, target=None):
+            if fullname == name:
+                return spec
+            return None
+
+    ns = NSFinder()
+    sys.meta_path.insert(0, ns)
+    _install_hook()
+    try:
+        found = opt._finder.find_spec(name, None)
+        assert found is spec
+        assert found.loader is None
+    finally:
+        sys.meta_path.remove(ns)
+
+
+def test_finder_returns_none_when_no_spec():
+    name = "anytensor_loaded_nospec_anywhere"
+    loaded(name, lambda _m: None)
+    assert opt._finder.find_spec(name, None) is None
 
 
 def test_namespace_tf_check_does_not_need_tensorflow():

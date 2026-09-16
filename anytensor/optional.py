@@ -11,8 +11,6 @@ JAX pytree registration on structured types.
 
 from __future__ import annotations
 
-import builtins
-import importlib
 import sys
 import threading
 from collections.abc import Callable
@@ -24,7 +22,7 @@ __all__ = ["loaded"]
 _Callback = Callable[[ModuleType], Any]
 _pending: dict[str, list[_Callback]] = {}
 _lock = threading.Lock()
-_hook_installed = False
+_finder: _PendingFinder | None = None
 
 
 def _module(name: str) -> ModuleType | None:
@@ -49,37 +47,74 @@ def _fire_ready() -> None:
                 callback(mod)
 
 
+class _NotifyLoader:
+    """Delegates to a real loader, then drains pending :func:`loaded` callbacks."""
+
+    def __init__(self, loader, name: str):
+        self._loader = loader
+        self._name = name
+
+    def create_module(self, spec):
+        create = getattr(self._loader, "create_module", None)
+        if create is None:
+            return None
+        return create(spec)
+
+    def exec_module(self, module):
+        exec_fn = getattr(self._loader, "exec_module", None)
+        if exec_fn is not None:
+            exec_fn(module)
+        else:
+            self._loader.load_module(self._name)
+        if _pending:
+            _fire_ready()
+
+    def __getattr__(self, item):
+        return getattr(self._loader, item)
+
+
+class _PendingFinder:
+    """Wrap loaders for watched names only; never imports anything itself."""
+
+    def __init__(self):
+        self._busy: set[str] = set()
+
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname not in _pending or fullname in self._busy:
+            return None
+        self._busy.add(fullname)
+        try:
+            spec = None
+            for finder in sys.meta_path:
+                if finder is self:
+                    continue
+                find = getattr(finder, "find_spec", None)
+                if find is None:
+                    continue
+                spec = find(fullname, path, target)
+                if spec is not None:
+                    break
+            if spec is not None and spec.loader is not None:
+                if not isinstance(spec.loader, _NotifyLoader):
+                    spec.loader = _NotifyLoader(spec.loader, fullname)
+            return spec
+        finally:
+            self._busy.discard(fullname)
+
+
 def _install_hook() -> None:
-    """Drain pending callbacks after imports complete.
-
-    CPython's frozen importlib keeps a private ``_find_and_load``; wrapping
-    ``builtins.__import__`` and :func:`importlib.import_module` observes both
-    ``import`` statements and ``import_module`` without importing extras
-    ourselves.
-    """
-    global _hook_installed
-    if _hook_installed:
+    """Observe watched imports via ``sys.meta_path`` (no global ``__import__`` wrap)."""
+    global _finder
+    if _finder is None:
+        _finder = _PendingFinder()
+    try:
+        idx = sys.meta_path.index(_finder)
+    except ValueError:
+        sys.meta_path.insert(0, _finder)
         return
-    orig_import = builtins.__import__
-    orig_import_module = importlib.import_module
-
-    def _import(name, globals=None, locals=None, fromlist=(), level=0):
-        try:
-            return orig_import(name, globals, locals, fromlist, level)
-        finally:
-            if _pending:
-                _fire_ready()
-
-    def _import_module(name, package=None):
-        try:
-            return orig_import_module(name, package)
-        finally:
-            if _pending:
-                _fire_ready()
-
-    builtins.__import__ = _import
-    importlib.import_module = _import_module
-    _hook_installed = True
+    if idx != 0:
+        sys.meta_path.remove(_finder)
+        sys.meta_path.insert(0, _finder)
 
 
 def loaded(
