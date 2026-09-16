@@ -2,8 +2,19 @@
 
 ## 2026-09-15
 
+- Typing: public APIs annotated with jaxtyping (`Shaped` / `Integer` / `SegmentValues`…) + `ArrayT` TypeVar (no backend imports for typing). Runtime checks **off by default**; pytest installs `jaxtyping.install_import_hook("anytensor", beartype)` in `test/conftest.py` (disable `ANYTENSOR_TYPECHECK=0`). Opt-in for apps: `enable_typecheck()` / import hook before import. `beartype` in `dev` / `typecheck` / `all`. Verified `test_typecheck.py` rejects mismatched segment id length.
+- Docs: GitHub Pages via Actions (`.github/workflows/docs.yml`); Pages `build_type=workflow` enabled for `swamidass/anytensor`. Build is not `--strict` yet (griffe annotation warnings). Dropped test-side hypothesis shim; pytest assumes `dev`. Runtime without hypothesis covered by `minimal-numpy` CI.
+- CI: `.github/workflows/test.yml` — `minimal-numpy` (package-only install; no hypothesis/jax/torch/tf; smoke ops) + `test` (`--extra all`, coverage gate, fuzz×200). NumPy is a core dependency; hypothesis stays in the `dev` group only.
+- ``enable_torchscript()``: ``is_scripting()`` divert so libraries can call ``at.segment_*`` and end users can ``torch.jit.script`` through them; eager NumPy/JAX/TF/Torch dispatch unchanged. Kernels live in ``anytensor.torchscript``. Fuzz: scripted vs eager Torch for sum/min/max (`test_fuzz_torchscript_matches_eager`).
+- Expanded Google-style docstrings on segment ops / `repeat` / `*_like` / reductions / `empty_segment_identity`, with per-function Notes for TF NaN·±inf, required `num_segments`, `sorted=` no-op, jit/`total_repeat_length`, TorchScript (JAX docs as model).
+- Fuzz: XLA ``prod`` with ``inf`` × float32-min → eager ``inf`` vs XLA ``nan``; finite samples now ``0`` or ``|x|>=1e-3`` (float32-exact), XLA skips ``fuzz_prod`` with non-finite inputs. Long fuzz `--fuzz-examples=5000`: 13 passed (log `artifacts/fuzz-long.out`).
+- Documented “Surprising differences” in `docs/semantics.md` + `semantics.py` (TF scatter/unsorted NaN·±inf, XLA min/max, jax.jit repeat static length, shape-kind `num_segments`, TF `*_like` under polymorphic graph, index/float width, GPU notes).
+- GPU notes in docs + `semantics.py` (no GPU CI): int64 Torch ids, device matching, float32 compares, nondeterministic ties, empty CUDA / XLA caveats; optional `@pytest.mark.gpu` smoke parked in TODO.
+- Added promote kind `shape` (`_normalize_shape_dim`); `num_segments` is a shape-size (required, JAX-style), not inferred. Wired through segment + `total_repeat_length`.
+- Symbolic fuzz green for `jax.jit` / `tf.function` / TF XLA / `torch.compile`: `*_like` uses `shape(x)`; partition fuzz passes static `sum_partitions`; TF scatter min/max OR-in segment NaNs; XLA skips min/max when inputs contain NaN (eager NaN vs XLA ±inf).
+- `num_segments` always required (JAX convention); may be Python int, jit symbolic constant, or tensor scalar — never inferred from ids.
+- Graph-safe `repeat` / `partition_softmax`: TF shim uses `tf.repeat` / `tf.range`; Python scalar repeats not promoted; `shape()` returns backend symbolic dims under trace; `total_repeat_length` pads/slices when lengths are not concrete.
 - Added TensorFlow to the local matrix (`uv sync --extra tensorflow`). Ordinary ops via `tf.experimental.numpy` shim (`anytensor.namespace`); segment min/max use scatter so ±inf semantics match. Fuzz peers: numpy × {jax, torch, tensorflow}.
-- TF graph coverage: Hypothesis fuzz compares eager vs `tf.function` on FUZZ_OPS (skip `repeat`, `partition_softmax` for now — Python `int(tensor)` / NumPy conversion under trace).
 - Fuzz budget: `fuzz_examples = 1000` in pyproject `[tool.pytest.ini_options]`; override with `--fuzz-examples=N` or `ANYTENSOR_FUZZ_EXAMPLES`.
 - Coverage gate: `pytest -m "not fuzz" --cov=anytensor` with `fail_under=100`; `backends.py` omitted. Non-fuzz total at 100%.
 - Public specials are thin functions over `get_backend(x)` attrs: `inf(x)` / `ninf(x)` / `nan(x)` / `pi(x)` / `e(x)` / `dtype(name, like=x)` / `finfo` / `iinfo`. Backend objects stay internal; `newaxis` is `None`.

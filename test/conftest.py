@@ -1,21 +1,28 @@
-"""Fuzz example budget: pyproject default, CLI, or env.
+"""Pytest config: fuzz budget + opt-in jaxtyping runtime checks for tests.
 
-Priority (highest wins)::
-
-1. ``--fuzz-examples=N``
-2. ``ANYTENSOR_FUZZ_EXAMPLES=N``
-3. ``[tool.pytest.ini_options] fuzz_examples`` in ``pyproject.toml`` (default 1000)
-
-Examples::
-
-    uv run pytest -m fuzz
-    uv run pytest -m fuzz --fuzz-examples=10000
-    ANYTENSOR_FUZZ_EXAMPLES=20000 uv run pytest -m fuzz
+Library code keeps jaxtyping annotations but does **not** enable runtime
+checking by default. Tests install the import hook here (before test modules
+import ``anytensor``) so shape/dtype annotations are verified during the suite.
 """
 
 from __future__ import annotations
 
 import os
+
+# Install before Hypothesis / any test module imports ``anytensor``.
+# Skip if explicitly disabled (e.g. debugging) or beartype is missing.
+if os.environ.get("ANYTENSOR_TYPECHECK", "1") not in ("0", "false", "False"):
+    try:
+        from jaxtyping import install_import_hook
+
+        install_import_hook("anytensor", "beartype.beartype")
+        _TYPECHECK_HOOK = True
+    except Exception as exc:  # pragma: no cover - misconfigured env
+        _TYPECHECK_HOOK = False
+        _TYPECHECK_HOOK_ERROR = exc
+else:
+    _TYPECHECK_HOOK = False
+    _TYPECHECK_HOOK_ERROR = None
 
 from hypothesis import HealthCheck, settings
 
@@ -65,10 +72,27 @@ def pytest_configure(config):
     if not config.getoption("--hypothesis-profile", default=None):
         settings.load_profile("default")
     config._anytensor_fuzz_examples = n  # type: ignore[attr-defined]
+    config._anytensor_typecheck = _TYPECHECK_HOOK  # type: ignore[attr-defined]
+    if not _TYPECHECK_HOOK and os.environ.get("ANYTENSOR_TYPECHECK", "1") not in (
+        "0",
+        "false",
+        "False",
+    ):
+        # Fail loudly in CI/dev if typecheck was expected but beartype/jaxtyping missing.
+        err = globals().get("_TYPECHECK_HOOK_ERROR")
+        raise RuntimeError(
+            "jaxtyping runtime typecheck hook failed to install "
+            f"(install beartype / jaxtyping, or set ANYTENSOR_TYPECHECK=0). "
+            f"Original error: {err!r}"
+        )
 
 
 def pytest_report_header(config):
+    lines = []
     n = getattr(config, "_anytensor_fuzz_examples", None)
     if n is not None:
-        return [f"anytensor fuzz_examples: {n}"]
-    return []
+        lines.append(f"anytensor fuzz_examples: {n}")
+    tc = getattr(config, "_anytensor_typecheck", None)
+    if tc is not None:
+        lines.append(f"anytensor jaxtyping typecheck: {'on' if tc else 'off'}")
+    return lines
