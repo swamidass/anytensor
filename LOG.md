@@ -2,6 +2,12 @@
 
 ## 2026-09-16
 
+- Merged `origin/main` (`module_if_loaded` + jraph/tree) into the torch.compile
+  coverage branch. `anytensor.tree` consults JAX / Torch / optree registries
+  via `module_if_loaded` (same no-import peek as backends / namespace). Compile
+  skip list now includes `jraph`, `tree`, and `module_if_loaded`. Dynamo-before-TF
+  conftest preload stays an eager import (a torch callback would still run after
+  TF if TF loaded first).
 - Folded `anytensor.jraph` into the 100% coverage gate (None connectivity,
   padding without senders, dynamically_batch flush/split, 1-d zero-out,
   `_flip0` fallbacks, extra jraph pad parity). Minimal-numpy CI smokes

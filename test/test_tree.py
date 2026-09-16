@@ -476,6 +476,33 @@ def test_registry_leaf_and_failure(monkeypatch):
     assert len(tree.leaves(object())) == 1
 
 
+def test_registry_looks_up_via_module_if_loaded(monkeypatch):
+    """Registries are resolved through ``module_if_loaded``, not raw ``sys.modules``."""
+    from anytensor import tree as tree_mod
+
+    class Spec:
+        flatten_fn = staticmethod(lambda o: ([o.x, o.y], None))
+        unflatten_fn = staticmethod(lambda children, ctx: RegistryPair(*children))
+
+    class FakePytree:
+        SUPPORTED_NODES = {RegistryPair: Spec()}
+
+    seen: list[str] = []
+
+    def fake(name, callback=None, *, raises=False):
+        del callback, raises
+        seen.append(name)
+        if name == "torch.utils._pytree":
+            return FakePytree
+        return None
+
+    monkeypatch.setattr(tree_mod, "module_if_loaded", fake)
+    assert tree.leaves(RegistryPair(1, 2)) == [1, 2]
+    assert tree.map(lambda v: v * 2, RegistryPair(1, 2)) == RegistryPair(2, 4)
+    assert "jax.tree_util" in seen
+    assert "torch.utils._pytree" in seen
+
+
 def test_batch_unbatch_arrays_and_nests():
     a = np.array([1, 2])
     b = np.array([3])

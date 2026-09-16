@@ -163,7 +163,10 @@ def _cases() -> dict[str, Callable[[Bundle], Any]]:
 _NON_COMPILE_PUBLIC = frozenset(
     {
         "backends",
+        "jraph",
+        "tree",
         "get_backend",
+        "module_if_loaded",
         "promote",
         "promote_scalars",
         "promote_options",
