@@ -79,7 +79,20 @@ addopts = "--import-mode=importlib"
 testpaths = ["test", "docs"]
 pythonpath = [".", "test"]
 fuzz_examples = 1000
-norecursedirs = ["site", ".venv", "artifacts"]
+norecursedirs = [
+  ".*",
+  "build",
+  "dist",
+  "CVS",
+  "_darcs",
+  "{arch}",
+  "*.egg",
+  "venv",
+  ".venv",
+  "site",
+  "artifacts",
+  ".hypothesis",
+]
 # Sybil only executes docs/examples.md (see test/docs_sybil.py).
 markers = [
   "fuzz: Hypothesis / cross-backend fuzz (excluded from the coverage gate)",
@@ -89,6 +102,16 @@ filterwarnings = [
   "ignore::beartype.roar.BeartypeDecorHintPep585DeprecationWarning",
   # TF AutoGraph / gast noise under Sybil-executed doc examples.
   "ignore::DeprecationWarning:gast",
+  # Legacy TorchScript tests + remaining divert; PyTorch deprecates script/trace.
+  "ignore:`torch.jit.script` is deprecated:FutureWarning",
+  "ignore:`torch.jit.trace` is deprecated:FutureWarning",
+  # Dynamo tracing array-api-compat's lru_cache helpers (harmless; graph still runs).
+  "ignore:Dynamo detected a call to a `functools.lru_cache`-wrapped function:UserWarning",
+  # NaN / empty-segment fuzz hits intentional ±inf and 0/0 paths.
+  "ignore:invalid value encountered in:RuntimeWarning",
+  # Trace size checks and constant fills under legacy jit.trace paths.
+  "ignore:Converting a tensor to a Python boolean:torch.jit.TracerWarning",
+  "ignore:torch.tensor results are registered as constants:torch.jit.TracerWarning",
 ]
 
 [tool.coverage.run]

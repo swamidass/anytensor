@@ -16,3 +16,13 @@ if str(_TEST) not in sys.path:
 from docs_sybil import docs_sybil  # noqa: E402
 
 pytest_collect_file = docs_sybil.pytest()
+
+
+def pytest_addoption(parser):
+    # Registered at root so ``docs/``-only collection recognizes ``fuzz_examples``
+    # from pyproject (``test/conftest.py`` is not loaded for docs paths alone).
+    parser.addini(
+        "fuzz_examples",
+        default="1000",
+        help="Hypothesis max_examples for @pytest.mark.fuzz tests",
+    )

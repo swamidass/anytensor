@@ -40,11 +40,7 @@ _FUZZ_HEALTH = (HealthCheck.too_slow, HealthCheck.filter_too_much)
 
 
 def pytest_addoption(parser):
-    parser.addini(
-        "fuzz_examples",
-        default="1000",
-        help="Hypothesis max_examples for @pytest.mark.fuzz tests",
-    )
+    # ``fuzz_examples`` ini is registered in root ``conftest.py`` (docs collection).
     group = parser.getgroup("anytensor")
     group.addoption(
         "--fuzz-examples",
