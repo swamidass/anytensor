@@ -19,6 +19,7 @@
   GAT (self-edges added, not skipped) and the rest of the model zoo.
   `jraph.batch` / `unbatch` are `tree.batch` / `tree.unbatch`; GraphsTuple
   implements `__tree_batch__` / `__tree_unbatch__` (no sized-split API).
+  Magic-method examples use AnyTensor ops so they stay portable.
 
 ## 2026-09-15
 
