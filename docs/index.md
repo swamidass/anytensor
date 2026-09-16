@@ -219,6 +219,6 @@ constant, or 0-d integral tensor scalar.
 
 - [Worked examples](examples.md) — pytest-verified GAT helper + jit/compile/script
 - [Usage](usage.md) — promotion, segment helpers, TorchScript, typing
+- [Design](design.md) — principles, decisions, and what to expect on edges
 - [Surprising differences](semantics.md) — NaN / ±inf / graph / GPU gotchas
-- [Design](design.md) — hybrid Array API + segment backends
 - [API reference](api/index.md) — generated from docstrings
