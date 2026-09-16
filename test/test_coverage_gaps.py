@@ -85,12 +85,72 @@ def test_segment_softmax_infers_num_segments_and_2d_or_constant():
     assert close(np.asarray(m[2]), np.array([-9.0, -9.0]))
 
 
+def test_ones_full_like_inherit_dtype():
+    like = np.array([1.0, 2.0], dtype=np.float32)
+    assert at.ones((2,), like=like).dtype == like.dtype
+    assert at.full((2,), 3.0, like=like).dtype == like.dtype
+
+
+def test_repeat_without_axis():
+    out = at.repeat(np.array([1.0, 2.0]), 2)
+    assert close(np.asarray(out), np.array([1.0, 1.0, 2.0, 2.0]))
+
+
+def test_promote_scalars_success_and_role_edges():
+    @at.promote_scalars("x", "y")
+    def add(x, y):
+        return x + y
+
+    assert float(add(np.array(1.0), np.array(2.0))) == 3.0
+
+    @at.promote(indices="index")
+    def only_index(indices):
+        return indices
+
+    assert list(np.asarray(only_index(np.array([0, 1])))) == [0, 1]
+
+    @at.promote(x="data", ghost="mask")
+    def with_ghost_role(x):
+        return x
+
+    assert float(with_ghost_role(np.array(1.0))) == 1.0
+
+
+def test_promote_result_type_typeerror(monkeypatch):
+    import array_api_compat.numpy as xp
+
+    def boom(*_a, **_k):
+        raise TypeError("no result_type")
+
+    monkeypatch.setattr(xp, "result_type", boom)
+    # Still runs; dtype promotion is skipped when result_type fails.
+    out = at.maximum(np.array([1], dtype=np.int32), np.array([2], dtype=np.int32))
+    assert int(np.asarray(out)[0]) == 2
+
+
+def test_arange_device_typeerror_fallback(monkeypatch):
+    import array_api_compat.numpy as xp
+
+    real = xp.arange
+
+    def flaky(*args, **kwargs):
+        if "device" in kwargs:
+            raise TypeError("device not supported")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(xp, "arange", flaky)
+    out = at.arange(3, like=np.array([0.0]), device="cpu")
+    assert list(np.asarray(out)) == [0, 1, 2]
+
+
 def test_partition_softmax_and_semantics_edges():
     logits = np.array([1.0, 2.0, 0.5], dtype=np.float32)
     parts = np.array([2, 1], dtype=np.int64)
     out = at.partition_softmax(logits, parts)
     assert out.shape == (3,)
     assert close(float(np.sum(out[:2])), 1.0)
+    out2 = at.partition_softmax(logits, parts, sum_partitions=3)
+    assert out2.shape == (3,)
 
     with pytest.raises(ValueError):
         empty_segment_identity(np.float32, "mean", xp=np)

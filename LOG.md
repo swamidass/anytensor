@@ -2,7 +2,7 @@
 
 ## 2026-09-15
 
-- Coverage gate: `pytest -m "not fuzz" --cov=anytensor` with `fail_under=90`; `backends.py` omitted (implementation detail). Fuzz marked `@pytest.mark.fuzz`.
+- Coverage gate: `pytest -m "not fuzz" --cov=anytensor` with `fail_under=100`; `backends.py` omitted. Non-fuzz total at 100%.
 - Public specials are thin functions over `get_backend(x)` attrs: `inf(x)` / `ninf(x)` / `nan(x)` / `pi(x)` / `e(x)` / `dtype(name, like=x)` / `finfo` / `iinfo`. Backend objects stay internal; `newaxis` is `None`.
 - Cross-backend fuzz registers essentially all public ops/helpers (`@fuzz_op`); inventory test guards gaps. `max_examples=1000` (Hypothesis default is 100).
 - NaN utilities: `is_nan` / `is_finite` / `is_inf` (aliases `isnan` / `isfinite` / `isinf`), `fill_nan` (alias `nan_fill`), `fill_nan_mask` → `(filled, mask)` with True=was-NaN, Array API `nan_to_num`, element-wise `equal_nan`. Chose verb-first `fill_nan` over `nan_fill`; kept the latter as alias.

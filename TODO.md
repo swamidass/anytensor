@@ -6,4 +6,4 @@
 - Publish to PyPI when the public API settles
 - Torch `sorted=` fast path (currently no-op; documented as unsorted-safe)
 - Optional TF extra in default CI once wheel story is settled
-- Keep non-fuzz coverage ≥90% (`pytest -m "not fuzz" --cov=anytensor`); backends.py omitted from the gate
+- Keep non-fuzz coverage at 100% (`pytest -m "not fuzz" --cov=anytensor`); backends.py omitted from the gate
