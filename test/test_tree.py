@@ -351,7 +351,12 @@ def test_torch_registry_custom_type():
         def __eq__(self, other):
             return type(other) is TorchPair and self.x == other.x and self.y == other.y
 
-    pytree.register_pytree_node(
+    register = getattr(pytree, "register_pytree_node", None) or getattr(
+        pytree, "_register_pytree_node", None
+    )
+    if register is None:
+        pytest.skip("torch pytree registration API not available")
+    register(
         TorchPair,
         lambda o: ([o.x, o.y], None),
         lambda children, ctx: TorchPair(*children),
@@ -471,6 +476,10 @@ def test_registry_leaf_and_failure(monkeypatch):
         pass
 
     monkeypatch.setitem(sys.modules, "optree", OptNoFns)
+    assert len(tree.leaves(object())) == 1
+    monkeypatch.delitem(sys.modules, "optree", raising=False)
+    monkeypatch.delitem(sys.modules, "jax.tree_util", raising=False)
+    monkeypatch.delitem(sys.modules, "torch.utils._pytree", raising=False)
     assert len(tree.leaves(object())) == 1
 
 

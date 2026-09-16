@@ -232,10 +232,8 @@ def _is_leaf_treedef(flat_leaves, obj) -> bool:
 
 def _jax_one_level(obj):
     jtu = sys.modules.get("jax.tree_util")
-    if jtu is None:
-        return None
-    tree_flatten = getattr(jtu, "tree_flatten", None)
-    tree_unflatten = getattr(jtu, "tree_unflatten", None)
+    tree_flatten = getattr(jtu, "tree_flatten", None) if jtu is not None else None
+    tree_unflatten = getattr(jtu, "tree_unflatten", None) if jtu is not None else None
     if tree_flatten is None or tree_unflatten is None:
         return None
     try:
@@ -279,10 +277,8 @@ def _torch_one_level(obj):
 
 def _optree_one_level(obj):
     optree = sys.modules.get("optree")
-    if optree is None:
-        return None
-    tree_flatten = getattr(optree, "tree_flatten", None)
-    tree_unflatten = getattr(optree, "tree_unflatten", None)
+    tree_flatten = getattr(optree, "tree_flatten", None) if optree is not None else None
+    tree_unflatten = getattr(optree, "tree_unflatten", None) if optree is not None else None
     if tree_flatten is None or tree_unflatten is None:
         return None
     try:
