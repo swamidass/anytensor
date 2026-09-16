@@ -56,6 +56,8 @@ from .core import (
     align_arrays,
 )
 
+from .semantics import empty_segment_identity
+
 try:
     from ._version import __version__
 except ImportError:  # pragma: no cover
@@ -115,5 +117,6 @@ __all__ = [
     "promote_scalars",
     "promote_options",
     "align_arrays",
+    "empty_segment_identity",
     "__version__",
 ]

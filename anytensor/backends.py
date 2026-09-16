@@ -101,6 +101,9 @@ def get_backend(tensor) -> "AbstractBackend":
     raise RuntimeError(f"Tensor type unknown to anytensor: {type(tensor)}")
 
 
+from .semantics import empty_segment_identity
+
+
 class AbstractBackend:
     """Base backend class, major part of methods are only for debugging purposes."""
 
@@ -127,14 +130,10 @@ class AbstractBackend:
         raise NotImplementedError("framework doesn't support repeat")
 
     def segment_reduce(self, x, seg_ids, num_segments, reduction, sorted: bool = False):
-        """segment_reduce with reduce in {sum, min, max}.
+        """Reduce ``x`` by ``seg_ids`` along axis 0 (``sum`` / ``min`` / ``max``).
 
-        Follows semantics of jax.ops.segment_sum:
-        https://docs.jax.dev/en/latest/_autosummary/jax.ops.segment_sum.html
-
-        Index dtypes are backend-local: ``seg_ids`` must be integral, but width
-        differs (Torch scatter wants int64; JAX/TF often use int32). Callers
-        should not assume NumPy int64 ids stay int64 after upcast.
+        Empty-segment identities are standardized in :mod:`anytensor.semantics`
+        (float ±inf, integer dtype min/max, sum 0). See that module for the table.
         """
         raise NotImplementedError("backend does not support segment_sum")
     
@@ -278,19 +277,15 @@ class NumpyBackend(AbstractBackend):
             return self.np.finfo(t)
 
     def _segment_identity(self, x, reduction: str):
-        """Empty-segment identity: ±inf for floats, dtype min/max for ints."""
-        if reduction == "sum":
-            return 0
-        info = self._type_info(x)
-        is_float = self.np.issubdtype(x.dtype, self.np.floating)
-        if reduction == "min":
-            return self.np.inf if is_float else info.max
-        if reduction == "max":
-            return -self.np.inf if is_float else info.min
-        raise ValueError(f"reduction type {reduction} not supported")
+        return empty_segment_identity(x.dtype, reduction, xp=self.np)
 
     def segment_reduce(self, x, seg_ids, num_segments, reduction, sorted: bool = False):
-        s = self.np.full((num_segments,) + x.shape[1:], self._segment_identity(x, reduction), dtype=x.dtype)
+        del sorted  # NumPy path is unsorted-safe (scatter via ufunc.at).
+        s = self.np.full(
+            (num_segments,) + x.shape[1:],
+            self._segment_identity(x, reduction),
+            dtype=x.dtype,
+        )
 
         if reduction == "sum":
             agg = self.np.add
@@ -361,17 +356,14 @@ class TorchBackend(AbstractBackend):
         return isinstance(tensor, self.torch.Tensor)
 
     def _scatter_fill_value(self, x, reduction: str):
-        """Identity for empty segments: 0 / dtype max / dtype min (not float inf on ints)."""
+        """Empty-segment identity (see :mod:`anytensor.semantics`)."""
         if reduction == "sum":
             return 0
-        is_float = x.dtype.is_floating_point
+        if x.dtype.is_floating_point:
+            return float("inf") if reduction == "min" else float("-inf")
         if reduction == "min":
-            if is_float:
-                return float("inf")
             return self.torch.iinfo(x.dtype).max
         if reduction == "max":
-            if is_float:
-                return float("-inf")
             return self.torch.iinfo(x.dtype).min
         raise ValueError(f"reduction type {reduction} not supported")
 

@@ -1,4 +1,8 @@
-"""Segment reductions and related helpers for ragged / GNN-style code."""
+"""Segment reductions and related helpers for ragged / GNN-style code.
+
+Empty-segment identities are standardized in :mod:`anytensor.semantics`
+(float ``±inf``, integer dtype min/max, sum ``0``).
+"""
 
 from __future__ import annotations
 

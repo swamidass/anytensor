@@ -53,8 +53,52 @@ Dtype policy is per-operand via `@promote`:
 @promote(condition="mask", x="data", y="data")
 ```
 
-**Index width** is not unified: Torch scatter normalizes to `int64`; JAX (without x64) and TF commonly use `int32`. `@promote(..., kind="index")` only requires an integral dtype — backends cast at the kernel boundary when needed.
+### Portable differences (read this)
 
+These are the behaviors AnyTensor **standardizes** or **documents as backend-local**. Full tables live in [`anytensor/semantics.py`](anytensor/semantics.py).
+
+#### Empty segment slots (standardized)
+
+When `num_segments` is larger than the set of ids present (or an id never appears), empty slots keep the reduction **identity**:
+
+| reduction | floating | integral |
+|---|---|---|
+| `segment_sum` | `0` | `0` |
+| `segment_min` | `+inf` | `iinfo(dtype).max` |
+| `segment_max` | `-inf` | `iinfo(dtype).min` |
+
+- Occupied slots always do a real reduce (e.g. a segment whose only value is `+inf` stays `+inf` for min — not a finfo stand-in).
+- Prefer `segment_min_or_constant` / `segment_max_or_constant` when empties should be a finite fill.
+- `sorted=` is honored on JAX/TF; on NumPy/Torch the path is unsorted-safe and `sorted` is currently a no-op.
+
+#### Index integer width (backend-local)
+
+`@promote(..., "index")` only requires an **integral** dtype. Width is not unified:
+
+| Backend | Typical index dtype | Notes |
+|---|---|---|
+| NumPy | `int64` (or platform `int_`) | Host ids often start here |
+| PyTorch | cast to **`int64`** at scatter | Required by `scatter_*` |
+| JAX | often **`int32`** without `jax_enable_x64` | `int64` may truncate with a warning |
+| TensorFlow | often **`int32`** | Mixed width can friction in graphs |
+
+Do not assume NumPy `int64` segment ids stay `int64` after upcast to JAX.
+
+#### Float width / NaN / ±inf
+
+- Cross-backend fuzz compares in **float32** where JAX defaults truncate `float64`.
+- NaN and ±inf are in-scope for portable math and segment ops; comparisons use `equal_nan=True` in tests.
+- Empty **axis reductions** (`min`/`max` on length-0) remain framework-defined (often error); prefer nonempty for those.
+
+#### NumPy promotion / copy
+
+| Situation | Behavior |
+|---|---|
+| Only scalars | NumPy 0-d arrays |
+| NumPy + framework tensor | Promote NumPy → framework (never the reverse) |
+| Default upcast | Prefer **reference** (`copy=False`) |
+| Zero-copy impossible | `fallback="copy"` (warn) or `"error"` |
+| Mutating host buffer | `@promote(..., copy=True)` or `promote_options(copy=True)` |
 
 ### Segment helpers
 
