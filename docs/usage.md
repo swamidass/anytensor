@@ -90,47 +90,21 @@ Einops (`rearrange`, `einsum`, `reduce`, …) is re-exported for convenience.
 Under `jax.jit`, pass a static `sum_partitions` to `partition_softmax` so
 `jnp.repeat` can compile. See [Surprising differences](semantics.md).
 
-## TorchScript
+## Torch compile / export
 
-`torch.jit.script` cannot follow array-api-compat / backend dispatch. After
-`anytensor.enable_torchscript()` (automatic if `torch` was imported before
-`anytensor`, or when the Torch backend first loads), public
-`segment_sum` / `min` / `max` gain a `torch.jit.is_scripting()` divert to
-`anytensor.torchscript`.
+Prefer **`torch.compile`** (training / runtime) or **`torch.export`** (AOT /
+serialization). PyTorch has deprecated `torch.jit.script` / `torch.jit.trace`;
+do not use them in new code.
 
-**Eager behavior stays multi-backend.** NumPy, JAX, Torch, and TF tensors still
-dispatch normally when not scripting — enabling TorchScript does not replace
-those paths with Torch-only functions.
+- **`torch.compile`:** portable helpers typically need `fullgraph=False`
+  (Dynamo graph-breaks on `@promote` / array-api-compat). A single fused graph
+  needs a Torch-only body.
+- **`torch.export`:** pass an **`nn.Module`** whose `forward` calls the portable
+  helper — bare functions are rejected. See [Worked examples](examples.md).
 
-That is the library-friendly pattern: a library writes portable AnyTensor
-calls; an end user who scripts their own code can still compile through those
-calls.
-
-```python
-# library.py — no TorchScript knowledge required
-import anytensor as at
-
-def message_pass(x, edge_index, n_node: int):
-    return at.segment_sum(x, edge_index, n_node)
-
-# user code
-import torch
-import anytensor as at
-import library
-
-at.enable_torchscript()  # no-op if torch was imported before anytensor
-
-@torch.jit.script
-def f(x: torch.Tensor, s: torch.Tensor) -> torch.Tensor:
-    return library.message_pass(x, s, 5)
-```
-
-You can also call `anytensor.torchscript.segment_sum` directly inside a
-scripted function. `torch.jit.trace` / `torch.compile` can use `at.segment_*`
-without the divert. Under script, `num_segments` must be a Python `int`.
-
-Parity is fuzzed: scripted `segment_sum` / `min` / `max` vs eager Torch
-(`pytest -m fuzz`, `test_fuzz_torchscript_matches_eager`).
+`anytensor.enable_torchscript()` remains for legacy `torch.jit.script` call
+sites that still hit `segment_sum` / `min` / `max`; it is not the recommended
+path.
 
 ## Typing
 

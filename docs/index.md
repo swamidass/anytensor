@@ -48,8 +48,8 @@ native tensors; AnyTensor dispatches.
 4. **Honest about differences.** When TF XLA and NumPy disagree on
    `inf * tiny`, we [document it](semantics.md) instead of papering over it.
 5. **Tests are the contract.** Cross-backend and symbolic fuzz, a 100%
-   coverage gate, TorchScript parity, minimal-NumPy CI, and pytest-run docs
-   examples keep portability claims executable — see
+   coverage gate, minimal-NumPy CI, and pytest-run docs examples keep
+   portability claims executable — see
    [Design → How we keep the contract honest](design.md#how-we-keep-the-contract-honest).
 6. **Semantic Versioning.** No breaking public API or documented semantics
    changes without a **major** version bump ([Release](release.md)).
@@ -179,19 +179,19 @@ You did not rewrite the algorithm. Callers keep their stack; your library keeps
 one source of truth. For the battery-included form, prefer
 `at.segment_softmax` directly (same numerics as the PyG index softmax path).
 
-### Compile, `jit`, and TorchScript
+### Compile and `jit`
 
 Eager four-backend use is the easy part. Compilers need extra care (static
-`num_nodes`, which ops are scriptable, tracing vs scripting). **Runnable,
-pytest-checked recipes** live in [Worked examples](examples.md):
+`num_nodes`, `fullgraph` vs graph breaks). **Runnable, pytest-checked recipes**
+live in [Worked examples](examples.md):
 
 - `jax.jit(..., static_argnames=("num_nodes",))`
-- `torch.compile(neighbor_attention)`
+- `torch.compile(neighbor_attention, fullgraph=False)` (portable); `fullgraph=True` needs a Torch-only body
+- `torch.export` via an `nn.Module` whose `forward` calls the helper
 - `tf.function` / `jit_compile=True`
-- `torch.jit.script` through `segment_sum` after `enable_torchscript()`
-- `torch.jit.trace` with Python ints closed over
 
-Those fences are executed in CI via Sybil so they do not rot.
+Prefer `torch.compile` / `torch.export` over deprecated `torch.jit.script` /
+`trace`. Those fences are executed in CI via Sybil so they do not rot.
 
 ---
 
@@ -224,7 +224,7 @@ constant, or 0-d integral tensor scalar.
 ## Next
 
 - [Worked examples](examples.md) — pytest-verified GAT helper + jit/compile/script
-- [Usage](usage.md) — promotion, segment helpers, TorchScript, typing
+- [Usage](usage.md) — promotion, segment helpers, `torch.compile`, typing
 - [Design](design.md) — principles, decisions, and what to expect on edges
 - [Surprising differences](semantics.md) — NaN / ±inf / graph / GPU gotchas
 - [API reference](api/index.md) — generated from docstrings

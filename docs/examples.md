@@ -95,21 +95,58 @@ out = jitted(
 np.testing.assert_allclose(np.asarray(out), out_np)
 ```
 
-### `torch.compile` — full helper works
+### `torch.compile` — portable helper (`fullgraph=False`)
 
-Dynamo can follow AnyTensor dispatch for this example (graph breaks may still
-occur on some ops; numerics match eager):
+Dynamo can run the portable helper if you allow graph breaks
+(`fullgraph=False`, the default): breaks land in `@promote` /
+`array-api-compat`, those pieces run eager, and numerics still match. Reset
+Dynamo first so a prior compile in the same process does not leave state
+behind. Sybil setup imports ``torch`` and seeds ``messages_t`` / ``scores_t`` /
+``dst_t``. Docs use ``backend="aot_eager"`` so this stays reliable after the
+fuzz suite (default inductor codegen flakes in-process); apps omit ``backend``:
 
 ```python
-torch = pytest.importorskip("torch")
-
-compiled = torch.compile(neighbor_attention)
-out = compiled(
-    torch.as_tensor(messages),
-    torch.as_tensor(scores),
-    torch.as_tensor(dst),
-    num_nodes,
+pytest.importorskip("torch")
+torch._dynamo.reset()
+compiled = torch.compile(
+    neighbor_attention, fullgraph=False, backend="aot_eager"
 )
+out = compiled(messages_t, scores_t, dst_t, num_nodes)
+np.testing.assert_allclose(out.detach().cpu().numpy(), out_np)
+```
+
+### `torch.compile(..., fullgraph=True)` — needs a Torch-only body
+
+A single fused graph requires `fullgraph=True`. That fails on the portable
+helper above (Dynamo graph-breaks on `@promote` / `inspect.Signature.bind` and
+`array-api-compat` lookup). To get `fullgraph=True`, specialize: rewrite the
+body with Torch ops only (`torch.where`, `scatter_reduce` / `scatter_add`,
+etc.) and compile that function — same numerics, no AnyTensor dispatch in the
+traced region. That specialization is Torch-only; it is not what the portable
+helper is for.
+
+### `torch.export` — wrap in `nn.Module.forward`
+
+PyTorch’s replacement for deprecated `torch.jit.script` / `trace` (alongside
+`torch.compile`). `torch.export.export` expects an **`nn.Module`**, not a bare
+function — put the portable helper in `forward`. That path works with AnyTensor
+dispatch (unlike `fullgraph=True`):
+
+```python
+pytest.importorskip("torch")
+import torch.nn as nn
+
+
+class NeighborAttention(nn.Module):
+    def forward(self, messages, scores, dst_index, num_nodes: int):
+        return neighbor_attention(messages, scores, dst_index, num_nodes)
+
+
+exported = torch.export.export(
+    NeighborAttention(),
+    (messages_t, scores_t, dst_t, num_nodes),
+)
+out = exported.module()(messages_t, scores_t, dst_t, num_nodes)
 np.testing.assert_allclose(out.detach().cpu().numpy(), out_np)
 ```
 
@@ -147,94 +184,13 @@ out_xla = tf_neighbor_xla(
 np.testing.assert_allclose(np.asarray(out_xla), out_np)
 ```
 
-### `torch.jit.script` — only `segment_sum` / `min` / `max`
-
-`torch.jit.script` cannot follow Array-API dispatch. After
-`anytensor.enable_torchscript()`, public **`segment_sum` / `segment_min` /
-`segment_max`** divert under `torch.jit.is_scripting()` to pure-Torch kernels.
-Eager multi-backend behavior is unchanged.
-
-`segment_softmax` (and thus full `neighbor_attention`) is **not** script-safe
-today — use `torch.compile` / `trace`, or script only the pool step:
-
-```python
-torch = pytest.importorskip("torch")
-import anytensor as at
-import sys
-import types
-
-# TorchScript needs a real __module__ (Sybil exec namespaces are anonymous).
-_mod = sys.modules.setdefault(
-    "anytensor_doc_examples", types.ModuleType("anytensor_doc_examples")
-)
-
-at.enable_torchscript()
-
-
-def library_pool(x, seg, n: int):
-    """Library code — no TorchScript knowledge required."""
-    return at.segment_sum(x, seg, n)
-
-
-def user_pool(x: torch.Tensor, seg: torch.Tensor) -> torch.Tensor:
-    return library_pool(x, seg, 3)
-
-
-library_pool.__module__ = _mod.__name__
-user_pool.__module__ = _mod.__name__
-user_pool = torch.jit.script(user_pool)
-
-x = torch.as_tensor(messages)
-seg = torch.as_tensor(dst)
-y = user_pool(x, seg)
-assert tuple(y.shape) == (3, 2)
-```
-
-### `torch.jit.trace` — close over Python `int` sizes
-
-Trace only accepts tensors (and nested tensor containers). Close over
-`num_nodes` instead of passing it as an example input:
-
-```python
-torch = pytest.importorskip("torch")
-import sys
-import types
-
-_mod = sys.modules.setdefault(
-    "anytensor_doc_examples", types.ModuleType("anytensor_doc_examples")
-)
-
-
-def wrapped(m, s, d):
-    return neighbor_attention(m, s, d, 3)
-
-
-wrapped.__module__ = _mod.__name__
-traced = torch.jit.trace(
-    wrapped,
-    (
-        torch.as_tensor(messages),
-        torch.as_tensor(scores),
-        torch.as_tensor(dst),
-    ),
-)
-y = traced(
-    torch.as_tensor(messages),
-    torch.as_tensor(scores),
-    torch.as_tensor(dst),
-)
-np.testing.assert_allclose(y.detach().cpu().numpy(), out_np)
-```
-
 ## Gotchas checklist
 
 | Path | What to remember |
 |------|------------------|
 | `jax.jit` | `static_argnames=("num_nodes",)` (or `static_argnums`) for shape-sizes |
 | `tf.function` | Pass Python `int` for `num_segments` / `num_nodes`; prefer `shape(x)` over raw `.shape` under polymorphic graphs |
-| `torch.compile` | Works for many AnyTensor call graphs; fuzz covers parity |
-| `torch.jit.script` | Call `enable_torchscript()`; only `segment_sum` / `min` / `max` divert |
-| `torch.jit.trace` | Example inputs must be tensors — close over Python ints |
+| `torch.compile` | Prefer this over deprecated `torch.jit.script` / `trace`. Portable helpers need `fullgraph=False`; docs use `backend="aot_eager"` for suite stability |
+| `torch.export` | Wrap the helper in `nn.Module.forward` (bare functions are rejected) |
 
-See also [Usage → TorchScript](usage.md#torchscript) and
-[Surprising differences](semantics.md).
+See also [Usage](usage.md) and [Surprising differences](semantics.md).

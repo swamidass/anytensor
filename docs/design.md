@@ -3,7 +3,7 @@
 This page explains **why** AnyTensor is shaped the way it is, and what that
 implies when you hit an edge case. For the concrete matrix of “framework A
 does X, we do Y,” see [Surprising differences](semantics.md). For runnable
-compile/script recipes, see [Worked examples](examples.md).
+compile recipes, see [Worked examples](examples.md).
 
 ---
 
@@ -14,7 +14,7 @@ compile/script recipes, see [Worked examples](examples.md).
 3. Always pass shape-sizes (`num_segments`, …) as static-friendly values.
 4. Trust empty-segment identities and TF NaN OR-in for segment min/max.
 5. Treat index width, XLA NaN, and GPU ties as non-portable.
-6. For TorchScript, only rely on the `segment_sum` / `min` / `max` divert.
+6. Prefer `torch.compile` over deprecated TorchScript; portable helpers need `fullgraph=False`.
 
 That is the design: a small set of hard contracts, and clear warnings everywhere
 else.
@@ -37,8 +37,8 @@ else.
    identities and TF NaN-in-scatter are portable. Index width, XLA-vs-eager
    NaN, and GPU atomics are not — we tell you so.
 5. **Keep compile paths honest.** `num_segments` is a shape-size (JAX
-   discipline). TorchScript gets an explicit divert, not a pretend-portable
-   script of array-api-compat dispatch.
+   discipline). Prefer `torch.compile` over deprecated TorchScript; portable
+   helpers expect graph breaks (`fullgraph=False`).
 
 Non-goals (for now): a full GraphsTuple / RaggedTensor API, ONNX Runtime as a
 backend, or papering over every XLA vs eager disagreement.
@@ -146,7 +146,7 @@ by design (see below).
 
 Allowed forms:
 
-- Python `int` (preferred under `jax.jit` / `torch.jit.script` / many TF graphs)
+- Python `int` (preferred under `jax.jit` / `torch.compile` / many TF graphs)
 - Framework size symbol / traced constant where the backend accepts it
 - 0-d integral tensor scalar
 
@@ -196,29 +196,16 @@ rely on NaN under XLA for portability.
 | Eager (all backends) | Full public surface |
 | `jax.jit` | Mark shape-sizes static; `repeat` / `partition_softmax` may need `total_repeat_length` / `sum_partitions` |
 | `tf.function` | Prefer Python ints for sizes; use `at.shape(x)` under polymorphic shapes |
-| `torch.compile` | Works for many graphs (fuzzed); Dynamo may graph-break on array-api-compat helpers |
-| `torch.jit.script` | Only `segment_sum` / `min` / `max` after `enable_torchscript()` — see below |
-| `torch.jit.trace` | Trace tensors only; close over Python ints |
+| `torch.compile` | Prefer over deprecated `torch.jit.*`. `fullgraph=False` for portable helpers; `fullgraph=True` needs a Torch-only body — see [Worked examples](examples.md) |
+| `torch.jit.script` / `trace` | **Deprecated by PyTorch.** Legacy `enable_torchscript()` still covers `segment_sum` / `min` / `max` only |
 
-### 9. TorchScript is a divert, not a second public API
+### 9. Legacy TorchScript divert (not recommended)
 
-`torch.jit.script` cannot follow array-api-compat or Python backend dispatch. Rather than
-replace the public API with Torch-only functions when `torch` is imported,
-we:
-
-1. Keep eager `at.segment_sum` multi-backend.
-2. On `enable_torchscript()`, wrap `segment_sum` / `min` / `max` with
-   `if torch.jit.is_scripting(): return torchscript.*`.
-3. Bind the original implementations with `torch.jit.ignore` for the eager
-   branch.
-
-Libraries call `at.segment_sum` with no Torch knowledge; end users can still
-`torch.jit.script` through those call sites. `segment_softmax` and friends are
-**not** script-diverted today — use `compile` / `trace`, or script only the
-pool.
-
-**Edge implication:** enabling TorchScript does not break NumPy/JAX/TF eager
-calls. Under script, `num_segments` must be a Python `int`; ids become int64.
+`torch.jit.script` is deprecated; use `torch.compile`. The remaining
+`enable_torchscript()` divert exists so old scripted call sites that reach
+`segment_sum` / `min` / `max` keep working: under `is_scripting()` those ops
+take pure-Torch kernels while eager stays multi-backend. Do not build new
+APIs around scripting.
 
 ### 10. Typing is for humans; runtime checks are opt-in
 
@@ -272,9 +259,8 @@ part of the product:
 | **100% coverage gate** | Non-fuzz suite must cover the portable surface (`fail_under=100`; `backends.py` / `torchscript.py` omitted as framework shims) |
 | **Cross-backend fuzz** | Hypothesis draws random ops and inputs; **NumPy is the reference**, a random other backend must agree (NaN-aware) |
 | **Symbolic fuzz** | Eager vs `jax.jit` / `torch.compile` / `tf.function` (+ XLA) on the same registry — compilers are not an afterthought |
-| **TorchScript fuzz** | Scripted `segment_sum` / `min` / `max` vs eager Torch after the divert |
 | **Minimal-NumPy CI** | Install **without** Hypothesis / JAX / Torch / TF and still import + run segment ops — deploy surface stays thin |
-| **Docs as tests** | Fenced examples in [`examples.md`](examples.md) run under pytest (Sybil), including jit / compile / script recipes |
+| **Docs as tests** | Fenced examples in [`examples.md`](examples.md) run under pytest (Sybil), including jit / compile recipes |
 | **Runtime typecheck in tests** | jaxtyping + beartype on public annotations during the suite (off in normal installs) |
 
 Surprises found under fuzz become rows in [Surprising differences](semantics.md)

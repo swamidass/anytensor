@@ -37,7 +37,7 @@ Read next:
 
 - [Home / motivation](docs/index.md) — why AnyTensor, GAT neighbor-softmax case study across four backends
 - [Design](docs/design.md) — principles, edge cases, **testing as contract**, SemVer
-- [Usage](docs/usage.md) — promotion, segment helpers, TorchScript (`enable_torchscript`), typing
+- [Usage](docs/usage.md) — promotion, segment helpers, `torch.compile`, typing
 - [Surprising differences](docs/semantics.md) — NaN / ±inf / graph / GPU gotchas from fuzz
 - [API reference](docs/api/index.md) — generated from docstrings
 - [Contributing](docs/contributing.md) — tests, fuzz, docs build
