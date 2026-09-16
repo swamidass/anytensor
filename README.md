@@ -42,7 +42,7 @@ Read next:
 
 - [Home / motivation](docs/index.md) — why AnyTensor, GAT neighbor-softmax case study across four backends
 - [Jraph](docs/jraph/index.md) — portable GraphsTuple / GraphNetwork
-- [Tree](docs/tree/index.md) — nest helpers (`concat`/`split` stable; registration beta)
+- [Tree](docs/tree/index.md) — nest helpers for graphs and any structured record
 - [Design](docs/design.md) — principles, edge cases, **testing as contract**, SemVer
 - [Usage](docs/usage.md) — promotion, segment helpers, `torch.compile`, typing
 - [Surprising differences](docs/semantics.md) — NaN / ±inf / graph / GPU gotchas from fuzz

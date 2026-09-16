@@ -11,8 +11,9 @@ keys**; `OrderedDict` keeps insertion order. `str` / `bytes` / sets / mapping
 views are leaves.
 
 Runnable recipes: [Examples](examples.md). Generated API: [API](api.md).
-Jraph uses this module for nested node/edge/global features — see
-[Jraph](../jraph/index.md).
+Graphs use this for nested node/edge/global features
+([Jraph](../jraph/index.md)), but the same helpers apply to any nested
+numeric record.
 
 !!! note "Stability"
 
@@ -24,6 +25,41 @@ Jraph uses this module for nested node/edge/global features — see
     `torch.utils._pytree`, or `optree` registries may change. Do not depend on
     undocumented registry details. `__tree_concat__` / `__tree_split__` are
     part of the stable concat/split API.
+
+## Why tree
+
+Nested dicts and tuples of arrays show up everywhere: a simulation step
+(`{"pos": …, "vel": …}`), a lab run (`{"temp": …, "ph": …, "notes": None}`),
+a minibatch of observations, checkpoint blobs, and — yes — GNN node/edge
+features. The useful operations are the same: apply `f` to every array,
+flatten to a list of leaves, stack two records, split a stack back into
+rows. Writing those walks by hand is where `None` vs missing keys vs list
+vs tuple quietly diverges.
+
+That problem already has good libraries:
+
+| Library | What it is good at |
+|---|---|
+| [`jax.tree`](https://docs.jax.dev/en/latest/pytrees.html) / [`jax.tree_util`](https://docs.jax.dev/en/latest/jax.tree_util.html) | The API this module follows. `None` is empty. Built for `jit` / `vmap` over nested parameters. |
+| [`dm-tree`](https://github.com/google-deepmind/tree) | `map_structure` / `flatten` for TensorFlow and JAX-era nests. Treats `None` as a **leaf** (wrong for jraph). |
+| [`optree`](https://github.com/metaopt/optree) | Fast C++ pytrees; JAX uses it under `jax.tree`. |
+| [`torch.utils._pytree`](https://pytorch.org/docs/stable/pytree.html) | Nested tensors for `torch.compile` / `export`. |
+
+The **key value of `anytensor.tree`** is that same `jax.tree` contract
+**without** taking JAX, dm-tree, or optree as a runtime dependency, on
+whatever array the caller already has (NumPy included). `tree.map(fn, nest)`
+is one implementation for a structured record whether that record is a GNN
+feature nest, a physics state, or a table of experimental traces.
+
+`concat` / `split` are the extra that those libs do not standardize: stack
+nests along an axis, and let an object own join/partition
+(`__tree_concat__` / `__tree_split__`) when fieldwise concat would be
+wrong. GraphsTuple uses that for batching; a packed buffer or a ragged
+container can do the same.
+
+Use upstream `jax.tree` when you are JAX-only and do not need concat/split.
+Use this module when the helper must run on NumPy (or Torch / TF) too, or
+when `None` must mean “no arrays here” like jraph.
 
 ## Walking rules
 

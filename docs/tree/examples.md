@@ -2,7 +2,8 @@
 
 These fenced blocks are executed by pytest (via
 [Sybil](https://sybil.readthedocs.io/)). Graph batching that uses `tree.concat`
-on `GraphsTuple` lives in [Jraph examples](../jraph/examples.md).
+on `GraphsTuple` lives in [Jraph examples](../jraph/examples.md). The first
+concat example is a nested lab record — the same walk as a GNN feature nest.
 
 ## `map`, `flatten`, and `None`
 
@@ -23,20 +24,21 @@ np.testing.assert_array_equal(tree.unflatten(treedef, leaves)["y"], [1.0])
 
 ## `concat` and `split`
 
-Nested dicts concat leafwise. All-`None` stays `None`.
+Stack structured records leafwise (experimental runs, time steps, minibatches).
+All-`None` stays `None`.
 
 ```python
 import numpy as np
 from anytensor import tree
 
-a = {"w": np.array([[1.0, 2.0]]), "skip": None}
-b = {"w": np.array([[3.0, 4.0]]), "skip": None}
-joined = tree.concat(a, b)
-np.testing.assert_array_equal(joined["w"], [[1.0, 2.0], [3.0, 4.0]])
-assert joined["skip"] is None
-first, second = tree.split(joined, [1, 1])
-np.testing.assert_array_equal(first["w"], [[1.0, 2.0]])
-np.testing.assert_array_equal(second["w"], [[3.0, 4.0]])
+run_a = {"temp": np.array([20.1, 20.3]), "ph": np.array([7.1, 7.0]), "notes": None}
+run_b = {"temp": np.array([21.0]), "ph": np.array([6.9]), "notes": None}
+joined = tree.concat(run_a, run_b)
+np.testing.assert_array_equal(joined["temp"], [20.1, 20.3, 21.0])
+assert joined["notes"] is None
+first, second = tree.split(joined, [2, 1])
+np.testing.assert_array_equal(first["ph"], [7.1, 7.0])
+np.testing.assert_array_equal(second["temp"], [21.0])
 ```
 
 ## Objects that own concat / split

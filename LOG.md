@@ -10,7 +10,9 @@
 - Docs: dedicated Tree and Jraph sections (examples moved off usage /
   worked-examples). Tree marks flatten-style registration as beta; public
   tree/jraph API is stable. Jraph overview links upstream and discusses
-  why the library’s data model is worth following.
+  why the library’s data model is worth following. Tree overview links
+  jax.tree / dm-tree / optree / Torch pytree and positions the module as
+  a nest walker for any structured record, not only GNN features.
 
 ## 2026-09-15
 

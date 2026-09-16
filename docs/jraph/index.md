@@ -9,7 +9,8 @@ to use.
 `anytensor.jraph` is that same stack on **NumPy / JAX / PyTorch / TensorFlow**:
 same `GraphsTuple` layout, same `GraphNetwork` call signature, caller’s
 tensors. Nested features use [`anytensor.tree`](../tree/index.md) (`jax.tree`
-API). `None` is an empty pytree, matching jraph.
+API; useful for any nested record, not only graphs). `None` is an empty
+pytree, matching jraph.
 
 Runnable recipes: [Examples](examples.md). Generated API: [API](api.md).
 
