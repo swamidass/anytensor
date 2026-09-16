@@ -386,19 +386,17 @@ def mean(x: ShapedArray, axes: Axes = None) -> ShapedArray:
     """Mean over axes; full reduce returns a **0-d array** (not a scalar).
 
     Notes:
-        Empty full-reduce (``x.size == 0``) returns a 0-d NaN on the backend
-        dtype to avoid NumPy's ``Mean of empty slice`` warning path.
+        Implemented as ``sum(x) / count`` with ``count = sum(ones_like(x))``
+        on the same axes. Empty reductions are ``0/0`` → NaN — no Python
+        ``x.size`` check (NumPy's ``Mean of empty slice`` warning, and
+        Dynamo cannot compare Torch ``Tensor.size``, a method, to ``0``).
     """
     xp = array_namespace(x)
-    # NumPy emits RuntimeWarning "Mean of empty slice" (not via errstate).
-    # ``ndarray.size`` is an int; Torch ``Tensor.size`` is a method. Comparing
-    # the method to ``0`` breaks ``torch.compile(fullgraph=True)``.
-    size = getattr(x, "size", None)
-    if axes is None and isinstance(size, int) and size == 0:
-        dtype = getattr(x, "dtype", None)
-        return xp.asarray(float("nan"), dtype=dtype) if dtype is not None else xp.asarray(float("nan"))
+    axis = _axis(axes)
     with _ignore_fp_invalid(xp):
-        return xp.mean(x, axis=_axis(axes))
+        total = xp.sum(x, axis=axis)
+        count = xp.sum(xp.ones_like(x), axis=axis)
+        return total / count
 
 
 @as_array_result
