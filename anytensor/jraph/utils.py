@@ -295,38 +295,60 @@ def _concat_maybe(arrays):
     return concatenate(present, axis=0)
 
 
-def _unbatch_graphs(graph: GraphsTuple) -> List[GraphsTuple]:
-    n_node_i = [int(v) for v in _np_vec(graph.n_node).tolist()]
-    n_graphs = len(n_node_i)
+def _graph_field_sizes(graph):
+    """Parallel length-tree for GraphsTuple / HeteroGraphsTuple unbatch."""
+    n_leaves = tree.leaves(graph.n_node)
+    if not n_leaves:
+        return 0, None
+    n_graphs = int(np.asarray(n_leaves[0]).shape[0])
     if n_graphs == 0:
-        return []
-    ones = np.ones((n_graphs,), dtype=np.asarray(graph.n_node).dtype)
-    # ``match_sizes`` broadcasts n_node/n_edge onto feature nests; ``None``
-    # features pair with a size leaf under tree.partition's None-as-leaf rule.
-    size_guide = GraphsTuple(
+        return 0, None
+    ones = np.ones((n_graphs,), dtype=np.asarray(n_leaves[0]).dtype)
+    sizes = type(graph)(
         nodes=tree.match_sizes(graph.nodes, graph.n_node),
         edges=tree.match_sizes(graph.edges, graph.n_edge),
         senders=tree.match_sizes(graph.senders, graph.n_edge),
         receivers=tree.match_sizes(graph.receivers, graph.n_edge),
+        n_node=tree.match_sizes(graph.n_node, ones),
+        n_edge=tree.match_sizes(graph.n_edge, ones),
         globals=tree.match_sizes(graph.globals, ones),
-        n_node=ones,
-        n_edge=ones,
     )
-    parts = tree.partition(graph, size_guide, axis=0)
+    return n_graphs, sizes
 
-    node_offsets = np.cumsum(n_node_i[:-1]).astype(int).tolist() if n_graphs > 1 else []
-    out = []
-    for graph_index, part in enumerate(parts):
-        senders = part.senders
-        receivers = part.receivers
-        if graph_index > 0:
-            off = int(node_offsets[graph_index - 1])
-            if senders is not None:
-                senders = senders - off
-            if receivers is not None:
-                receivers = receivers - off
-        out.append(part._replace(senders=senders, receivers=receivers))
-    return out
+
+def _split_by_lengths(graph, sizes):
+    """Map ``split`` over leaves, then zip + ``unflatten`` into parts."""
+    from anytensor.core import split as array_split
+
+    leaves, treedef = tree.flatten(graph)
+    size_leaves, size_def = tree.flatten(sizes)
+    if size_def != treedef:
+        raise ValueError(
+            "pytree structure error: data and sizes must have the same structure."
+        )
+    if not leaves:
+        return []
+    split_leaves = [
+        array_split(x, tree.lengths_to_cuts(n)) for x, n in zip(leaves, size_leaves)
+    ]
+    return [tree.unflatten(treedef, list(part)) for part in zip(*split_leaves)]
+
+
+def _unbatch_graphs(graph: GraphsTuple) -> List[GraphsTuple]:
+    n_graphs, sizes = _graph_field_sizes(graph)
+    if sizes is None:
+        return []
+    parts = _split_by_lengths(graph, sizes)
+    prefix = np.concatenate([[0], np.cumsum(np.asarray(graph.n_node)[:-1])])
+    for i, part in enumerate(parts):
+        off = int(prefix[i])
+        if off == 0:
+            continue
+        parts[i] = part._replace(
+            senders=tree.map(lambda x: x - off, part.senders),
+            receivers=tree.map(lambda x: x - off, part.receivers),
+        )
+    return parts
 
 
 def unbatch_np(graph: GraphsTuple) -> List[GraphsTuple]:

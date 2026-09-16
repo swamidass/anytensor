@@ -61,14 +61,16 @@ __all__ = [
     "SequenceKey",
     "all",
     "batch",
+    "cuts_to_lengths",
     "flatten",
     "flatten_with_path",
     "leaves",
     "leaves_with_path",
+    "lengths_to_cuts",
+    "lengths_to_ids",
     "map",
     "map_with_path",
     "match_sizes",
-    "partition",
     "reduce",
     "split",
     "structure",
@@ -581,83 +583,77 @@ def split(structure, indices_or_sections, axis: int = 0):
     ]
 
 
-def _sizes_to_cuts(size_vec) -> tuple[list[int], list[int]]:
-    """Return ``(sizes_list, cut_indices)`` from a per-part length vector."""
-    sizes_list = [int(v) for v in np.asarray(size_vec).reshape(-1).tolist()]
-    if len(sizes_list) <= 1:
-        return sizes_list, []
-    cuts = []
-    running = 0
-    for n in sizes_list[:-1]:
-        running += n
-        cuts.append(running)
-    return sizes_list, cuts
-
-
-def partition(data, sizes, axis: int = 0):
-    """Partition ``data`` using a parallel ``sizes`` pytree.
-
-    ``data`` and ``sizes`` must share structure (same as :func:`map`). Each
-    ``sizes`` leaf is an integer vector of leading-axis lengths (e.g.
-    ``n_node`` / ``n_edge``). Different leaves may use different length
-    vectors. ``None`` is treated as a **leaf** here (so ``None`` features pair
-    with a size vector). Returns a list of pytrees (one per part).
-
-    Internally pairs leaves like :func:`map` (flatten both, zip); chunk lists
-    are not written back through custom ``__tree_unflatten__`` nodes.
+def lengths_to_cuts(lengths) -> list[int]:
+    """Length vector → cut indices for :func:`anytensor.split` / :func:`split`.
 
     >>> import numpy as np
     >>> import anytensor.tree as tree
-    >>> tree.partition(
-    ...     {"n": np.arange(3), "e": np.arange(10, 12)},
-    ...     {"n": np.array([2, 1]), "e": np.array([1, 1])},
-    ... )
-    [{'e': array([10]), 'n': array([0, 1])}, {'e': array([11]), 'n': array([2])}]
+    >>> tree.lengths_to_cuts(np.array([2, 1, 3]))
+    [2, 3]
     """
-    from anytensor.core import split as array_split
-
-    def _none_as_leaf(x):
-        return x is None
-
-    def _split_leaf(feat, size_vec):
-        sizes_list, cuts = _sizes_to_cuts(size_vec)
-        n = len(sizes_list)
-        if feat is None:
-            return [None] * n
-        if n == 0:
-            return []
-        if n == 1:
-            return [feat]
-        return list(array_split(feat, cuts, axis=axis))
-
-    data_leaves, treedef = flatten(data, is_leaf=_none_as_leaf)
-    size_leaves, size_def = flatten(sizes, is_leaf=_none_as_leaf)
-    if size_def != treedef:
-        raise ValueError(
-            "pytree structure error: data and sizes must have the same structure."
-        )
-    if not data_leaves:
+    sizes = [int(v) for v in np.asarray(lengths).reshape(-1).tolist()]
+    if len(sizes) <= 1:
         return []
-    parts_per_leaf = [
-        _split_leaf(feat, size_vec)
-        for feat, size_vec in zip(data_leaves, size_leaves)
-    ]
-    n = len(parts_per_leaf[0])
-    return [
-        unflatten(treedef, [parts[i] for parts in parts_per_leaf]) for i in range(n)
-    ]
+    cuts = []
+    running = 0
+    for n in sizes[:-1]:
+        running += n
+        cuts.append(running)
+    return cuts
 
 
-def match_sizes(template, size_vec):
-    """Broadcast ``size_vec`` to a pytree matching ``template``.
+def cuts_to_lengths(cuts, total) -> np.ndarray:
+    """Cut indices + total length → length vector (inverse of :func:`lengths_to_cuts`).
 
-    ``None`` templates return ``size_vec`` so :func:`partition` can pair
-    missing features with a size leaf. Nested templates get ``size_vec`` at
-    every array leaf (for ``GraphsTuple`` feature nests).
+    >>> import anytensor.tree as tree
+    >>> tree.cuts_to_lengths([2, 3], 6).tolist()
+    [2, 1, 3]
     """
-    if template is None:
-        return size_vec
-    return map(lambda _: size_vec, template)
+    edges = [0, *[int(c) for c in np.asarray(cuts).reshape(-1).tolist()], int(total)]
+    return np.asarray([edges[i + 1] - edges[i] for i in range(len(edges) - 1)], dtype=np.int64)
+
+
+def lengths_to_ids(lengths, *, total=None):
+    """Length vector → segment ids (``repeat(arange(n), lengths)``).
+
+    >>> import numpy as np
+    >>> import anytensor.tree as tree
+    >>> tree.lengths_to_ids(np.array([2, 1])).tolist()
+    [0, 0, 1]
+    """
+    from anytensor.core import arange, repeat
+
+    n = int(np.asarray(lengths).reshape(-1).shape[0])
+    return repeat(arange(n, like=lengths), lengths, total_repeat_length=total)
+
+
+def match_sizes(template, sizes):
+    """Broadcast length vectors onto ``template``.
+
+    An array ``sizes`` is placed at every leaf of ``template``. A pytree
+    ``sizes`` walks in parallel until each array leaf is broadcast onto the
+    remaining ``template`` subtree — so one ``n_node`` vector works for a
+    ``GraphsTuple`` feature nest, and a dict of per-type vectors works for
+    hetero node maps.
+    """
+    if template is None or sizes is None:
+        return None
+    if _one_level(sizes) is None:
+        return map(lambda _: sizes, template)
+    t_entry = _one_level(template)
+    if t_entry is None:
+        raise ValueError("match_sizes: sizes is nested but template is a leaf")
+    t_kind, t_meta, t_children, t_restore = t_entry
+    s_kind, s_meta, s_children, _s_restore = _one_level(sizes)
+    if (t_kind, t_meta) != (s_kind, s_meta) or len(t_children) != len(s_children):
+        raise ValueError(
+            "pytree structure error: template and sizes must align."
+        )
+    matched = [match_sizes(t, s) for t, s in zip(t_children, s_children)]
+    return _rebuild(
+        PyTreeDef(t_kind, t_meta, [_LEAF] * len(matched), restore=t_restore),
+        matched,
+    )
 
 
 def _batch_impl(xs, axis: int = 0):

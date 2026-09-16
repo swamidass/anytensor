@@ -107,9 +107,20 @@ def _call_with_static(fn: Callable, dyn: list[tuple[int, Any]], static: dict[int
     return wrapped, [a for _, a in dyn]
 
 
+def _to_numpy(backend_name: str, out):
+    backend = loaded_backends[backend_name]
+    if isinstance(out, (tuple, list)):
+        return type(out)(_to_numpy(backend_name, o) for o in out)
+    if isinstance(out, (np.ndarray, np.generic)) or np.isscalar(out):
+        return np.asarray(out)
+    if backend.is_appropriate_type(out):
+        return backend.to_numpy(out)
+    return np.asarray(out)
+
+
 def _shape_of(out) -> Any:
-    if isinstance(out, tuple):
-        return tuple(_shape_of(o) for o in out)
+    if isinstance(out, (tuple, list)):
+        return type(out)(_shape_of(o) for o in out)
     if hasattr(out, "shape"):
         s = out.shape
         try:
@@ -117,17 +128,6 @@ def _shape_of(out) -> Any:
         except TypeError:
             return tuple(s)
     return ()
-
-
-def _to_numpy(backend_name: str, out):
-    backend = loaded_backends[backend_name]
-    if isinstance(out, tuple):
-        return tuple(_to_numpy(backend_name, o) for o in out)
-    if isinstance(out, (np.ndarray, np.generic)) or np.isscalar(out):
-        return np.asarray(out)
-    if backend.is_appropriate_type(out):
-        return backend.to_numpy(out)
-    return np.asarray(out)
 
 
 def _prepare_args(backend_name: str, args_np: tuple) -> tuple:

@@ -36,10 +36,6 @@ Ntype = str
 _UNSET = object()
 
 
-def _as_np_vec(x) -> np.ndarray:
-    return np.asarray(x).reshape(-1)
-
-
 def _sum_int(x) -> int:
     return int(np.asarray(x).sum())
 
@@ -56,8 +52,6 @@ def _n_graphs_from_sizes(sizes: Mapping[Any, Any], globals_) -> int:
 
 
 def _offset_index(index, offset: int):
-    if index is None:
-        return None
     xp = array_namespace(index)
     return index + xp.asarray(offset, dtype=index.dtype)
 
@@ -324,54 +318,22 @@ def _batch_hetero(graphs: Sequence[HeteroGraphsTuple]) -> HeteroGraphsTuple:
     )
 
 
-def _partition_sizes(sizes) -> list[int]:
-    return [int(v) for v in _as_np_vec(sizes).tolist()]
-
-
-def _ones_n_graphs(n_graphs: int, like) -> Any:
-    return np.ones((n_graphs,), dtype=np.asarray(like).dtype)
-
-
 def _unbatch_hetero(graph: HeteroGraphsTuple) -> list[HeteroGraphsTuple]:
-    n_graphs = graph.n_graphs()
-    if n_graphs == 0:
+    from anytensor.jraph.utils import _graph_field_sizes, _split_by_lengths
+
+    _n_graphs, sizes = _graph_field_sizes(graph)
+    if sizes is None:
         return []
-
-    # Parallel size tree: feature leaves use n_node/n_edge counts; count /
-    # globals leaves use ones (one slice per graph).
-    like = next(iter(graph.n_node.values()), None)
-    if like is None:
-        like = next(iter(graph.n_edge.values()), np.zeros((n_graphs,), dtype=np.int32))
-    ones = _ones_n_graphs(n_graphs, like)
-    size_guide = HeteroGraphsTuple(
-        nodes={t: tree.match_sizes(graph.nodes.get(t), graph.n_node[t]) for t in graph.n_node},
-        edges={e: tree.match_sizes(graph.edges.get(e), graph.n_edge[e]) for e in graph.n_edge},
-        senders={e: tree.match_sizes(graph.senders.get(e), graph.n_edge[e]) for e in graph.n_edge},
-        receivers={
-            e: tree.match_sizes(graph.receivers.get(e), graph.n_edge[e]) for e in graph.n_edge
-        },
-        n_node={t: ones for t in graph.n_node},
-        n_edge={e: ones for e in graph.n_edge},
-        globals=tree.match_sizes(graph.globals, ones),
+    parts = _split_by_lengths(graph, sizes)
+    prefix = tree.map(
+        lambda n: np.concatenate([[0], np.cumsum(np.asarray(n)[:-1])]),
+        graph.n_node,
     )
-    parts = tree.partition(graph, size_guide, axis=0)
-
-    # Undo batch-time sender/receiver offsets (per ntype prefix sums).
-    node_prefix = {
-        t: [0, *np.cumsum(_partition_sizes(graph.n_node[t])[:-1]).tolist()]
-        for t in graph.n_node
-    }
-    out = []
     for i, part in enumerate(parts):
-        senders_i = {}
-        receivers_i = {}
-        for e in part.n_edge:
-            src, _r, dst = e
-            s = part.senders[e]
-            r = part.receivers[e]
-            off_s = node_prefix[src][i] if src in node_prefix else 0
-            off_r = node_prefix[dst][i] if dst in node_prefix else 0
-            senders_i[e] = None if s is None else s - off_s
-            receivers_i[e] = None if r is None else r - off_r
-        out.append(part._replace(senders=senders_i, receivers=receivers_i))
-    return out
+        parts[i] = part._replace(
+            senders={e: part.senders[e] - int(prefix[e[0]][i]) for e in part.senders},
+            receivers={
+                e: part.receivers[e] - int(prefix[e[2]][i]) for e in part.receivers
+            },
+        )
+    return parts
