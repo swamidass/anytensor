@@ -207,6 +207,46 @@ rely on NaN under XLA for portability.
 take pure-Torch kernels while eager stays multi-backend. Do not build new
 APIs around scripting.
 
+#### Einops' TorchScript pattern — what transfers, what does not
+
+[einops](https://github.com/arogozhnikov/einops) hit the same wall: **dynamic
+backend lookup cannot be scripted.** Their answer (see
+`einops._torch_specific.TorchJitBackend` and `einops.layers.torch`) is:
+
+1. A **completely static** Torch-only backend (`@staticmethod`, no
+   `get_backend`, no `sys.modules`).
+2. A dedicated apply path (`apply_for_scriptable_torch`) that uses only that
+   backend.
+3. **`nn.Module` layers** (`Rearrange`, `Reduce`, `EinMix`) whose `forward`
+   calls the static path. Parent methods that would pull in `get_backend` are
+   stubbed with `pass` so the scripted graph never sees them.
+4. **Functional** `rearrange` / `reduce` stay unscriptable (`*args` /
+   `**axes_lengths` / string pattern parsing). `torch.compile` is the path
+   for functions (`allow_in_graph` on older PyTorch; Dynamo traces them on
+   2.8+).
+
+**The static-backend half already works here** and is the right analog:
+`anytensor.torchscript.TorchJitBackend` is that clone, and the
+`is_scripting()` divert is how we keep `get_backend` out of the scripted
+graph. `get_backend` itself still cannot be scripted (imports, subclass
+walks, `sys.modules`).
+
+**The layers half is a workaround we do not need.** Einops layers exist
+because `rearrange(x, "a b -> b a")` is not a TorchScript signature. Our
+segment ops already are `(Tensor, Tensor, int)`. That is why
+`torch.jit.script` can follow a library function that calls
+`at.segment_sum` — the product einops could not ship for functions.
+Wrapping the same kernels in `nn.Module` also scripts (einops-style), but
+it would be a new public API around a deprecated compiler; do not add
+`anytensor.layers.torch`.
+
+**Composites are the same split, not a new idea.** `segment_softmax` and
+friends fail under script today because they still go through Python
+dispatch (`array_namespace`, jaxtyping `Shaped[...]`, `take` / `exp`). A
+second static Torch clone of those graphs would script — same as einops
+duplicating `_apply_recipe`. We are not expanding that surface: TorchScript
+is legacy; prefer `torch.compile` / `torch.export`.
+
 ### 10. Typing is for humans; runtime checks are opt-in
 
 Public APIs use [jaxtyping](https://docs.kidger.site/jaxtyping/) shape/dtype

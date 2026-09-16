@@ -2,7 +2,8 @@
 
 Public ``at.segment_*`` stay multi-backend when eager; after
 ``enable_torchscript()``, ``torch.jit.script`` can follow library code that
-calls them. Fuzz compares scripted outputs to eager Torch for parity.
+calls them (einops cannot do this for ``rearrange`` — they script layers
+instead). Fuzz compares scripted outputs to eager Torch for parity.
 """
 
 from __future__ import annotations
@@ -77,6 +78,32 @@ def test_eager_still_multi_backend_with_torchscript_enabled():
     y = at.segment_sum(x, ids, 3)
     assert isinstance(y, np.ndarray)
     np.testing.assert_allclose(y, np.array([1.0, 5.0, 4.0]))
+
+
+def test_einops_style_module_wraps_static_kernel():
+    """Einops scripts ``nn.Module`` layers over a static Torch backend.
+
+    That calling convention works here too, but it is not a public API:
+    ``at.segment_sum`` is already a scriptable function (see
+    ``test_jit_public_api``). This only locks in that the static kernels
+    remain usable from a Module ``forward`` the way ``Rearrange`` is.
+    """
+    from anytensor import torchscript as ts
+
+    class SegmentSum(th.nn.Module):
+        def __init__(self, num_segments: int):
+            super().__init__()
+            self.num_segments = num_segments
+
+        def forward(self, x: th.Tensor, segment_ids: th.Tensor) -> th.Tensor:
+            return ts.segment_sum(x, segment_ids, self.num_segments)
+
+    m = th.jit.script(SegmentSum(5))
+    x = th.randn(10)
+    s = th.randint(0, 5, (10,))
+    y = m(x, s)
+    assert y.shape[0] == 5
+    assert th.allclose(y, at.segment_sum(x, s, 5))
 
 
 def test_trace():
