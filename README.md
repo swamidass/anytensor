@@ -35,7 +35,7 @@ The same call works on JAX / Torch / TF tensors. `num_segments` is **required** 
 
 `anytensor.jraph` is a portable [jraph](https://github.com/google-deepmind/jraph):
 `GraphsTuple`, batching/padding, and `GraphNetwork` on any backend. Nested
-feature trees use `anytensor.tree` (dm-tree API).
+feature trees use `anytensor.tree` (`jax.tree` API).
 
 Read next:
 

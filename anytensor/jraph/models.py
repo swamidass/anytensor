@@ -50,7 +50,7 @@ def _take_index(features, index):
         return None
     if index is None:
         return features
-    return tree.map_structure(lambda n: take(n, index), features)
+    return tree.map(lambda n: take(n, index), features)
 
 
 def GraphNetwork(
@@ -78,14 +78,14 @@ def GraphNetwork(
 
     def _ApplyGraphNet(graph: GraphsTuple) -> GraphsTuple:
         nodes, edges, receivers, senders, globals_, n_node, n_edge = graph
-        node_leaves = tree.flatten(nodes) if nodes is not None else []
+        node_leaves = tree.leaves(nodes)
         if node_leaves:
             sum_n_node = node_leaves[0].shape[0]
         else:
             sum_n_node = int(np_sum_n_node(n_node))
         sum_n_edge = 0 if senders is None else senders.shape[0]
         if node_leaves and not utils._tree_all(  # noqa: SLF001
-            tree.map_structure(lambda n: n.shape[0] == sum_n_node, nodes)
+            tree.map(lambda n: n.shape[0] == sum_n_node, nodes)
         ):
             raise ValueError(
                 "All node arrays in nest must contain the same number of nodes."
@@ -94,7 +94,7 @@ def GraphNetwork(
         sent_attributes = _take_index(nodes, senders)
         received_attributes = _take_index(nodes, receivers)
         if globals_ is not None and n_edge is not None and sum_n_edge is not None:
-            global_edge_attributes = tree.map_structure(
+            global_edge_attributes = tree.map(
                 lambda g: _repeat_by(g, n_edge, sum_n_edge), globals_
             )
         else:
@@ -112,27 +112,27 @@ def GraphNetwork(
             tree_calculate_weights = functools.partial(
                 attention_normalize_fn, segment_ids=receivers, num_segments=sum_n_node
             )
-            weights = tree.map_structure(tree_calculate_weights, logits)
+            weights = tree.map(tree_calculate_weights, logits)
             edges = attention_reduce_fn(edges, weights)
 
         if update_node_fn:
             sent_attributes = (
                 None
                 if edges is None
-                else tree.map_structure(
+                else tree.map(
                     lambda e: aggregate_edges_for_nodes_fn(e, senders, sum_n_node), edges
                 )
             )
             received_attributes = (
                 None
                 if edges is None
-                else tree.map_structure(
+                else tree.map(
                     lambda e: aggregate_edges_for_nodes_fn(e, receivers, sum_n_node),
                     edges,
                 )
             )
             if globals_ is not None:
-                global_attributes = tree.map_structure(
+                global_attributes = tree.map(
                     lambda g: _repeat_by(g, n_node, sum_n_node), globals_
                 )
             else:
@@ -153,7 +153,7 @@ def GraphNetwork(
             node_attributes = (
                 None
                 if nodes is None
-                else tree.map_structure(
+                else tree.map(
                     lambda n: aggregate_nodes_for_globals_fn(n, node_gr_idx, n_graph),
                     nodes,
                 )
@@ -161,7 +161,7 @@ def GraphNetwork(
             edge_attributes = (
                 None
                 if edges is None or edge_gr_idx is None
-                else tree.map_structure(
+                else tree.map(
                     lambda e: aggregate_edges_for_globals_fn(e, edge_gr_idx, n_graph),
                     edges,
                 )
@@ -346,7 +346,7 @@ def GraphConvolution(
     def _ApplyGCN(graph: GraphsTuple) -> GraphsTuple:
         nodes, _, receivers, senders, _, _, _ = graph
         nodes = update_node_fn(nodes)
-        total_num_nodes = tree.flatten(nodes)[0].shape[0]
+        total_num_nodes = tree.leaves(nodes)[0].shape[0]
         if add_self_edges:
             self_idx = at_arange(total_num_nodes, like=senders)
             conv_receivers = concatenate((receivers, self_idx), axis=0)
@@ -363,7 +363,7 @@ def GraphConvolution(
 
             sender_degree = count_edges(conv_senders)
             receiver_degree = count_edges(conv_receivers)
-            nodes = tree.map_structure(
+            nodes = tree.map(
                 lambda x: x
                 * reshape(
                     rsqrt(maximum(sender_degree, 1.0)),
@@ -371,13 +371,13 @@ def GraphConvolution(
                 ),
                 nodes,
             )
-            nodes = tree.map_structure(
+            nodes = tree.map(
                 lambda x: aggregate_nodes_fn(
                     take(x, conv_senders), conv_receivers, total_num_nodes
                 ),
                 nodes,
             )
-            nodes = tree.map_structure(
+            nodes = tree.map(
                 lambda x: x
                 * reshape(
                     rsqrt(maximum(receiver_degree, 1.0)),
@@ -386,7 +386,7 @@ def GraphConvolution(
                 nodes,
             )
         else:
-            nodes = tree.map_structure(
+            nodes = tree.map(
                 lambda x: aggregate_nodes_fn(
                     take(x, conv_senders), conv_receivers, total_num_nodes
                 ),

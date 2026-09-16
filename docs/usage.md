@@ -136,13 +136,13 @@ group. Set `JAXTYPING_DISABLE=1` to force runtime checks off.
 
 ## Nested structures (`anytensor.tree`)
 
-:mod:`anytensor.tree` follows the [dm-tree](https://tree.readthedocs.io/) API
-(`flatten`, `unflatten_as`, `map_structure`, `traverse`, …) without a C++
-dependency. NumPy arrays and framework tensors are **leaves**. Custom types
-opt in with `__tree_flatten__` / `__tree_unflatten__` (JAX child/aux
-convention), or by already being registered with `jax.tree_util`,
-`torch.utils._pytree`, or `optree` (those modules are consulted only if
-already imported). Concatenation and split (`tree.concat` / `tree.split`,
+:mod:`anytensor.tree` follows the [JAX pytree](https://docs.jax.dev/en/latest/pytrees.html)
+API (`flatten` → `(leaves, treedef)`, `map`, `unflatten`, …) without depending
+on JAX. ``None`` is an **empty pytree**, matching jraph. NumPy arrays and
+framework tensors are **leaves**. Custom types opt in with
+`__tree_flatten__` / `__tree_unflatten__`, or by already being registered with
+`jax.tree_util`, `torch.utils._pytree`, or `optree` (those modules are consulted
+only if already imported). Concatenation and split (`tree.concat` / `tree.split`,
 and jraph `batch` / `unbatch`) call `__tree_concat__` / `__tree_split__`
 on the object if present, before walking children — so a feature container
 or `GraphsTuple` can own join/partition logic.
@@ -152,6 +152,5 @@ or `GraphsTuple` can own join/partition logic.
 Portable [jraph](https://github.com/google-deepmind/jraph): `GraphsTuple`,
 `batch` / `unbatch`, `pad_with_graphs`, and `GraphNetwork` (plus the usual
 thin wrappers). Segment helpers on this module still require `num_segments`.
-`None` node/edge/global features are empty graphs, matching jraph/JAX rather
-than dm-tree's "None is a leaf".
+`None` node/edge/global features are empty pytrees, matching jraph / `jax.tree`.
 

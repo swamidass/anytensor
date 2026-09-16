@@ -49,7 +49,7 @@ def _to_backend(graph, backend):
             return None
         from anytensor import tree
 
-        return tree.map_structure(conv, feat)
+        return tree.map(conv, feat)
 
     return atj.GraphsTuple(
         nodes=mapf(graph.nodes),

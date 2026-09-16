@@ -1,7 +1,7 @@
 """Portable jraph: GraphsTuple, batching/padding, and GNN models on any tensor.
 
 Public names match :mod:`jraph`. Segment ops require ``num_segments``
-(AnyTensor contract). Feature nests use :mod:`anytensor.tree` (dm-tree API).
+(AnyTensor contract). Feature nests use :mod:`anytensor.tree` (``jax.tree`` API).
 """
 
 from .graph import ArrayTree, GraphsTuple

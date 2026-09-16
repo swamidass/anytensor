@@ -9,12 +9,12 @@ einops is Copyright (c) 2018 Alex Rogozhnikov and is available under the
 MIT License. See https://github.com/arogozhnikov/einops/blob/main/LICENSE
 for the full text of that license.
 
-This product includes a pure-Python reimplementation of the public API of
-dm-tree (https://github.com/google-deepmind/tree) in anytensor/tree.py, plus
-jraph (https://github.com/google-deepmind/jraph) GraphsTuple / GraphNetwork
+This product includes a pure-Python implementation of the ``jax.tree`` /
+``jax.tree_util`` pytree API in anytensor/tree.py, plus jraph
+(https://github.com/google-deepmind/jraph) GraphsTuple / GraphNetwork
 semantics in anytensor/jraph/.
 
-dm-tree is Copyright 2019 DeepMind Technologies Limited.
+JAX is Copyright 2018 The JAX Authors.
 jraph is Copyright 2020 DeepMind Technologies Limited.
 Both are available under the Apache License, Version 2.0.
 See https://www.apache.org/licenses/LICENSE-2.0

@@ -5,9 +5,7 @@ rewritten over :mod:`anytensor` so the same code runs on NumPy / JAX /
 PyTorch / TensorFlow.
 
 ``num_segments`` stays **required** on segment ops (AnyTensor contract).
-``unique_indices`` is accepted and ignored (JAX-only hint). ``None`` feature
-nests are skipped instead of being treated as dm-tree leaves — jraph/JAX
-treats ``None`` as an empty pytree; dm-tree does not.
+``unique_indices`` is accepted and ignored (JAX-only hint). ``None`` feature nests are empty pytrees (``jax.tree`` / jraph).
 """
 
 from __future__ import annotations
@@ -205,14 +203,12 @@ def partition_softmax(logits, partitions, sum_partitions=None):
 
 
 def _map_features(func, features):
-    """``tree.map_structure`` that preserves jraph's empty ``None`` features."""
-    if features is None:
-        return None
-    return tree.map_structure(func, features)
+    """Map ``func`` over feature leaves; ``None`` stays ``None``."""
+    return tree.map(func, features)
 
 
 def _tree_all(value) -> bool:
-    return all(bool(np.asarray(v)) for v in tree.flatten(value))
+    return all(bool(np.asarray(v)) for v in tree.leaves(value))
 
 
 def _np_vec(x) -> np.ndarray:
@@ -489,7 +485,7 @@ def _get_mask(padding_length, full_length, like):
 def get_node_padding_mask(padded_graph: GraphsTuple):
     """Boolean mask, True for real nodes. Needs node features (static length)."""
     n_padding_node = get_number_of_padding_with_graphs_nodes(padded_graph)
-    leaves = tree.flatten(padded_graph.nodes) if padded_graph.nodes is not None else []
+    leaves = tree.leaves(padded_graph.nodes)
     if not leaves:
         raise ValueError("`padded_graph` must have at least one array of node features")
     total_num_nodes = leaves[0].shape[0]
@@ -518,7 +514,7 @@ def concatenated_args(update: Optional[Callable] = None, *, axis: int = -1):
     def _decorate(f):
         @functools.wraps(f)
         def wrapper(*args, **kwargs):
-            combined = tree.flatten(args) + tree.flatten(kwargs)
+            combined = tree.leaves(args) + tree.leaves(kwargs)
             combined = [c for c in combined if c is not None]
             return f(concatenate(combined, axis=axis))
 
@@ -538,19 +534,19 @@ def get_fully_connected_graph(
 ) -> GraphsTuple:
     """Fully connected graphs (optionally without self-edges). ``n_graph`` is static."""
     if node_features is not None:
-        leaves = tree.flatten(node_features)
+        leaves = tree.leaves(node_features)
         if leaves and int(np.asarray(leaves[0].shape[0])) != n_node_per_graph * n_graph:
             raise ValueError(
                 "Number of nodes is not equal to num_nodes_per_graph * n_graph."
             )
     if global_features is not None:
-        leaves = tree.flatten(global_features)
+        leaves = tree.leaves(global_features)
         if leaves and int(np.asarray(leaves[0].shape[0])) != n_graph:
             raise ValueError("The number of globals is not equal to n_graph.")
 
     like = None
     if node_features is not None:
-        fl = tree.flatten(node_features)
+        fl = tree.leaves(node_features)
         if fl:
             like = fl[0]
     tmp_senders, tmp_receivers = np.meshgrid(
