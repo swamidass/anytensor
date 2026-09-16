@@ -120,10 +120,14 @@ jobs:
           uv pip install -e . --constraint ci/min-versions.txt
           uv pip install --constraint ci/min-versions.txt \
             jax jaxlib torch tensorflow beartype
-          uv pip install "pytest>=8" "pytest-cov>=5" "hypothesis>=6.100" "sybil>=9.3.0"
+          # Keep the same constraint so pytest tooling cannot float numpy past the floor.
+          uv pip install --constraint ci/min-versions.txt \
+            "pytest>=8" "pytest-cov>=5" "hypothesis>=6.100" "sybil>=9.3.0"
+          # Re-assert the floor pin after the full install set.
+          uv pip install --constraint ci/min-versions.txt "numpy==1.24.0"
       - name: Show installed tensor library versions
         run: |
-          uv run python - <<'PY'
+          .venv/bin/python - <<'PY'
           import importlib.metadata as md
           for name in (
               "numpy",
@@ -137,10 +141,11 @@ jobs:
               "tensorflow",
           ):
               print(f"{name}=={md.version(name)}")
+          assert md.version("numpy").startswith("1.24"), md.version("numpy")
           PY
       - name: Confirm backends importable
         run: |
-          PYTHONPATH=test uv run python - <<'PY'
+          PYTHONPATH=test .venv/bin/python - <<'PY'
           import jax, torch, tensorflow, numpy  # noqa: F401
           from helpers import loaded_backends
           assert set(loaded_backends) >= {"numpy", "jax", "torch", "tensorflow"}, loaded_backends
@@ -149,6 +154,6 @@ jobs:
       - name: Unit / contract tests (no coverage gate)
         # Coverage gate stays on the current-deps ``test`` job; here we only
         # care that the declared floors still run.
-        run: uv run pytest -m "not fuzz" --tb=short
+        run: .venv/bin/python -m pytest -m "not fuzz" --tb=short
       - name: Fuzz (bounded)
-        run: uv run pytest -m fuzz --fuzz-examples=100 --tb=short
+        run: .venv/bin/python -m pytest -m fuzz --fuzz-examples=100 --tb=short

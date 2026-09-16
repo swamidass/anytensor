@@ -138,8 +138,13 @@ function — put the portable helper in `forward`. That path works with AnyTenso
 dispatch (unlike `fullgraph=True`):
 
 ```python
+import os
+
 pytest.importorskip("torch")
 import torch.nn as nn
+
+if os.environ.get("CI"):
+    pytest.skip("torch.export disabled on CI runners (dynamo/triton SIGSEGV)")
 
 
 class NeighborAttention(nn.Module):
