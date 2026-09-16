@@ -43,6 +43,7 @@ dev = [
   "hypothesis>=6.100",
   "beartype>=0.18",
   "jraph",
+  "dgl",
   "towncrier>=24",
   "hatch>=1.12",
   "ruff>=0.8",

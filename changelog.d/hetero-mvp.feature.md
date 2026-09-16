@@ -9,3 +9,4 @@
   graphs.
 - ``anytensor.hetero`` MVP with ``HeteroGraphsTuple`` / ``SendRecvTuple``;
   batching requires matching keys (empty arrays, not ``None``).
+- Dev: DGL Torch parity tests for homo/hetero ``batch`` / ``unbatch``.
