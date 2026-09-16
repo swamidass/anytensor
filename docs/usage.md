@@ -104,9 +104,9 @@ do not use them in new code.
 
 `anytensor.enable_torchscript()` remains for legacy `torch.jit.script` call
 sites that still hit `segment_sum` / `min` / `max`; it is not the recommended
-path. It does not import Torch: if Torch is already imported it enables
-immediately, and if Torch is imported later the divert is enabled then
-(`anytensor.module_if_loaded("torch", …)`).
+path. It does not import Torch and does not care about import order: a helper
+registered with `module_if_loaded("torch", …)` enables the divert as soon as
+Torch is imported.
 
 ## Typing
 

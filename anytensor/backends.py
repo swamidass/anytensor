@@ -419,11 +419,6 @@ class TorchBackend(AbstractBackend):
 
         self.torch = torch
         self._install_numeric_attrs(torch)
-        # Late torch import: enable scripting divert without replacing eager
-        # multi-backend behavior (see :func:`anytensor.enable_torchscript`).
-        from .segment import enable_torchscript
-
-        enable_torchscript()
 
     def is_appropriate_type(self, tensor):
         return isinstance(tensor, self.torch.Tensor)
