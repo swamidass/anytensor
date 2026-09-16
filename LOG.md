@@ -2,6 +2,7 @@
 
 ## 2026-09-15
 
+- CI: `min-backends` job on Python 3.10 installs tensor libs at declared floors (`ci/min-versions.txt`); failure means raise floors after bisect. Documented in contributing.
 - Docs: expanded `design.md` into a principles/edge-case explainer (hybrid array-api-compat vs segment backends, promote kinds, shape-sizes, empty identities, TorchScript divert, typing policy, intentional non-portables); links from home.
 - Docs: Sybil executes fenced examples in `docs/examples.md` (GAT helper + jax.jit / torch.compile / tf.function / TorchScript / trace); root `conftest.py` collects them. Home page links to the compile/script gotchas.
 - Docs home: expanded motivation (framework lock-in / segment ops) + case study porting PyG/GAT-style neighbor softmax to a single `neighbor_attention` that runs on NumPy/JAX/Torch/TF; verified numerically across four backends; `mkdocs build --strict` green.

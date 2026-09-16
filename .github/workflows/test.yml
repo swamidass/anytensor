@@ -96,3 +96,56 @@ jobs:
           if-no-files-found: ignore
       - name: Fuzz (bounded for CI)
         run: uv run pytest -m fuzz --fuzz-examples=200
+
+  # Install backends at the declared pyproject floors (exact pins in
+  # ci/min-versions.txt). Failures mean the declared mins are wrong — bisect
+  # pins upward and bump the corresponding ``>=`` floors in pyproject.toml.
+  min-backends:
+    name: min declared backend floors
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          # TF 2.10 / Torch 2.0 wheels are not available on newer CPythons.
+          python-version: "3.10"
+      - name: Install package + backends at declared minimum pins
+        run: |
+          uv venv
+          uv pip install -e . --constraint ci/min-versions.txt
+          uv pip install --constraint ci/min-versions.txt \
+            jax jaxlib torch tensorflow beartype
+          uv pip install "pytest>=8" "pytest-cov>=5" "hypothesis>=6.100" "sybil>=9.3.0"
+      - name: Show installed tensor library versions
+        run: |
+          uv run python - <<'PY'
+          import importlib.metadata as md
+          for name in (
+              "numpy",
+              "array-api-compat",
+              "einops",
+              "jaxtyping",
+              "beartype",
+              "jax",
+              "jaxlib",
+              "torch",
+              "tensorflow",
+          ):
+              print(f"{name}=={md.version(name)}")
+          PY
+      - name: Confirm backends importable
+        run: |
+          uv run python - <<'PY'
+          import jax, torch, tensorflow, numpy  # noqa: F401
+          from helpers import loaded_backends
+          assert set(loaded_backends) >= {"numpy", "jax", "torch", "tensorflow"}, loaded_backends
+          print("backends:", sorted(loaded_backends))
+          PY
+      - name: Unit / contract tests (no coverage gate)
+        # Coverage gate stays on the current-deps ``test`` job; here we only
+        # care that the declared floors still run.
+        run: uv run pytest -m "not fuzz" --tb=short
+      - name: Fuzz (bounded)
+        run: uv run pytest -m fuzz --fuzz-examples=100 --tb=short
