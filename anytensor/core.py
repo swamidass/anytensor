@@ -571,6 +571,24 @@ def fill_nan(x, value=0.0):
 nan_fill = fill_nan  # alias
 
 
+@promote(x="data", value="data")
+def fill_nan_mask(x, value=0.0):
+    """Return ``(filled, mask)``: NaNs replaced, plus a boolean NaN mask.
+
+    ``mask`` is ``True`` where ``x`` was NaN (same polarity as :func:`is_nan` /
+    NumPy masked-array invalid). Boolean, not 0/1 — cast if you need weights.
+    Equivalent to ``(fill_nan(x, value), is_nan(x))``; not ``~is_finite``
+    (±inf is non-NaN).
+    """
+    xp = array_namespace(x, value)
+    mask = xp.isnan(x)
+    filled = xp.where(mask, value, x)
+    return filled, mask
+
+
+nan_fill_mask = fill_nan_mask  # alias
+
+
 @as_array_result
 @promote(x="data")
 def nan_to_num(x, *, nan=0.0, posinf=None, neginf=None):

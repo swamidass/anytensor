@@ -37,6 +37,23 @@ def test_fill_nan(backend):
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
+def test_fill_nan_mask(backend):
+    b = loaded_backends[backend]
+    x = b.from_numpy(np.array([1.0, np.nan, np.inf], dtype=np.float32))
+    filled, mask = at.fill_nan_mask(x, -1.0)
+    assert close(
+        b.to_numpy(filled),
+        np.array([1.0, -1.0, np.inf], dtype=np.float32),
+        equal_nan=True,
+    )
+    assert list(b.to_numpy(mask)) == [False, True, False]
+    # alias + equivalence to composing fill_nan / is_nan
+    filled2, mask2 = at.nan_fill_mask(x, -1.0)
+    assert close(b.to_numpy(filled2), b.to_numpy(at.fill_nan(x, -1.0)), equal_nan=True)
+    assert list(b.to_numpy(mask2)) == list(b.to_numpy(at.is_nan(x)))
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
 def test_nan_to_num(backend):
     b = loaded_backends[backend]
     x = b.from_numpy(np.array([1.0, np.nan, np.inf, -np.inf], dtype=np.float32))
