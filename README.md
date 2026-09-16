@@ -2,9 +2,9 @@
 
 Portable tensor ops across **NumPy**, **JAX**, **PyTorch**, and **TensorFlow**, with a focus on **segment / GNN** primitives.
 
-Ordinary math (`sum`, `exp`, `reshape`, …) uses the [Python Array API](https://data-apis.org/array-api/latest/) via [`array-api-compat`](https://github.com/data-apis/array-api-compat). Segment reductions stay on thin input-adaptive backends, so one function runs on whatever tensor the caller already has.
+Write a helper once; run it on whatever tensor the caller already has. Ordinary math uses the [Python Array API](https://data-apis.org/array-api/latest/) via [`array-api-compat`](https://github.com/data-apis/array-api-compat). Segment reductions stay on thin input-adaptive backends.
 
-**Full docs** (usage, surprising differences, API from docstrings): run locally with `uv run --group docs mkdocs serve`, or see [`docs/`](docs/index.md). Planned site: <https://swamidass.github.io/anytensor/>.
+**Docs** (motivation, GAT-style case study, API): <https://swamidass.github.io/anytensor/> — or `uv run --group docs mkdocs serve` from a checkout ([`docs/`](docs/index.md)).
 
 ## Install
 
@@ -33,7 +33,8 @@ The same call works on JAX / Torch / TF tensors. `num_segments` is **required** 
 
 Read next:
 
-- [Usage](docs/usage.md) — promotion, segment helpers, TorchScript (`enable_torchscript`), specials
+- [Home / motivation](docs/index.md) — why AnyTensor, GAT neighbor-softmax case study across four backends
+- [Usage](docs/usage.md) — promotion, segment helpers, TorchScript (`enable_torchscript`), typing
 - [Surprising differences](docs/semantics.md) — NaN / ±inf / graph / GPU gotchas from fuzz
 - [API reference](docs/api/index.md) — generated from docstrings
 - [Contributing](docs/contributing.md) — tests, fuzz, docs build
@@ -41,7 +42,7 @@ Read next:
 ## Docs / tests (checkout)
 
 ```bash
-uv sync --extra jax --extra torch --extra tensorflow --group dev --group docs
+uv sync --extra all --group dev --group docs
 uv run mkdocs serve
 uv run pytest -m "not fuzz" --cov=anytensor --cov-report=term-missing
 ```

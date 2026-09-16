@@ -2,6 +2,7 @@
 
 ## 2026-09-15
 
+- Docs home: expanded motivation (framework lock-in / segment ops) + case study porting PyG/GAT-style neighbor softmax to a single `neighbor_attention` that runs on NumPy/JAX/Torch/TF; verified numerically across four backends; `mkdocs build --strict` green.
 - Typing: public APIs annotated with jaxtyping (`Shaped` / `Integer` / `SegmentValues`…) + `ArrayT` TypeVar (no backend imports for typing). Runtime checks **off by default**; pytest installs `jaxtyping.install_import_hook` on selected submodules (not `torchscript`) in `test/conftest.py` (disable `ANYTENSOR_TYPECHECK=0`). Opt-in for apps: `enable_typecheck()`. Divert wrappers live in `torchscript.py` so `torch.jit.script` still compiles under the typecheck hook. `mkdocs build --strict` passes; enabled in docs CI.
 - CI: test job enforces `--cov-fail-under=100` + uploads `coverage.xml`; `release.yml` on `v*` tags (clean version gate, build, GitHub Release, PyPI Trusted Publishing via environment `pypi` — configure when ready).
 - Docs: GitHub Pages via Actions (`.github/workflows/docs.yml`); Pages `build_type=workflow` enabled for `swamidass/anytensor`. Dropped test-side hypothesis shim; pytest assumes `dev`. Runtime without hypothesis covered by `minimal-numpy` CI.
