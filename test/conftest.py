@@ -11,11 +11,21 @@ import os
 
 # Install before Hypothesis / any test module imports ``anytensor``.
 # Skip if explicitly disabled (e.g. debugging) or beartype is missing.
+# Hook specific submodules — not ``anytensor.torchscript`` — so TorchScript
+# can compile divert wrappers (jaxtyped wrappers hide free vars like ``torch``).
+_TYPECHECK_MODULES = (
+    "anytensor.core",
+    "anytensor.segment",
+    "anytensor.namespace",
+    "anytensor.semantics",
+    "anytensor.backends",
+    "anytensor.typing",
+)
 if os.environ.get("ANYTENSOR_TYPECHECK", "1") not in ("0", "false", "False"):
     try:
         from jaxtyping import install_import_hook
 
-        install_import_hook("anytensor", "beartype.beartype")
+        install_import_hook(list(_TYPECHECK_MODULES), "beartype.beartype")
         _TYPECHECK_HOOK = True
     except Exception as exc:  # pragma: no cover - misconfigured env
         _TYPECHECK_HOOK = False

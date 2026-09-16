@@ -83,8 +83,22 @@ def enable_typecheck(typechecker: str = "beartype.beartype") -> None:
     :func:`jaxtyping.install_import_hook` yourself at process start). Default
     AnyTensor imports do **not** install this hook.
 
+    Hooks ``core`` / ``segment`` / ``namespace`` / ``semantics`` / ``backends`` /
+    ``typing`` — not :mod:`anytensor.torchscript`, whose divert wrappers must
+    remain ``torch.jit.script``-compilable.
+
     Requires the named typechecker package (default: ``beartype``).
     """
     from jaxtyping import install_import_hook
 
-    install_import_hook("anytensor", typechecker)
+    install_import_hook(
+        [
+            "anytensor.core",
+            "anytensor.segment",
+            "anytensor.namespace",
+            "anytensor.semantics",
+            "anytensor.backends",
+            "anytensor.typing",
+        ],
+        typechecker,
+    )

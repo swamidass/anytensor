@@ -207,42 +207,24 @@ def enable_torchscript() -> bool:
 
     from . import torchscript
 
-    Tensor = torch.Tensor
     docs = (segment_sum.__doc__, segment_max.__doc__, segment_min.__doc__)
-    eager = torch.jit.ignore(_segment_reduce)
-    _segment_reduce = eager
+    # Bind annotated originals so eager calls keep jaxtyping checks.
+    torchscript.bind_eager_ops(sum=segment_sum, max=segment_max, min=segment_min)
+    _segment_reduce = torch.jit.ignore(_segment_reduce)
 
-    def _segment_sum(
-        x: Tensor, segment_ids: Tensor, num_segments: int, sorted: bool = False
-    ) -> Tensor:
-        if torch.jit.is_scripting():
-            return torchscript.segment_sum(x, segment_ids, num_segments)
-        return eager(x, segment_ids, num_segments, "sum", sorted)
-
-    def _segment_max(
-        x: Tensor, segment_ids: Tensor, num_segments: int, sorted: bool = False
-    ) -> Tensor:
-        if torch.jit.is_scripting():
-            return torchscript.segment_max(x, segment_ids, num_segments)
-        return eager(x, segment_ids, num_segments, "max", sorted)
-
-    def _segment_min(
-        x: Tensor, segment_ids: Tensor, num_segments: int, sorted: bool = False
-    ) -> Tensor:
-        if torch.jit.is_scripting():
-            return torchscript.segment_min(x, segment_ids, num_segments)
-        return eager(x, segment_ids, num_segments, "min", sorted)
-
-    _segment_sum.__doc__ = docs[0]
-    _segment_max.__doc__ = docs[1]
-    _segment_min.__doc__ = docs[2]
-    segment_sum = _segment_sum
-    segment_max = _segment_max
-    segment_min = _segment_min
+    divert_sum = torchscript.divert_segment_sum
+    divert_max = torchscript.divert_segment_max
+    divert_min = torchscript.divert_segment_min
+    divert_sum.__doc__ = docs[0]
+    divert_max.__doc__ = docs[1]
+    divert_min.__doc__ = docs[2]
+    segment_sum = divert_sum
+    segment_max = divert_max
+    segment_min = divert_min
     _TORCHSCRIPT_ENABLED = True
 
     pkg = sys.modules.get("anytensor")
-    if pkg is not None:
+    if pkg is not None:  # pragma: no branch - package always loaded in normal use
         pkg.segment_sum = segment_sum
         pkg.segment_max = segment_max
         pkg.segment_min = segment_min

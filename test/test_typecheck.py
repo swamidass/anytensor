@@ -25,6 +25,7 @@ def test_segment_sum_rejects_mismatched_leading_length():
 
 def test_typecheck_hook_is_active():
     """Ensure the test suite actually installed the runtime hook."""
-    # Wrapped functions expose __jaxtyped__ / __wrapped__ depending on version.
-    fn = at.segment_sum
+    # Public segment_sum may be the TorchScript divert (not jaxtyped); check a
+    # hooked ordinary op, or the bound eager original under the divert.
+    fn = at.sum
     assert getattr(fn, "__jaxtyped__", None) is not None or hasattr(fn, "__wrapped__")

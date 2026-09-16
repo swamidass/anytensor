@@ -1,9 +1,13 @@
-"""Pure-Torch segment kernels used under ``torch.jit.script``.
+"""Pure-Torch segment kernels and TorchScript divert wrappers.
 
 Loaded by :func:`anytensor.enable_torchscript`. Public ``segment_sum`` / ``min``
 / ``max`` keep multi-backend eager dispatch; only the ``is_scripting()`` branch
-calls into this module — so libraries can use ``anytensor.segment_sum`` and end
+calls the kernels below — so libraries can use ``anytensor.segment_sum`` and end
 users can still script through those call sites.
+
+This module is intentionally **not** covered by the jaxtyping import hook:
+``torch.jit.script`` must compile the divert wrappers, and jaxtyped wrappers
+hide free variables like ``torch``.
 
 Importing this module requires PyTorch. ``num_segments`` must be a Python
 ``int`` under script; segment ids are cast to ``int64``. Empty-slot identities
@@ -15,6 +19,44 @@ from __future__ import annotations
 
 import torch
 from torch import Tensor
+
+# Multi-backend eager ops; bound by :func:`anytensor.enable_torchscript`.
+# Kept as the annotated public implementations so jaxtyping still checks eager calls.
+_eager_sum = None
+_eager_max = None
+_eager_min = None
+
+
+def bind_eager_ops(*, sum, max, min) -> None:
+    """Register multi-backend segment ops, ignored under ``torch.jit.script``."""
+    global _eager_sum, _eager_max, _eager_min
+    _eager_sum = torch.jit.ignore(sum)
+    _eager_max = torch.jit.ignore(max)
+    _eager_min = torch.jit.ignore(min)
+
+
+def divert_segment_sum(
+    x: Tensor, segment_ids: Tensor, num_segments: int, sorted: bool = False
+) -> Tensor:
+    if torch.jit.is_scripting():
+        return segment_sum(x, segment_ids, num_segments)
+    return _eager_sum(x, segment_ids, num_segments, sorted)
+
+
+def divert_segment_max(
+    x: Tensor, segment_ids: Tensor, num_segments: int, sorted: bool = False
+) -> Tensor:
+    if torch.jit.is_scripting():
+        return segment_max(x, segment_ids, num_segments)
+    return _eager_max(x, segment_ids, num_segments, sorted)
+
+
+def divert_segment_min(
+    x: Tensor, segment_ids: Tensor, num_segments: int, sorted: bool = False
+) -> Tensor:
+    if torch.jit.is_scripting():
+        return segment_min(x, segment_ids, num_segments)
+    return _eager_min(x, segment_ids, num_segments, sorted)
 
 
 def _expand_ids(x: Tensor, segment_ids: Tensor) -> Tensor:
