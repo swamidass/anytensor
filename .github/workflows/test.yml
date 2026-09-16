@@ -79,6 +79,20 @@ jobs:
           print("backends:", sorted(loaded_backends))
           PY
       - name: Unit / contract tests (coverage gate)
-        run: uv run pytest -m "not fuzz" --cov=anytensor --cov-report=term-missing
+        # fail_under=100 lives in pyproject [tool.coverage.report]; also pass
+        # --cov-fail-under so the step fails clearly if coverage config is missing.
+        run: >
+          uv run pytest -m "not fuzz"
+          --cov=anytensor
+          --cov-report=term-missing
+          --cov-report=xml
+          --cov-fail-under=100
+      - name: Upload coverage.xml
+        if: always() && matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: ignore
       - name: Fuzz (bounded for CI)
         run: uv run pytest -m fuzz --fuzz-examples=200
