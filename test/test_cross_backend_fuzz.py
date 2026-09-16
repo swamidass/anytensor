@@ -25,7 +25,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 _settings = settings(
-    max_examples=60,
+    max_examples=500,
     deadline=None,
     suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
 )
@@ -48,21 +48,73 @@ def fuzz_op(sampler: Sampler):
     return decorator
 
 
-def _f32_vec(draw: Draw, n: int, *, lo=_LO, hi=_HI) -> np.ndarray:
+def _f32_elem(draw: Draw, *, lo=_LO, hi=_HI, allow_nan: bool = True, allow_infinity: bool = True):
+    # Enrich specials so NaN / ±inf appear often at high example counts.
+    roll = draw(st.integers(0, 9))
+    if allow_nan and roll == 0:
+        return np.float32("nan")
+    if allow_infinity and roll == 1:
+        return np.float32("inf")
+    if allow_infinity and roll == 2:
+        return np.float32("-inf")
+    return draw(
+        st.floats(
+            min_value=float(lo),
+            max_value=float(hi),
+            allow_nan=False,
+            allow_infinity=False,
+            width=32,
+        )
+    )
+
+
+def _f32_vec(
+    draw: Draw,
+    n: int,
+    *,
+    lo=_LO,
+    hi=_HI,
+    allow_nan: bool = True,
+    allow_infinity: bool = True,
+) -> np.ndarray:
+    """Length-n float32 vector; NaN / ±inf included by default."""
     return np.asarray(
-        draw(
-            st.lists(
-                st.floats(
-                    min_value=float(lo),
-                    max_value=float(hi),
-                    allow_nan=False,
-                    allow_infinity=False,
-                    width=32,
-                ),
-                min_size=n,
-                max_size=n,
-            )
-        ),
+        [
+            _f32_elem(draw, lo=lo, hi=hi, allow_nan=allow_nan, allow_infinity=allow_infinity)
+            for _ in range(n)
+        ],
+        dtype=np.float32,
+    )
+
+
+def _pos_f32_elem(draw: Draw, *, allow_nan: bool = True, allow_infinity: bool = True):
+    """Positive finite, or specials (NaN / +inf) that backends agree on for sqrt/log."""
+    # ~20% specials so NaN/inf show up often at max_examples=500.
+    roll = draw(st.integers(0, 4))
+    if allow_nan and roll == 0:
+        return np.float32("nan")
+    if allow_infinity and roll == 1:
+        return np.float32("inf")
+    return draw(
+        st.floats(
+            min_value=float(_POS_LO),
+            max_value=float(_POS_HI),
+            allow_nan=False,
+            allow_infinity=False,
+            width=32,
+        )
+    )
+
+
+def _pos_f32_vec(
+    draw: Draw,
+    n: int,
+    *,
+    allow_nan: bool = True,
+    allow_infinity: bool = True,
+) -> np.ndarray:
+    return np.asarray(
+        [_pos_f32_elem(draw, allow_nan=allow_nan, allow_infinity=allow_infinity) for _ in range(n)],
         dtype=np.float32,
     )
 
@@ -78,63 +130,91 @@ def _i64_ids(draw: Draw, n: int, *, hi: int = 4) -> np.ndarray:
 
 
 def sample_f32_vec(draw) -> tuple:
-    return (_f32_vec(draw, draw(st.integers(1, 8))),)
+    """Length 0..8 (empty allowed for sum/prod/cumsum/exp/mean)."""
+    return (_f32_vec(draw, draw(st.integers(0, 8)), allow_nan=True, allow_infinity=True),)
+
+
+def sample_f32_vec_nonempty(draw) -> tuple:
+    """Length 1..8 — min/max reductions reject empty arrays."""
+    return (_f32_vec(draw, draw(st.integers(1, 8)), allow_nan=True, allow_infinity=True),)
 
 
 def sample_pos_f32_vec(draw) -> tuple:
-    """Strictly positive — log / sqrt / rsqrt."""
-    return (_f32_vec(draw, draw(st.integers(1, 8)), lo=_POS_LO, hi=_POS_HI),)
+    """Positive / NaN / +inf; length 0..8 (empty ok for elementwise)."""
+    return (
+        _pos_f32_vec(
+            draw,
+            draw(st.integers(0, 8)),
+            allow_nan=True,
+            allow_infinity=True,
+        ),
+    )
 
 
 def sample_f32_pair(draw) -> tuple:
-    """Two vectors of equal length."""
-    n = draw(st.integers(1, 8))
-    return (_f32_vec(draw, n), _f32_vec(draw, n))
+    """Two vectors of equal length 0..8 (NaN / ±inf allowed)."""
+    n = draw(st.integers(0, 8))
+    return (
+        _f32_vec(draw, n, allow_nan=True, allow_infinity=True),
+        _f32_vec(draw, n, allow_nan=True, allow_infinity=True),
+    )
 
 
 def sample_where(draw) -> tuple:
-    n = draw(st.integers(1, 8))
+    n = draw(st.integers(0, 8))
     cond = np.asarray(draw(st.lists(st.booleans(), min_size=n, max_size=n)), dtype=bool)
-    return (cond, _f32_vec(draw, n), _f32_vec(draw, n))
+    return (
+        cond,
+        _f32_vec(draw, n, allow_nan=True, allow_infinity=True),
+        _f32_vec(draw, n, allow_nan=True, allow_infinity=True),
+    )
 
 
 def sample_matmul(draw) -> tuple:
-    """Shapes (m, k) @ (k, p)."""
-    m, k, p = (draw(st.integers(1, 4)) for _ in range(3))
+    """Shapes (m, k) @ (k, p) with m,k,p in 0..4 (zero-size matmul ok)."""
+    m, k, p = (draw(st.integers(0, 4)) for _ in range(3))
     return (
-        _f32_vec(draw, m * k).reshape(m, k),
-        _f32_vec(draw, k * p).reshape(k, p),
+        _f32_vec(draw, m * k, allow_nan=True, allow_infinity=True).reshape(m, k),
+        _f32_vec(draw, k * p, allow_nan=True, allow_infinity=True).reshape(k, p),
     )
 
 
 def sample_take(draw) -> tuple:
-    """Indices in ``[0, n)`` into a length-n vector."""
-    n = draw(st.integers(2, 8))
-    k = draw(st.integers(1, n))
+    """Source length 1..8; index length 0..n (empty take ok)."""
+    n = draw(st.integers(1, 8))
+    k = draw(st.integers(0, n))
     idx = np.asarray(
         draw(st.lists(st.integers(0, n - 1), min_size=k, max_size=k)),
         dtype=np.int64,
     )
-    return (_f32_vec(draw, n), idx)
+    return (_f32_vec(draw, n, allow_nan=True, allow_infinity=True), idx)
 
 
 def sample_reshape_2x3_to_3x2(draw) -> tuple:
-    return (_f32_vec(draw, 6).reshape(2, 3), (3, 2))
+    return (_f32_vec(draw, 6, allow_nan=True, allow_infinity=True).reshape(2, 3), (3, 2))
 
 
 def sample_segment(draw) -> tuple:
-    """``x``, integral ids, ``num_segments >= max(id)+1`` (may include empties)."""
-    n = draw(st.integers(1, 8))
-    x = _f32_vec(draw, n)
-    seg = _i64_ids(draw, n)
-    num_segments = max(int(seg.max()) + 1, draw(st.integers(1, 6)))
+    """Length 0..8; ``num_segments >= 1`` and covers ids when n>0."""
+    n = draw(st.integers(0, 8))
+    x = _f32_vec(draw, n, allow_nan=True, allow_infinity=True)
+    if n == 0:
+        seg = np.asarray([], dtype=np.int64)
+        num_segments = draw(st.integers(1, 6))
+    else:
+        seg = _i64_ids(draw, n)
+        num_segments = max(int(seg.max()) + 1, draw(st.integers(1, 6)))
     return (x, seg, num_segments)
 
 
 def sample_segment_ids_only(draw) -> tuple:
-    n = draw(st.integers(1, 8))
-    seg = _i64_ids(draw, n)
-    num_segments = max(int(seg.max()) + 1, draw(st.integers(1, 6)))
+    n = draw(st.integers(0, 8))
+    if n == 0:
+        seg = np.asarray([], dtype=np.int64)
+        num_segments = draw(st.integers(1, 6))
+    else:
+        seg = _i64_ids(draw, n)
+        num_segments = max(int(seg.max()) + 1, draw(st.integers(1, 6)))
     return (seg, num_segments)
 
 
@@ -146,12 +226,12 @@ def fuzz_sum(x):
     return at.sum(x)
 
 
-@fuzz_op(sample_f32_vec)
+@fuzz_op(sample_f32_vec_nonempty)
 def fuzz_min(x):
     return at.min(x)
 
 
-@fuzz_op(sample_f32_vec)
+@fuzz_op(sample_f32_vec_nonempty)
 def fuzz_max(x):
     return at.max(x)
 
@@ -277,9 +357,9 @@ def _agree(fn: Callable, args_np: tuple, y_np, y_other):
         mask = counts > 0
         if not np.any(mask):
             return
-        assert close(y_np[mask], y_other[mask]), (name, y_np, y_other)
+        assert close(y_np[mask], y_other[mask], equal_nan=True), (name, y_np, y_other)
         return
-    assert close(y_np, y_other), (name, y_np, y_other)
+    assert close(y_np, y_other, equal_nan=True), (name, y_np, y_other)
 
 
 @st.composite

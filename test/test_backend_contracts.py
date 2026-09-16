@@ -12,11 +12,11 @@ def test_numpy_segment_reduce_empty_min_max_sentinel():
     b = backends.NumpyBackend()
     x = np.array([1.0, 2.0], dtype=np.float64)
     seg = np.array([0, 0], dtype=np.int64)
-    # segment 1 empty → dtype max for min-reduce (JAX/TF empty-segment semantics)
+    # segment 1 empty → +inf for float min-reduce
     out = b.segment_reduce(x, seg, 2, "min", sorted=False)
     assert out.shape == (2,)
     assert out[0] == 1.0
-    assert out[1] == np.finfo(np.float64).max
+    assert np.isposinf(out[1])
 
 
 def test_torch_from_numpy_does_not_force_grad():

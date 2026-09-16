@@ -36,6 +36,29 @@ def test_reduction_single_element_is_0d(backend):
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
+def test_empty_vector_ops(backend):
+    """Length-0 inputs where the op is defined."""
+    backend_impl = loaded_backends[backend]
+    x = np.array([], dtype=np.float32)
+    seg = np.array([], dtype=np.int64)
+    bx = backend_impl.from_numpy(x)
+    bs = backend_impl.from_numpy(seg)
+    assert close(backend_impl.to_numpy(at.sum(bx)), np.array(0.0, dtype=np.float32))
+    assert close(backend_impl.to_numpy(at.prod(bx)), np.array(1.0, dtype=np.float32))
+    assert close(
+        backend_impl.to_numpy(at.segment_sum(bx, bs, 3)),
+        np.zeros(3, dtype=np.float32),
+    )
+    assert close(
+        backend_impl.to_numpy(at.segment_count(bs, 3)),
+        np.zeros(3, dtype=np.float32),
+    )
+    empty_idx = backend_impl.from_numpy(np.array([], dtype=np.int64))
+    src = backend_impl.from_numpy(np.array([1.0, 2.0], dtype=np.float32))
+    assert backend_impl.to_numpy(at.take(src, empty_idx)).shape == (0,)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
 def test_segment_all_same_id(backend):
     backend_impl = loaded_backends[backend]
     x = np.array([1.0, 2.0, 3.0])
@@ -57,10 +80,10 @@ def test_segment_trailing_empty_slots(backend):
     # slot 2 empty
     assert close(backend_impl.to_numpy(at.segment_sum(bx, bs, 3)), np.array([3.0, 3.0, 0.0]))
     assert close(backend_impl.to_numpy(at.segment_count(bs, 3)), np.array([2.0, 1.0, 0.0]))
-    # raw max empty → dtype min sentinel; or_constant → 0
+    # raw max empty → -inf (float identity); or_constant → -1
     raw = backend_impl.to_numpy(at.segment_max(bx, bs, 3))
     assert raw[0] == 2.0 and raw[1] == 3.0
-    assert np.isneginf(raw[2]) or raw[2] == np.finfo(raw.dtype).min or raw[2] < 0
+    assert np.isneginf(raw[2])
     filled = backend_impl.to_numpy(at.segment_max_or_constant(bx, bs, 3, constant=-1.0))
     assert close(filled, np.array([2.0, 3.0, -1.0]))
 

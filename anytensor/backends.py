@@ -273,27 +273,34 @@ class NumpyBackend(AbstractBackend):
     def _type_info(self, x):
         t = x.dtype
         try:
-            return self.np.iinfo(t) # type: ignore
+            return self.np.iinfo(t)  # type: ignore
         except ValueError:
             return self.np.finfo(t)
 
-    def segment_reduce(self, x, seg_ids, num_segments, reduction, sorted : bool = False):
-      
-        s = self.np.zeros((num_segments,) + x.shape[1:], dtype=x.dtype)
-        
+    def _segment_identity(self, x, reduction: str):
+        """Empty-segment identity: ±inf for floats, dtype min/max for ints."""
+        if reduction == "sum":
+            return 0
+        info = self._type_info(x)
+        is_float = self.np.issubdtype(x.dtype, self.np.floating)
+        if reduction == "min":
+            return self.np.inf if is_float else info.max
+        if reduction == "max":
+            return -self.np.inf if is_float else info.min
+        raise ValueError(f"reduction type {reduction} not supported")
+
+    def segment_reduce(self, x, seg_ids, num_segments, reduction, sorted: bool = False):
+        s = self.np.full((num_segments,) + x.shape[1:], self._segment_identity(x, reduction), dtype=x.dtype)
+
         if reduction == "sum":
             agg = self.np.add
         elif reduction == "min":
-            d = self._type_info(x).max  
-            s = s + d
             agg = self.np.minimum
         elif reduction == "max":
-            d = self._type_info(x).min 
-            s = s + d
-            agg = self.np.maximum       
+            agg = self.np.maximum
         else:
             raise ValueError(f"reduction type {reduction} not supported")
-        
+
         agg.at(s, seg_ids, x)
         return s
     

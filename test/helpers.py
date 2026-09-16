@@ -37,7 +37,7 @@ except ImportError:
 BACKENDS = list(loaded_backends)
 
 
-def close(x, y):
+def close(x, y, *, equal_nan: bool = False):
     x = np.asarray(x)
     y = np.asarray(y)
-    return np.allclose(x, y)
+    return np.allclose(x, y, equal_nan=equal_nan)
