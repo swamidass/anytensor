@@ -18,14 +18,14 @@ numeric record.
 
 !!! note "Stability"
 
-    Public functions (`map`, `flatten`, `unflatten`, `concat`, `split`, and
+    Public functions (`map`, `flatten`, `unflatten`, `batch`, `unbatch`, and
     the `tree_*` aliases) and the built-in walking rules are **stable**.
 
     **Custom-type registration is beta.** `__tree_flatten__` /
     `__tree_unflatten__` and consulting already-imported `jax.tree_util`,
     `torch.utils._pytree`, or `optree` registries may change. Do not depend on
-    undocumented registry details. `__tree_concat__` / `__tree_split__` are
-    part of the stable concat/split API.
+    undocumented registry details. `__tree_batch__` / `__tree_unbatch__` are
+    part of the stable batch/unbatch API.
 
 ## Why tree
 
@@ -52,13 +52,14 @@ Leaves may still be JAX / Torch / TF arrays when those are present;
 `tree.map(fn, nest)` does not care. One implementation for a structured
 record — GNN features, a physics state, or a table of experimental traces.
 
-`concat` / `split` are the extra that those libs do not standardize: stack
+`batch` / `unbatch` are the extra that those libs do not standardize: stack
 nests along an axis, and let an object own join/partition
-(`__tree_concat__` / `__tree_split__`) when fieldwise concat would be
-wrong. GraphsTuple uses that for batching; a packed buffer or a ragged
+(`__tree_batch__` / `__tree_unbatch__`) when fieldwise concat would be
+wrong. These are the **same functions** as `jraph.batch` / `jraph.unbatch`.
+GraphsTuple uses magic for sender offsets; a packed buffer or a ragged
 container can do the same.
 
-Use upstream `jax.tree` when you are JAX-only and do not need concat/split.
+Use upstream `jax.tree` when you are JAX-only and do not need batch/unbatch.
 Use this module when you want the same API with only NumPy as a binary
 dep, when the helper must run on Torch / TF too, or when `None` must mean
 “no arrays here” like jraph.
@@ -78,21 +79,24 @@ dep, when the helper must run on Torch / TF too, or when `None` must mean
 rebuilds. `jax.tree_util` aliases (`tree_map`, `tree_flatten`, …) are provided
 for jraph-style call sites.
 
-## Concat and split
+## Batch and unbatch
 
-`tree.concat` / `tree.split` join or partition along an axis. All-`None` stays
-`None`. Mixing `None` with arrays is a structure error (same as JAX).
+`tree.batch` / `tree.unbatch` join or partition along an axis. They are the
+same functions as `jraph.batch` / `jraph.unbatch` (sequence in; unbatch
+returns unit slices, or whatever `__tree_unbatch__` yields). All-`None`
+stays `None`. Mixing `None` with arrays is a structure error (same as JAX).
 
-If the object defines `__tree_concat__(xs, axis=0)` /
-`__tree_split__(sizes, axis=0)`, those win **before** walking children — so a
-feature container or `GraphsTuple` can own join/partition. Jraph `batch` /
-`unbatch` go through this path.
+If the object defines `__tree_batch__(xs, axis=0)` /
+`__tree_unbatch__(axis=0)`, those win **before** walking children — so a
+feature container or `GraphsTuple` can own join/partition. GraphsTuple
+offsets senders/receivers; it does not take sizes because `n_node` /
+`n_edge` already know the grouping.
 
 ## Custom types (beta)
 
 Until registration stabilizes, prefer:
 
-1. **Stable concat hooks** — `__tree_concat__` / `__tree_split__` when the
+1. **Stable batch hooks** — `__tree_batch__` / `__tree_unbatch__` when the
    object must own join/partition.
 2. **Built-in containers** — dicts, lists, tuples, namedtuples.
 3. **Beta flatten hooks** — `__tree_flatten__` / `__tree_unflatten__` (JAX

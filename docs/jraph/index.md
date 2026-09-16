@@ -57,12 +57,10 @@ Docs: [jraph README](https://github.com/google-deepmind/jraph) ·
 
 `batch` concatenates graphs and **offsets** senders/receivers. `unbatch`
 inverts that. Neither is compilable: the output size depends on the list /
-batch.
-
-`GraphsTuple.__tree_concat__` / `__tree_split__` implement that graph
-batching (not fieldwise array concat). Custom feature objects may define the
-same methods so `batch` / `unbatch` (and `tree.concat` / `tree.split`) use
-their logic. See [Tree](../tree/index.md#concat-and-split).
+batch. These are the same functions as `tree.batch` / `tree.unbatch`;
+`GraphsTuple.__tree_batch__` / `__tree_unbatch__` own the graph logic (not
+fieldwise array concat). Custom feature objects may define the same methods.
+See [Tree](../tree/index.md#batch-and-unbatch).
 
 `pad_with_graphs` appends a dummy graph plus empty graphs so counts hit
 static sizes (`n_graph >= 2`). Masks and `zero_out_padding` ignore the dummy.
@@ -86,7 +84,7 @@ contract). `unique_indices` is accepted and ignored.
 | `None` features | Empty pytree (jraph / `jax.tree`) |
 | Segment ops | `num_segments` required; `unique_indices` ignored |
 | Nest library | [`anytensor.tree`](../tree/index.md) (no JAX runtime dep) |
-| Graph concat | Magic methods on `GraphsTuple` and feature objects |
+| Graph concat | Magic methods on `GraphsTuple` (`__tree_batch__` / `__tree_unbatch__`); `jraph.batch` is `tree.batch` |
 | Public names | **Every name in official `jraph.__all__`** (unit-tested). Also exports `segment_mean` / `min` / `variance` / `normalize` (on the official module, omitted from its `__all__`) and `sparse_matrix_to_graphs_tuple` (not in upstream jraph). |
 | Not in scope | `jraph.experimental` (sharded GraphNet), examples, private `dtype_max_value` / `dtype_min_value` |
 

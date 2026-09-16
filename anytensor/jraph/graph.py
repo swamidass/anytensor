@@ -20,10 +20,11 @@ class GraphsTuple(NamedTuple):
     (offset by the nodes of earlier graphs). See the jraph docs for the
     full field layout.
 
-    ``__tree_concat__`` / ``__tree_split__`` implement graph batching (not
-    fieldwise array concat). Custom node/edge/global objects may define the
-    same methods so :func:`anytensor.tree.concat` / ``split`` (and therefore
-    :func:`~anytensor.jraph.batch` / ``unbatch``) use their logic.
+    ``__tree_batch__`` / ``__tree_unbatch__`` implement graph batching (not
+    fieldwise array concat). :func:`anytensor.tree.batch` / ``unbatch`` are
+    the same functions as :func:`~anytensor.jraph.batch` / ``unbatch``; this
+    type owns the offsetting logic. Custom node/edge/global objects may
+    define the same methods so feature batching uses their logic.
     """
 
     nodes: Optional[ArrayTree]
@@ -35,33 +36,18 @@ class GraphsTuple(NamedTuple):
     n_edge: Any
 
     @classmethod
-    def __tree_concat__(cls, xs, axis: int = 0):
+    def __tree_batch__(cls, xs, axis: int = 0):
         """Batch graphs. Senders/receivers are offset; not a fieldwise concat."""
         if axis != 0:
-            raise ValueError("GraphsTuple concatenation only supports axis=0")
-        from .utils import batch
+            raise ValueError("GraphsTuple batch only supports axis=0")
+        from .utils import _batch_graphs
 
-        return batch(list(xs))
+        return _batch_graphs(xs)
 
-    def __tree_split__(self, sizes, axis: int = 0):
-        """Split a batch into chunks with the given numbers of graphs."""
+    def __tree_unbatch__(self, axis: int = 0):
+        """Unbatch into one :class:`GraphsTuple` per graph (jraph ``unbatch``)."""
         if axis != 0:
-            raise ValueError("GraphsTuple split only supports axis=0")
-        from .utils import batch, unbatch
+            raise ValueError("GraphsTuple unbatch only supports axis=0")
+        from .utils import _unbatch_graphs
 
-        parts = unbatch(self)
-        sizes = [int(s) for s in sizes]
-        total = sum(sizes)
-        if total != len(parts):
-            raise ValueError(
-                f"sizes sum to {total} but batched graph has {len(parts)} graphs"
-            )
-        out = []
-        i = 0
-        for n in sizes:
-            if n <= 0:
-                raise ValueError("GraphsTuple split pieces must contain at least one graph")
-            chunk = parts[i : i + n]
-            i += n
-            out.append(chunk[0] if n == 1 else batch(chunk))
-        return out
+        return _unbatch_graphs(self)

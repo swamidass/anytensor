@@ -20,22 +20,23 @@ extension). Walking rules follow `jax.tree` / `jax.tree_util`:
        def __tree_unflatten__(cls, aux, children):
            return cls(...)
 
-2. Concat / split (**stable**; used by :func:`concat` / :func:`split` and jraph
+2. Batch / unbatch (**stable**; same functions as :mod:`anytensor.jraph`
    ``batch`` / ``unbatch``). Checked **before** walking children::
 
        @classmethod
-       def __tree_concat__(cls, xs, axis=0): ...
+       def __tree_batch__(cls, xs, axis=0): ...
 
-       def __tree_split__(self, sizes, axis=0): ...
+       def __tree_unbatch__(self, axis=0): ...
 
-   ``GraphsTuple`` implements these (offset senders/receivers).
+   ``GraphsTuple`` implements these (offset senders/receivers). Objects
+   without magic unbatch along the leading axis into unit slices.
 
 3. Already-imported pytree registries (**beta**), looked up by **type**
    (never imported as a side effect): ``jax.tree_util``,
    ``torch.utils._pytree``, and ``optree``. Built-in containers stay on this
    module's path.
 
-Public ``map`` / ``flatten`` / ``concat`` / ``split`` and built-in walking
+Public ``map`` / ``flatten`` / ``batch`` / ``unbatch`` and built-in walking
 rules are **stable**. Flatten-style registration (item 1 and item 3) may
 change.
 """
@@ -59,7 +60,7 @@ __all__ = [
     "PyTreeDef",
     "SequenceKey",
     "all",
-    "concat",
+    "batch",
     "flatten",
     "flatten_with_path",
     "leaves",
@@ -67,8 +68,8 @@ __all__ = [
     "map",
     "map_with_path",
     "reduce",
-    "split",
     "structure",
+    "unbatch",
     "tree_flatten",
     "tree_flatten_with_path",
     "tree_leaves",
@@ -510,41 +511,43 @@ def _accepts_axis(fn) -> bool:
     return any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
 
 
-def _call_concat(cls, xs, axis):
-    fn = cls.__tree_concat__
+def _call_batch(cls, xs, axis):
+    fn = cls.__tree_batch__
     if _accepts_axis(fn):
         return fn(xs, axis=axis)
     return fn(xs)
 
 
-def _call_split(obj, sizes, axis):
-    fn = obj.__tree_split__
+def _call_unbatch(obj, axis):
+    fn = obj.__tree_unbatch__
     if _accepts_axis(fn):
-        return fn(sizes, axis=axis)
-    return fn(sizes)
+        return fn(axis=axis)
+    return fn()
 
 
-def concat(*structures, axis: int = 0):
-    """Concatenate trees along ``axis`` (leading axis by default).
+def batch(trees, axis: int = 0):
+    """Batch a sequence of pytrees along ``axis`` (leading axis by default).
 
-    If the type defines ``__tree_concat__(xs, axis=0)``, that method is used
-    and children are **not** walked. Otherwise :func:`map` applies
-    :func:`anytensor.concatenate` at the leaves. All-``None`` stays ``None``.
+    Same function as :func:`anytensor.jraph.batch`. If the type defines
+    ``__tree_batch__(xs, axis=0)``, that method is used and children are
+    **not** walked. Otherwise leaves are concatenated with
+    :func:`anytensor.concatenate`. All-``None`` stays ``None``.
 
     >>> import numpy as np
     >>> import anytensor.tree as tree
-    >>> tree.concat(np.array([1, 2]), np.array([3]))
+    >>> tree.batch([np.array([1, 2]), np.array([3])])
     array([1, 2, 3])
     """
-    if not structures:
-        raise ValueError("Must provide at least one structure")
-    return _concat_impl(structures, axis=axis)
+    xs = list(trees)
+    if not xs:
+        raise ValueError("batch() requires at least one structure")
+    return _batch_impl(xs, axis=axis)
 
 
-def _concat_impl(xs, axis: int = 0):
+def _batch_impl(xs, axis: int = 0):
     first = xs[0]
-    if first is not None and hasattr(type(first), "__tree_concat__"):
-        return _call_concat(type(first), xs, axis)
+    if first is not None and hasattr(type(first), "__tree_batch__"):
+        return _call_batch(type(first), xs, axis)
     if builtins.all(x is None for x in xs):
         return None
     entry = _one_level(first)
@@ -569,58 +572,70 @@ def _concat_impl(xs, axis: int = 0):
                 "pytree structure error: trees must have the same structure."
             )
     packed = [
-        _concat_impl([children[i], *[e[2][i] for e in other_entries]], axis=axis)
+        _batch_impl([children[i], *[e[2][i] for e in other_entries]], axis=axis)
         for i in range(len(children))
     ]
     td = PyTreeDef(kind, metadata, [_LEAF] * len(children), restore=restore)
     return _rebuild(td, packed)
 
 
-def split(structure, sizes, axis: int = 0):
-    """Split ``structure`` along ``axis`` into pieces of leading lengths ``sizes``.
+def unbatch(structure, axis: int = 0):
+    """Unbatch ``structure`` along ``axis`` into unit slices.
 
-    ``__tree_split__(sizes, axis=0)`` on the object wins. Nested containers
-    recurse. ``None`` yields ``[None] * len(sizes)``.
+    Same function as :func:`anytensor.jraph.unbatch`. ``__tree_unbatch__(axis=0)``
+    on the object wins (``GraphsTuple`` yields one graph per ``n_node`` entry).
+    Nested containers recurse. Top-level ``None`` cannot infer a batch size.
 
     >>> import numpy as np
     >>> import anytensor.tree as tree
-    >>> head, tail = tree.split(np.arange(1, 5), (1, 3))
+    >>> head, tail = tree.unbatch(np.arange(1, 3))
     >>> tuple(int(x) for x in head), tuple(int(x) for x in tail)
-    ((1,), (2, 3, 4))
+    ((1,), (2,))
     """
-    sizes = tuple(int(s) for s in sizes)
-    return _split_impl(structure, sizes, axis=axis)
-
-
-def _split_impl(structure, sizes, axis: int = 0):
-    n_parts = len(sizes)
-    if structure is not None and hasattr(type(structure), "__tree_split__"):
-        return list(_call_split(structure, sizes, axis))
+    if structure is not None and hasattr(type(structure), "__tree_unbatch__"):
+        return list(_call_unbatch(structure, axis))
     if structure is None:
-        return [None] * n_parts
+        raise ValueError("Cannot unbatch None")
+    n = _leading_length(structure, axis)
+    return _unbatch_units(structure, n, axis)
+
+
+def _leading_length(structure, axis: int) -> int:
     entry = _one_level(structure)
     if entry is None:
-        return _split_array(structure, sizes, axis)
+        ndim = int(getattr(structure, "ndim", 1))
+        ax = axis if axis >= 0 else axis + ndim
+        return int(structure.shape[ax])
+    _kind, _metadata, children, _restore = entry
+    for child in children:
+        if child is not None:
+            return _leading_length(child, axis)
+    return 0
+
+
+def _unbatch_units(structure, n: int, axis: int):
+    if n == 0:
+        return []
+    entry = _one_level(structure)
+    if entry is None:
+        return [_axis_slice(structure, i, axis) for i in range(n)]
     kind, metadata, children, restore = entry
-    child_splits = [_split_impl(child, sizes, axis=axis) for child in children]
+    child_parts = [
+        _unbatch_units(child, n, axis) if child is not None else [None] * n
+        for child in children
+    ]
     td = PyTreeDef(kind, metadata, [_LEAF] * len(children), restore=restore)
-    return [_rebuild(td, [parts[i] for parts in child_splits]) for i in range(n_parts)]
+    return [_rebuild(td, [parts[i] for parts in child_parts]) for i in range(n)]
 
 
-def _split_array(array, sizes, axis: int = 0):
+def _axis_slice(array, index: int, axis: int):
     ndim = int(getattr(array, "ndim", 1))
     ax = axis if axis >= 0 else axis + ndim
-    out = []
-    start = 0
-    for n in sizes:
-        if ax == 0:
-            out.append(array[start : start + n])
-        else:
-            sl = [slice(None)] * ndim
-            sl[ax] = slice(start, start + n)
-            out.append(array[tuple(sl)])
-        start += n
-    return out
+    if ax == 0:
+        return array[index : index + 1]
+    sl = [slice(None)] * ndim
+    sl[ax] = slice(index, index + 1)
+    return array[tuple(sl)]
 
 
 tree_flatten = flatten

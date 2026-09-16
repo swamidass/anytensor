@@ -352,6 +352,26 @@ def test_batch_empty_raises():
         atj.batch([empty])
 
 
+def test_batch_unbatch_zero_node_graph():
+    g1, _ = _toy_graphs()
+    empty = atj.GraphsTuple(
+        nodes=np.zeros((0, 2)),
+        edges=np.zeros((0, 2)),
+        senders=np.zeros((0,), dtype=np.int32),
+        receivers=np.zeros((0,), dtype=np.int32),
+        globals=np.zeros((1, 2)),
+        n_node=np.array([0]),
+        n_edge=np.array([0]),
+    )
+    parts = atj.unbatch(atj.batch([g1, empty]))
+    assert len(parts) == 2
+    assert int(np.asarray(parts[1].n_node)[0]) == 0
+    assert parts[1].nodes.shape[0] == 0
+    solo = atj.unbatch(empty)
+    assert len(solo) == 1
+    assert solo[0].nodes.shape[0] == 0
+
+
 def test_node_padding_mask_requires_nodes():
     g1, _ = _toy_graphs()
     padded = atj.pad_with_graphs(g1, 6, 8, 2)._replace(nodes=None)
@@ -397,22 +417,40 @@ class Packed:
     def __eq__(self, other):
         return type(other) is Packed and np.array_equal(self.values, other.values)
 
+    def __tree_flatten__(self):
+        return (self.values,), None
+
     @classmethod
-    def __tree_concat__(cls, xs, axis=0):
+    def __tree_unflatten__(cls, aux, children):
+        del aux
+        return cls(children[0])
+
+    @classmethod
+    def __tree_batch__(cls, xs, axis=0):
         return cls(np.concatenate([x.values for x in xs], axis=axis))
 
-    def __tree_split__(self, sizes, axis=0):
-        start = 0
+    def __tree_unbatch__(self, axis=0):
+        n = int(self.values.shape[axis])
         out = []
-        for n in sizes:
+        for i in range(n):
             sl = [slice(None)] * self.values.ndim
-            sl[axis] = slice(start, start + n)
+            sl[axis] = slice(i, i + 1)
             out.append(Packed(self.values[tuple(sl)]))
-            start += n
         return out
 
 
-def test_batch_unbatch_custom_feature_concat():
+def test_batch_unbatch_plain_pytree():
+    a = {"temp": np.array([20.1]), "notes": None}
+    b = {"temp": np.array([21.0]), "notes": None}
+    joined = atj.batch([a, b])
+    np.testing.assert_array_equal(joined["temp"], [20.1, 21.0])
+    first, second = atj.unbatch(joined)
+    np.testing.assert_array_equal(first["temp"], [20.1])
+    np.testing.assert_array_equal(second["temp"], [21.0])
+    assert first["notes"] is None
+
+
+def test_batch_unbatch_custom_feature():
     g1, g2 = _toy_graphs()
     g1 = g1._replace(nodes=Packed(g1.nodes), edges=Packed(g1.edges))
     g2 = g2._replace(nodes=Packed(g2.nodes), edges=Packed(g2.edges))
@@ -425,30 +463,30 @@ def test_batch_unbatch_custom_feature_concat():
     np.testing.assert_allclose(parts[1].nodes.values, g2.nodes.values)
 
 
-def test_graphstuple_tree_concat_split():
+def test_graphstuple_tree_batch_unbatch():
     from anytensor import tree as atree
 
     g1, g2 = _toy_graphs()
-    batched = atree.concat(g1, g2)
+    assert atj.batch is atree.batch
+    assert atj.unbatch is atree.unbatch
+    batched = atree.batch([g1, g2])
     np.testing.assert_array_equal(np.asarray(batched.n_node), [3, 5])
     np.testing.assert_array_equal(np.asarray(batched.senders)[5:], g2.senders + 3)
-    parts = atree.split(batched, [1, 1])
+    parts = atree.unbatch(batched)
     assert len(parts) == 2
     np.testing.assert_allclose(np.asarray(parts[0].nodes), g1.nodes)
     np.testing.assert_array_equal(np.asarray(parts[1].senders), g2.senders)
-    grouped = atree.split(atree.concat(g1, g2, g1), [2, 1])
-    assert grouped[0].n_node.shape[0] == 2
-    assert grouped[1].n_node.shape[0] == 1
+    triple = atree.unbatch(atree.batch([g1, g2, g1]))
+    assert len(triple) == 3
+    grouped = atree.batch(triple[:2])
+    assert grouped.n_node.shape[0] == 2
+    assert triple[2].n_node.shape[0] == 1
     with pytest.raises(ValueError, match="axis=0"):
-        atree.concat(g1, g2, axis=1)
+        atree.batch([g1, g2], axis=1)
     with pytest.raises(ValueError, match="axis=0"):
-        atj.GraphsTuple.__tree_concat__([g1, g2], axis=1)
+        atj.GraphsTuple.__tree_batch__([g1, g2], axis=1)
     with pytest.raises(ValueError, match="axis=0"):
-        batched.__tree_split__([1, 1], axis=1)
-    with pytest.raises(ValueError, match="sizes sum"):
-        batched.__tree_split__([1])
-    with pytest.raises(ValueError, match="at least one graph"):
-        batched.__tree_split__([0, 2])
+        batched.__tree_unbatch__(axis=1)
 
 
 def test_graph_network_attention_and_mismatched_nodes():

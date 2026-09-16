@@ -5,6 +5,7 @@ Public names match :mod:`jraph`. Segment ops require ``num_segments``
 """
 
 from .graph import ArrayTree, GraphsTuple
+from anytensor.tree import batch, unbatch
 from .models import (
     GAT,
     DeepSets,
@@ -33,7 +34,6 @@ from .models import (
     NodeFeatures,
 )
 from .utils import (
-    batch,
     batch_np,
     concatenated_args,
     dynamically_batch,
@@ -56,7 +56,6 @@ from .utils import (
     segment_sum,
     segment_variance,
     sparse_matrix_to_graphs_tuple,
-    unbatch,
     unbatch_np,
     unpad_with_graphs,
     with_zero_out_padding_outputs,

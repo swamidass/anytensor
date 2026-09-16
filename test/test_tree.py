@@ -1,4 +1,4 @@
-"""Tests for :mod:`anytensor.tree` (jax.tree API + custom concat/split)."""
+"""Tests for :mod:`anytensor.tree` (jax.tree API + custom batch/unbatch)."""
 
 from __future__ import annotations
 
@@ -73,21 +73,19 @@ class Packed:
         )
 
     @classmethod
-    def __tree_concat__(cls, xs, axis=0):
+    def __tree_batch__(cls, xs, axis=0):
         tags = {x.tag for x in xs}
         if len(tags) != 1:
             raise ValueError("Packed.tag mismatch")
         return cls(np.concatenate([x.values for x in xs], axis=axis), tag=xs[0].tag)
 
-    def __tree_split__(self, sizes, axis=0):
+    def __tree_unbatch__(self, axis=0):
         if axis != 0:
-            raise ValueError("Packed split only supports axis=0")
-        start = 0
-        out = []
-        for n in sizes:
-            out.append(Packed(self.values[start : start + n], tag=self.tag))
-            start += n
-        return out
+            raise ValueError("Packed unbatch only supports axis=0")
+        return [
+            Packed(self.values[i : i + 1], tag=self.tag)
+            for i in range(int(self.values.shape[0]))
+        ]
 
 
 class PackedNoAxis:
@@ -98,16 +96,11 @@ class PackedNoAxis:
         return type(other) is PackedNoAxis and np.array_equal(self.values, other.values)
 
     @classmethod
-    def __tree_concat__(cls, xs):
+    def __tree_batch__(cls, xs):
         return cls(np.concatenate([x.values for x in xs], axis=0))
 
-    def __tree_split__(self, sizes):
-        start = 0
-        out = []
-        for n in sizes:
-            out.append(PackedNoAxis(self.values[start : start + n]))
-            start += n
-        return out
+    def __tree_unbatch__(self):
+        return [PackedNoAxis(self.values[i : i + 1]) for i in range(int(self.values.shape[0]))]
 
 
 def test_none_is_empty_pytree():
@@ -241,11 +234,11 @@ def test_paths_and_map_with_path():
     assert pairs[0][0] == (tree.DictKey("b"),)
     pairs, _ = tree.flatten_with_path(collections.defaultdict(int, {"b": 2, "a": 1}))
     assert pairs[0][0] == (tree.DictKey("a"),)
-    tup = tree.concat((np.array([1]), np.array([2])), (np.array([3]), np.array([4])))
+    tup = tree.batch([(np.array([1]), np.array([2])), (np.array([3]), np.array([4]))])
     assert isinstance(tup, tuple)
     np.testing.assert_array_equal(tup[0], [1, 3])
     with pytest.raises(ValueError, match="same structure"):
-        tree.concat([np.array([1])], [np.array([1]), np.array([2])])
+        tree.batch([[np.array([1])], [np.array([1]), np.array([2])]])
     assert tree.map_with_path(lambda p, x, y: x + y, {"a": 1}, {"a": 2}) == {"a": 3}
     with pytest.raises(ValueError, match="same structure"):
         tree.map_with_path(lambda p, x, y: x, {"a": 1}, {"b": 1})
@@ -483,68 +476,80 @@ def test_registry_leaf_and_failure(monkeypatch):
     assert len(tree.leaves(object())) == 1
 
 
-def test_concat_split_arrays_and_nests():
+def test_batch_unbatch_arrays_and_nests():
     a = np.array([1, 2])
     b = np.array([3])
-    np.testing.assert_array_equal(tree.concat(a, b), np.array([1, 2, 3]))
-    parts = tree.split(np.array([1, 2, 3, 4]), [1, 3])
+    np.testing.assert_array_equal(tree.batch([a, b]), np.array([1, 2, 3]))
+    parts = tree.unbatch(np.array([1, 2, 3, 4]))
+    assert len(parts) == 4
     np.testing.assert_array_equal(parts[0], [1])
-    np.testing.assert_array_equal(parts[1], [2, 3, 4])
-    nested = tree.concat({"a": a}, {"a": b})
+    np.testing.assert_array_equal(parts[3], [4])
+    nested = tree.batch([{"a": a}, {"a": b}])
     np.testing.assert_array_equal(nested["a"], [1, 2, 3])
-    split_n = tree.split({"a": np.array([1, 2, 3])}, [2, 1])
-    np.testing.assert_array_equal(split_n[0]["a"], [1, 2])
-    np.testing.assert_array_equal(split_n[1]["a"], [3])
-    assert tree.concat(None, None) is None
-    assert tree.split(None, [1, 2]) == [None, None]
+    split_n = tree.unbatch({"a": np.array([1, 2, 3])})
+    np.testing.assert_array_equal(split_n[0]["a"], [1])
+    np.testing.assert_array_equal(split_n[2]["a"], [3])
+    assert tree.batch([None, None]) is None
+    with pytest.raises(ValueError, match="Cannot unbatch None"):
+        tree.unbatch(None)
     with pytest.raises(ValueError, match="at least one"):
-        tree.concat()
-    stacked = tree.concat(np.arange(4).reshape(2, 2), np.arange(4, 6).reshape(1, 2), axis=0)
+        tree.batch([])
+    stacked = tree.batch(
+        [np.arange(4).reshape(2, 2), np.arange(4, 6).reshape(1, 2)], axis=0
+    )
     assert stacked.shape == (3, 2)
-    col = tree.concat(np.arange(2).reshape(2, 1), np.arange(2, 4).reshape(2, 1), axis=1)
+    col = tree.batch(
+        [np.arange(2).reshape(2, 1), np.arange(2, 4).reshape(2, 1)], axis=1
+    )
     assert col.shape == (2, 2)
-    parts_ax = tree.split(np.arange(6).reshape(2, 3), [1, 2], axis=1)
+    parts_ax = tree.unbatch(np.arange(6).reshape(2, 3), axis=1)
+    assert len(parts_ax) == 3
     assert parts_ax[0].shape == (2, 1)
-    assert parts_ax[1].shape == (2, 2)
-    neg = tree.split(np.arange(6).reshape(2, 3), [1, 2], axis=-1)
+    neg = tree.unbatch(np.arange(6).reshape(2, 3), axis=-1)
     assert neg[0].shape == (2, 1)
     with pytest.raises(ValueError, match="same structure"):
-        tree.concat(np.array([1]), None)
+        tree.batch([np.array([1]), None])
     with pytest.raises(ValueError, match="same structure"):
-        tree.concat([np.array([1])], (np.array([2]),))
+        tree.batch([[np.array([1])], (np.array([2]),)])
     with pytest.raises(ValueError, match="same structure"):
-        tree.concat({"a": np.array([1])}, {"a": np.array([1]), "b": np.array([2])})
-    empty = tree.concat([], [])
+        tree.batch([{"a": np.array([1])}, {"a": np.array([1]), "b": np.array([2])}])
+    empty = tree.batch([[], []])
     assert empty == []
+    assert tree.unbatch(np.zeros((0, 2))) == []
+    assert tree.unbatch({"a": None}) == []
+    none_notes = tree.unbatch({"a": np.array([1, 2]), "b": None})
+    np.testing.assert_array_equal(none_notes[0]["a"], [1])
+    assert none_notes[1]["b"] is None
 
 
-def test_concat_split_magic_methods():
-    p = tree.concat(Packed([1, 2], tag="t"), Packed([3], tag="t"))
+def test_batch_unbatch_magic_methods():
+    p = tree.batch([Packed([1, 2], tag="t"), Packed([3], tag="t")])
     assert p == Packed([1, 2, 3], tag="t")
-    parts = tree.split(p, [2, 1])
-    assert parts[0] == Packed([1, 2], tag="t")
-    assert parts[1] == Packed([3], tag="t")
-    nested = tree.concat({"h": Packed([1], tag="t")}, {"h": Packed([2, 3], tag="t")})
+    parts = tree.unbatch(p)
+    assert parts[0] == Packed([1], tag="t")
+    assert parts[1] == Packed([2], tag="t")
+    assert parts[2] == Packed([3], tag="t")
+    nested = tree.batch([{"h": Packed([1], tag="t")}, {"h": Packed([2, 3], tag="t")}])
     assert nested["h"] == Packed([1, 2, 3], tag="t")
-    no_axis = tree.concat(PackedNoAxis([1]), PackedNoAxis([2]))
+    no_axis = tree.batch([PackedNoAxis([1]), PackedNoAxis([2])])
     assert no_axis == PackedNoAxis([1, 2])
-    assert tree.split(no_axis, [1, 1]) == [PackedNoAxis([1]), PackedNoAxis([2])]
+    assert tree.unbatch(no_axis) == [PackedNoAxis([1]), PackedNoAxis([2])]
     with pytest.raises(ValueError, match="tag mismatch"):
-        tree.concat(Packed([1], tag="a"), Packed([2], tag="b"))
+        tree.batch([Packed([1], tag="a"), Packed([2], tag="b")])
 
 
-def test_concat_accepts_axis_without_signature(monkeypatch):
+def test_batch_accepts_axis_without_signature(monkeypatch):
     def boom(_fn):
         raise ValueError("no signature")
 
     monkeypatch.setattr(inspect_mod, "signature", boom)
-    p = tree.concat(Packed([1], tag="t"), Packed([2], tag="t"))
+    p = tree.batch([Packed([1], tag="t"), Packed([2], tag="t")])
     assert p == Packed([1, 2], tag="t")
-    parts = tree.split(p, [1, 1])
+    parts = tree.unbatch(p)
     assert parts == [Packed([1], tag="t"), Packed([2], tag="t")]
 
 
-def test_concat_kwargs_axis_accepted():
+def test_batch_kwargs_axis_accepted():
     class Kw:
         def __init__(self, values):
             self.values = np.asarray(values)
@@ -553,47 +558,54 @@ def test_concat_kwargs_axis_accepted():
             return type(other) is Kw and np.array_equal(self.values, other.values)
 
         @classmethod
-        def __tree_concat__(cls, xs, **kwargs):
+        def __tree_batch__(cls, xs, **kwargs):
             axis = kwargs.get("axis", 0)
             return cls(np.concatenate([x.values for x in xs], axis=axis))
 
-        def __tree_split__(self, sizes, **kwargs):
+        def __tree_unbatch__(self, **kwargs):
             axis = kwargs.get("axis", 0)
-            start = 0
+            n = int(self.values.shape[axis])
             out = []
-            for n in sizes:
+            for i in range(n):
                 sl = [slice(None)] * self.values.ndim
-                sl[axis] = slice(start, start + n)
+                sl[axis] = slice(i, i + 1)
                 out.append(Kw(self.values[tuple(sl)]))
-                start += n
             return out
 
-    out = tree.concat(Kw([1, 2]), Kw([3]))
+    out = tree.batch([Kw([1, 2]), Kw([3])])
     assert out == Kw([1, 2, 3])
-    assert tree.split(out, [2, 1]) == [Kw([1, 2]), Kw([3])]
+    assert tree.unbatch(out) == [Kw([1]), Kw([2]), Kw([3])]
 
 
-def test_concat_namedtuple_of_arrays():
-    out = tree.concat(Foo(np.array([1]), np.array([2])), Foo(np.array([3]), np.array([4])))
+def test_batch_namedtuple_of_arrays():
+    out = tree.batch([Foo(np.array([1]), np.array([2])), Foo(np.array([3]), np.array([4]))])
     assert isinstance(out, Foo)
     np.testing.assert_array_equal(out.a, [1, 3])
     np.testing.assert_array_equal(out.b, [2, 4])
-    parts = tree.split(out, [1, 1])
+    parts = tree.unbatch(out)
     np.testing.assert_array_equal(parts[0].a, [1])
-    od = tree.concat(
-        collections.OrderedDict(a=np.array([1])),
-        collections.OrderedDict(a=np.array([2])),
+    od = tree.batch(
+        [
+            collections.OrderedDict(a=np.array([1])),
+            collections.OrderedDict(a=np.array([2])),
+        ]
     )
     np.testing.assert_array_equal(od["a"], [1, 2])
-    dd = tree.concat(
-        collections.defaultdict(int, {"a": np.array([1])}),
-        collections.defaultdict(int, {"a": np.array([2])}),
+    dd = tree.batch(
+        [
+            collections.defaultdict(int, {"a": np.array([1])}),
+            collections.defaultdict(int, {"a": np.array([2])}),
+        ]
     )
     np.testing.assert_array_equal(dd["a"], [1, 2])
     assert isinstance(dd, collections.defaultdict)
-    ap = tree.concat(AttrPair(np.array([1]), np.array([2])), AttrPair(np.array([3]), np.array([4])))
+    ap = tree.batch(
+        [AttrPair(np.array([1]), np.array([2])), AttrPair(np.array([3]), np.array([4]))]
+    )
     np.testing.assert_array_equal(ap.x, [1, 3])
-    pair = tree.concat(Pair(np.array([1]), np.array([2])), Pair(np.array([3]), np.array([4])))
+    pair = tree.batch(
+        [Pair(np.array([1]), np.array([2])), Pair(np.array([3]), np.array([4]))]
+    )
     np.testing.assert_array_equal(pair.x, [1, 3])
-    split_pair = tree.split(pair, [1, 1])
+    split_pair = tree.unbatch(pair)
     np.testing.assert_array_equal(split_pair[1].y, [4])

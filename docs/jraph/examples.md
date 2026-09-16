@@ -72,11 +72,12 @@ restored = atj.unpad_with_graphs(padded)
 np.testing.assert_allclose(restored.nodes, g.nodes)
 ```
 
-## `tree.concat` is graph batching
+## `tree.batch` is graph batching
 
-`GraphsTuple.__tree_concat__` calls `batch` (sender offsets), not fieldwise
-concat. Feature objects can define `__tree_concat__` / `__tree_split__` the
-same way — see [Tree](../tree/index.md#concat-and-split).
+`jraph.batch` **is** `tree.batch`. `GraphsTuple.__tree_batch__` offsets
+senders (not fieldwise concat). Feature objects can define
+`__tree_batch__` / `__tree_unbatch__` the same way — see
+[Tree](../tree/index.md#batch-and-unbatch).
 
 ```python
 import numpy as np
@@ -101,9 +102,10 @@ g2 = atj.GraphsTuple(
     n_edge=np.array([2]),
     globals=np.array([[0.0, 1.0]]),
 )
-batched = tree.concat(g1, g2)
+assert atj.batch is tree.batch
+batched = tree.batch([g1, g2])
 assert list(np.asarray(batched.n_node)) == [3, 2]
 assert list(np.asarray(batched.senders[2:])) == [3, 4]
-a, b = tree.split(batched, [1, 1])
+a, b = tree.unbatch(batched)
 np.testing.assert_array_equal(np.asarray(b.senders), g2.senders)
 ```

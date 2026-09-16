@@ -17,6 +17,8 @@
   `__all__` is a subset of `anytensor.jraph` (full public-API coverage);
   Hypothesis parity fuzz vs upstream jraph when JAX is installed, including
   GAT (self-edges added, not skipped) and the rest of the model zoo.
+  `jraph.batch` / `unbatch` are `tree.batch` / `tree.unbatch`; GraphsTuple
+  implements `__tree_batch__` / `__tree_unbatch__` (no sized-split API).
 
 ## 2026-09-15
 
@@ -58,7 +60,7 @@
 - Jraph: portable GraphsTuple / GraphNetwork (`anytensor.jraph`) on AnyTensor
   segment ops; `anytensor.tree` follows the `jax.tree` API in pure Python with
   `__tree_flatten__` / `__tree_unflatten__` and JAX/Torch/optree registry hooks.
-  `tree.concat` / `tree.split` dispatch to `__tree_concat__` / `__tree_split__`
+  `tree.batch` / `tree.unbatch` dispatch to `__tree_batch__` / `__tree_unbatch__`
   so GraphsTuple and custom feature objects own batch/unbatch. Dev extra
   installs `jraph` for parity tests. `anytensor.jraph` is in the 100%
   coverage gate (only `backends.py` / `torchscript.py` remain omitted).

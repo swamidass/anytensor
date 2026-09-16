@@ -16,6 +16,7 @@ from typing import Any, Callable, Generator, Iterator, List, Optional, Sequence
 import numpy as np
 
 from anytensor import tree
+from anytensor.tree import batch, unbatch
 from anytensor.core import (
     arange,
     astype,
@@ -238,16 +239,23 @@ def _zeros_like_leading(leaf, leading: int):
     return zeros((leading,) + rest, dtype=leaf.dtype, like=leaf)
 
 
-def batch(graphs: Sequence[GraphsTuple]) -> GraphsTuple:
-    """Batch a sequence of graphs, offsetting senders and receivers.
-
-    Graphs with zero graphs (``n_node.shape[0] == 0``) are dropped, matching
-    jraph. Not compilable: the output size depends on the list length.
-    """
+def _batch_graphs(graphs: Sequence[GraphsTuple]) -> GraphsTuple:
+    """GraphsTuple ``__tree_batch__``: drop empties, offset senders/receivers."""
     graphs = [g for g in graphs if _n_graphs(g) > 0]
     if not graphs:
         raise ValueError("batch() requires at least one non-empty GraphsTuple")
-    return _batch(graphs)
+    offsets = np.cumsum([0] + [_sum_n_node(g) for g in graphs[:-1]]).tolist()
+    return GraphsTuple(
+        n_node=batch([g.n_node for g in graphs], axis=0),
+        n_edge=batch([g.n_edge for g in graphs], axis=0),
+        nodes=batch([g.nodes for g in graphs], axis=0),
+        edges=batch([g.edges for g in graphs], axis=0),
+        globals=batch([g.globals for g in graphs], axis=0),
+        senders=_concat_maybe([_offset_index(g.senders, o) for g, o in zip(graphs, offsets)]),
+        receivers=_concat_maybe(
+            [_offset_index(g.receivers, o) for g, o in zip(graphs, offsets)]
+        ),
+    )
 
 
 def _to_numpy_leaf(x):
@@ -287,41 +295,58 @@ def _concat_maybe(arrays):
     return concatenate(present, axis=0)
 
 
-def _map_concat(nests):
-    if all(n is None for n in nests):
-        return None
-    return tree.concat(*nests, axis=0)
+def _empty_leading(feat, units, axis: int = 0):
+    """Zero-length leading slice of ``feat`` (a 0-node / 0-edge graph)."""
+    if not units:
+        return feat
+    proto = units[0]
+
+    def zero(leaf):
+        ndim = int(leaf.ndim)
+        ax = axis if axis >= 0 else axis + ndim
+        sl = [slice(None)] * ndim
+        sl[ax] = slice(0, 0)
+        return leaf[tuple(sl)]
+
+    return tree.map(zero, proto)
 
 
-def _batch(graphs: Sequence[GraphsTuple]) -> GraphsTuple:
-    offsets = np.cumsum([0] + [_sum_n_node(g) for g in graphs[:-1]]).tolist()
-    return GraphsTuple(
-        n_node=concatenate([g.n_node for g in graphs], axis=0),
-        n_edge=concatenate([g.n_edge for g in graphs], axis=0),
-        nodes=_map_concat([g.nodes for g in graphs]),
-        edges=_map_concat([g.edges for g in graphs]),
-        globals=_map_concat([g.globals for g in graphs]),
-        senders=_concat_maybe([_offset_index(g.senders, o) for g, o in zip(graphs, offsets)]),
-        receivers=_concat_maybe(
-            [_offset_index(g.receivers, o) for g, o in zip(graphs, offsets)]
-        ),
+def _rebatch_groups(units, sizes, *, empty, axis: int = 0):
+    """Reassemble unit slices into chunks of ``sizes`` (GraphsTuple n_node / n_edge)."""
+    out = []
+    i = 0
+    for n in sizes:
+        chunk = units[i : i + n]
+        i += n
+        if n == 0:
+            out.append(empty)
+        elif n == 1:
+            out.append(chunk[0])
+        else:
+            out.append(batch(chunk, axis=axis))
+    return out
+
+
+def _partition_feature(feat, sizes, axis: int = 0):
+    """Split a batched feature nest into per-graph pieces via unbatch + batch."""
+    if feat is None:
+        return [None] * len(sizes)
+    units = unbatch(feat, axis=axis)
+    return _rebatch_groups(
+        units, sizes, empty=_empty_leading(feat, units, axis), axis=axis
     )
 
 
-def _split_leading(array, lengths: Sequence[int]):
-    return tree.split(array, lengths, axis=0)
-
-
-def _unbatch(graph: GraphsTuple) -> List[GraphsTuple]:
+def _unbatch_graphs(graph: GraphsTuple) -> List[GraphsTuple]:
     n_node_i = [int(v) for v in _np_vec(graph.n_node).tolist()]
     n_edge_i = [int(v) for v in _np_vec(graph.n_edge).tolist()]
     node_offsets = np.cumsum(n_node_i[:-1]).astype(int).tolist() if len(n_node_i) > 1 else []
 
-    all_nodes = _split_leading(graph.nodes, n_node_i)
-    all_edges = _split_leading(graph.edges, n_edge_i)
-    all_globals = _split_leading(graph.globals, [1] * len(n_node_i))
-    all_senders = _split_leading(graph.senders, n_edge_i)
-    all_receivers = _split_leading(graph.receivers, n_edge_i)
+    all_nodes = _partition_feature(graph.nodes, n_node_i)
+    all_edges = _partition_feature(graph.edges, n_edge_i)
+    all_globals = _partition_feature(graph.globals, [1] * len(n_node_i))
+    all_senders = _partition_feature(graph.senders, n_edge_i)
+    all_receivers = _partition_feature(graph.receivers, n_edge_i)
 
     for graph_index in range(1, len(n_node_i)):
         off = int(node_offsets[graph_index - 1])
@@ -344,11 +369,6 @@ def _unbatch(graph: GraphsTuple) -> List[GraphsTuple]:
             )
         )
     return out
-
-
-def unbatch(graph: GraphsTuple) -> List[GraphsTuple]:
-    """Split a batched graph into a list of single graphs. Not compilable."""
-    return _unbatch(graph)
 
 
 def unbatch_np(graph: GraphsTuple) -> List[GraphsTuple]:
@@ -410,7 +430,7 @@ def pad_with_graphs(
         senders=pad_senders,
         receivers=zeros((pad_n_edge,), dtype=idx_like.dtype, like=idx_like),
     )
-    return _batch([graph, padding_graph])
+    return batch([graph, padding_graph])
 
 
 def _flip0(x):
