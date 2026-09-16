@@ -62,7 +62,9 @@ Add coverage in `test/test_ops.py`, boundaries in `test/test_boundaries.py`,
 fuzz registrations in `test/test_cross_backend_fuzz.py`, contracts in
 `test/test_backend_contracts.py`, symbolic/compiled coverage in
 `test/test_symbolic_fuzz.py`, tree/jraph in `test/test_tree.py` and
-`test/test_jraph.py`. Fenced examples in `docs/examples.md`,
+`test/test_jraph.py`, official-jraph parity fuzz in
+`test/test_jraph_parity_fuzz.py` (batch/pad, GraphNetwork, model zoo including
+GAT with self-edges). Fenced examples in `docs/examples.md`,
 `docs/tree/examples.md`, and `docs/jraph/examples.md` are executed by Sybil
 (`test/docs_sybil.py`).
 

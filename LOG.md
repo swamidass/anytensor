@@ -13,7 +13,10 @@
   why the library’s data model is worth following. Tree overview links
   jax.tree / dm-tree / optree / Torch pytree and positions the module as
   a nest walker for any structured record, not only GNN features. Tree is
-  pure Python; NumPy is the only binary dependency.
+  pure Python; NumPy is the only binary dependency. Official-jraph public
+  `__all__` is a subset of `anytensor.jraph` (full public-API coverage);
+  Hypothesis parity fuzz vs upstream jraph when JAX is installed, including
+  GAT (self-edges added, not skipped) and the rest of the model zoo.
 
 ## 2026-09-15
 

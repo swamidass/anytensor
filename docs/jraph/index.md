@@ -87,3 +87,12 @@ contract). `unique_indices` is accepted and ignored.
 | Segment ops | `num_segments` required; `unique_indices` ignored |
 | Nest library | [`anytensor.tree`](../tree/index.md) (no JAX runtime dep) |
 | Graph concat | Magic methods on `GraphsTuple` and feature objects |
+| Public names | **Every name in official `jraph.__all__`** (unit-tested). Also exports `segment_mean` / `min` / `variance` / `normalize` (on the official module, omitted from its `__all__`) and `sparse_matrix_to_graphs_tuple` (not in upstream jraph). |
+| Not in scope | `jraph.experimental` (sharded GraphNet), examples, private `dtype_max_value` / `dtype_min_value` |
+
+Hypothesis parity vs official jraph (when `jraph` + JAX are installed) is
+`test/test_jraph_parity_fuzz.py`: batch/unbatch, pad/masks, GraphNetwork,
+nested features, segment ops, the model zoo (`GraphMapFeatures`,
+`InteractionNetwork`, `RelationNetwork`, `DeepSets`, `GraphNetGAT`, **`GAT`**
+with self-edges added rather than skipped, `GraphConvolution` including
+`add_self_edges=True`), fully-connected graphs, zero-out padding.

@@ -281,6 +281,31 @@ def test_graph_network_cross_backend(name):
     np.testing.assert_allclose(_np(out.nodes), _np(graph.nodes))
 
 
+# Official jraph 0.0.6.dev0: on the module, omitted from ``jraph.__all__``.
+_JRAPH_MODULE_EXTRAS = (
+    "segment_mean",
+    "segment_min",
+    "segment_normalize",
+    "segment_variance",
+)
+# Extra vs upstream jraph (documented; not a missing-API claim).
+_ANYTENSOR_JRAPH_ONLY = ("sparse_matrix_to_graphs_tuple",)
+
+
+def test_covers_jraph_public_api():
+    """Full coverage of official ``jraph.__all__``, plus documented extras."""
+    jraph = pytest.importorskip("jraph")
+    missing = sorted(set(jraph.__all__) - set(atj.__all__))
+    assert missing == [], missing
+    for name in _JRAPH_MODULE_EXTRAS:
+        assert hasattr(jraph, name), name
+        assert hasattr(atj, name), name
+        assert name in atj.__all__, name
+    for name in _ANYTENSOR_JRAPH_ONLY:
+        assert name in atj.__all__, name
+        assert not hasattr(jraph, name), name
+
+
 def test_jraph_parity_batch_and_identity():
     jraph = pytest.importorskip("jraph")
     jnp = pytest.importorskip("jax.numpy")
@@ -587,6 +612,38 @@ def test_flip0_namespace_fallbacks(monkeypatch):
 
     monkeypatch.setattr(ju, "array_namespace", lambda _x: FlipNoAxis())
     np.testing.assert_array_equal(ju._flip0(x), x[::-1])
+
+
+def test_jraph_parity_gat_with_self_edges():
+    """GAT vs official jraph; self-edges are added (upstream assumes they exist)."""
+    jraph = pytest.importorskip("jraph")
+    jnp = pytest.importorskip("jax.numpy")
+    g1, _ = _toy_graphs()
+    n = int(g1.nodes.shape[0])
+    self_idx = np.arange(n, dtype=np.int32)
+    g1 = g1._replace(
+        senders=np.concatenate([g1.senders, self_idx]),
+        receivers=np.concatenate([g1.receivers, self_idx]),
+        n_edge=g1.n_edge + g1.n_node,
+        edges=np.concatenate([g1.edges, np.zeros((n, g1.edges.shape[-1]), dtype=g1.edges.dtype)]),
+    )
+
+    def logit(s, r, e):
+        return (s * r).sum(axis=-1, keepdims=True)
+
+    aout = atj.GAT(lambda n: n, logit, lambda n: n)(g1)
+    jout = jraph.GAT(lambda n: n, logit, lambda n: n)(
+        jraph.GraphsTuple(
+            nodes=jnp.asarray(g1.nodes),
+            edges=jnp.asarray(g1.edges),
+            senders=jnp.asarray(g1.senders),
+            receivers=jnp.asarray(g1.receivers),
+            globals=jnp.asarray(g1.globals),
+            n_node=jnp.asarray(g1.n_node),
+            n_edge=jnp.asarray(g1.n_edge),
+        )
+    )
+    np.testing.assert_allclose(np.asarray(jout.nodes), _np(aout.nodes), rtol=1e-5, atol=1e-5)
 
 
 def test_jraph_parity_pad_and_masks():
