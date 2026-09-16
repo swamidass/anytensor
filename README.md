@@ -136,9 +136,14 @@ PRs welcome. Prefer adding portable helpers in `anytensor/core.py` or `segment.p
 uv sync --extra jax --extra torch --group dev
 # Coverage gate: unit/contract tests only (no fuzz); backends.py omitted; fail_under=100
 uv run pytest -m "not fuzz" --cov=anytensor --cov-report=term-missing
-# Full suite including Hypothesis fuzz
+# Full suite (fuzz uses fuzz_examples from pyproject, default 1000)
 uv run pytest
+# Long fuzz — CLI override (preferred) or env
+uv run pytest -m fuzz --fuzz-examples=10000 --hypothesis-show-statistics
+ANYTENSOR_FUZZ_EXAMPLES=20000 uv run pytest -m fuzz
 ```
+
+`fuzz_examples` lives under `[tool.pytest.ini_options]` in `pyproject.toml`. Override order: `--fuzz-examples` > `ANYTENSOR_FUZZ_EXAMPLES` > pyproject.
 
 ## License
 

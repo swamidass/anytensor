@@ -68,6 +68,7 @@ include = [
 addopts = "--import-mode=importlib"
 testpaths = ["test"]
 pythonpath = [".", "test"]
+fuzz_examples = 1000
 markers = [
   "fuzz: Hypothesis / cross-backend fuzz (excluded from the coverage gate)",
 ]

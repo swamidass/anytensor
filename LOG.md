@@ -2,6 +2,7 @@
 
 ## 2026-09-15
 
+- Fuzz budget: `fuzz_examples = 1000` in pyproject `[tool.pytest.ini_options]`; override with `--fuzz-examples=N` or `ANYTENSOR_FUZZ_EXAMPLES`.
 - Coverage gate: `pytest -m "not fuzz" --cov=anytensor` with `fail_under=100`; `backends.py` omitted. Non-fuzz total at 100%.
 - Public specials are thin functions over `get_backend(x)` attrs: `inf(x)` / `ninf(x)` / `nan(x)` / `pi(x)` / `e(x)` / `dtype(name, like=x)` / `finfo` / `iinfo`. Backend objects stay internal; `newaxis` is `None`.
 - Cross-backend fuzz registers essentially all public ops/helpers (`@fuzz_op`); inventory test guards gaps. `max_examples=1000` (Hypothesis default is 100).
