@@ -1,1 +1,1 @@
-Document that einops TorchScript layers are a signature workaround, not a replacement for the function divert.
+Add tests showing einops' TorchScript layer/static-clone pattern works on segment kernels without a layers API.

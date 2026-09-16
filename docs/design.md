@@ -211,9 +211,11 @@ Einops' scriptable **layers** (`Rearrange`, `Reduce`) are a workaround for
 function signatures TorchScript cannot compile (`**axes_lengths`, string
 patterns, `get_backend`). Our segment ops are already `(Tensor, Tensor, int)`,
 so the function divert is the analog of einops' static backend — not an
-`nn.Module` package. `get_backend` still cannot be scripted. Composites such
-as `segment_softmax` stay off this path (Python dispatch); do not grow
-TorchScript coverage.
+`nn.Module` package. Locked in by `test/test_torchscript.py`: einops
+`rearrange()` does not script, `Rearrange` does, a Module wrapping our static
+`segment_sum` scripts and matches eager, a Torch-only clone of
+`segment_softmax` scripts and matches eager, and public `segment_softmax`
+does not. Do not grow the public TorchScript surface.
 
 ### 10. Typing is for humans; runtime checks are opt-in
 
