@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import inspect
+import math
 import warnings
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -531,6 +532,41 @@ def repeat(x, repeats, *, total_repeat_length: Optional[int] = None, axis: Optio
 def matmul(x, y):
     """Matrix product of two arrays. NumPy operands upcast onto peers."""
     return array_namespace(x, y).matmul(x, y)
+
+
+# --- Portable constants / dtype introspection ------------------------------
+# Scalars are Python floats (Array API convention) — not backend objects.
+# Framework dtypes stay on the array's namespace (``like=`` / ``astype``);
+# use :func:`dtype` when you need ``xp.bool`` / ``xp.float32`` for a peer array.
+
+inf = math.inf
+ninf = -math.inf
+nan = math.nan
+pi = math.pi
+e = math.e
+newaxis = None
+
+
+def finfo(x):
+    """Floating limits for ``x.dtype`` on ``x``'s Array API namespace."""
+    return array_namespace(x).finfo(x.dtype)
+
+
+def iinfo(x):
+    """Integral limits for ``x.dtype`` on ``x``'s Array API namespace."""
+    return array_namespace(x).iinfo(x.dtype)
+
+
+def dtype(name: str, like):
+    """Framework dtype ``name`` for the namespace of ``like`` (e.g. ``\"bool\"``).
+
+    Prefer this over reaching into backends. Strings often also work directly in
+    ``astype`` / ``zeros(..., dtype=)``; use this when you need the dtype object.
+    """
+    xp = array_namespace(like)
+    if not hasattr(xp, name):
+        raise AttributeError(f"{xp} has no dtype attribute {name!r}")
+    return getattr(xp, name)
 
 
 # --- NaN / finiteness utilities -------------------------------------------

@@ -105,9 +105,64 @@ from .semantics import empty_segment_identity
 
 
 class AbstractBackend:
-    """Base backend class, major part of methods are only for debugging purposes."""
+    """Base backend class, major part of methods are only for debugging purposes.
+
+    After ``__init__``, concrete backends may cache framework dtypes / specials via
+    :meth:`_install_numeric_attrs` for **internal** use (segment fills, etc.).
+    Public callers should use module-level :data:`anytensor.inf` / :func:`anytensor.finfo`
+    / :func:`anytensor.dtype` instead of backend objects.
+    """
 
     framework_name: str
+
+    def _install_numeric_attrs(self, xp) -> None:
+        """Internal: cache framework constants/dtypes from ``xp``.
+
+        Not part of the public AnyTensor API — backends are an implementation
+        detail. Public surface: ``anytensor.inf`` / ``ninf`` / ``nan`` (Python
+        floats) and ``finfo`` / ``iinfo`` / ``dtype`` resolved from an array.
+        """
+        import math
+
+        self._info_xp = xp
+        self.inf = float(getattr(xp, "inf", float("inf")))
+        self.ninf = -self.inf
+        self.nan = float(getattr(xp, "nan", float("nan")))
+        self.pi = float(getattr(xp, "pi", math.pi))
+        self.e = float(getattr(xp, "e", math.e))
+        self.newaxis = getattr(xp, "newaxis", None)
+
+        bool_dt = getattr(xp, "bool", None)
+        if bool_dt is None:
+            bool_dt = getattr(xp, "bool_", None)
+        if bool_dt is None:
+            raise AttributeError(f"{type(xp)!r} has no bool / bool_ dtype")
+        self.bool = bool_dt
+
+        for name in (
+            "float16",
+            "float32",
+            "float64",
+            "bfloat16",
+            "int8",
+            "int16",
+            "int32",
+            "int64",
+            "uint8",
+            "uint16",
+            "uint32",
+            "uint64",
+        ):
+            if hasattr(xp, name):
+                setattr(self, name, getattr(xp, name))
+
+    def finfo(self, dtype):
+        """Floating dtype limits (``eps``, ``max``, …) — prefer over raw attrs."""
+        return self._info_xp.finfo(dtype)
+
+    def iinfo(self, dtype):
+        """Integral dtype limits."""
+        return self._info_xp.iinfo(dtype)
 
     def device(self, x):
         """return backend specific device on which the tensor is located"""
@@ -231,6 +286,7 @@ class NumpyBackend(AbstractBackend):
         import numpy
 
         self.np = numpy
+        self._install_numeric_attrs(numpy)
 
     def is_appropriate_type(self, tensor):
         return isinstance(tensor, self.np.ndarray)
@@ -311,6 +367,7 @@ class JaxBackend(NumpyBackend):
 
         self.np = jax.numpy
         self._jax = __import__("jax")
+        self._install_numeric_attrs(self.np)
 
     def is_appropriate_type(self, tensor):
         # Prefer jax.Array; also accept jnp arrays / tracers used as ndarray-like.
@@ -351,6 +408,7 @@ class TorchBackend(AbstractBackend):
         import torch
 
         self.torch = torch
+        self._install_numeric_attrs(torch)
 
     def is_appropriate_type(self, tensor):
         return isinstance(tensor, self.torch.Tensor)
@@ -360,11 +418,11 @@ class TorchBackend(AbstractBackend):
         if reduction == "sum":
             return 0
         if x.dtype.is_floating_point:
-            return float("inf") if reduction == "min" else float("-inf")
+            return self.inf if reduction == "min" else self.ninf
         if reduction == "min":
-            return self.torch.iinfo(x.dtype).max
+            return self.iinfo(x.dtype).max
         if reduction == "max":
-            return self.torch.iinfo(x.dtype).min
+            return self.iinfo(x.dtype).min
         raise ValueError(f"reduction type {reduction} not supported")
 
     def segment_reduce(self, x, seg_ids, num_segments, reduction, sorted: bool = False):
@@ -458,6 +516,7 @@ class TensorflowBackend(AbstractBackend):
         import tensorflow
 
         self.tf = tensorflow
+        self._install_numeric_attrs(tensorflow)
 
     def is_appropriate_type(self, tensor):
         return isinstance(tensor, (self.tf.Tensor, self.tf.Variable))

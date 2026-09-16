@@ -10,6 +10,18 @@ from helpers import BACKENDS, close, loaded_backends
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
+def test_public_constants_and_dtype(backend):
+    import math
+
+    b = loaded_backends[backend]
+    x = b.from_numpy(np.array([1.0], dtype=np.float32))
+    assert math.isinf(at.inf) and at.ninf == -at.inf and math.isnan(at.nan)
+    assert at.finfo(x).eps > 0
+    y = at.zeros((2,), dtype=at.dtype("bool", like=x), like=x)
+    assert list(b.to_numpy(y)) == [False, False]
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
 def test_is_nan_finite_inf(backend):
     b = loaded_backends[backend]
     x = b.from_numpy(np.array([1.0, np.nan, np.inf, -np.inf], dtype=np.float32))

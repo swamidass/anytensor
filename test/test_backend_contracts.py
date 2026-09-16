@@ -72,6 +72,23 @@ def test_tf_sorted_segment_arity():
     assert list(b.to_numpy(out)) == [3.0, 3.0]
 
 
+def test_backend_numeric_attrs_internal():
+    """Internal backend attrs exist for implementers; not the public API."""
+    import math
+
+    from helpers import BACKENDS, loaded_backends
+
+    for name in BACKENDS:
+        b = loaded_backends[name]
+        assert math.isinf(b.inf) and b.inf > 0
+        assert b.ninf == -b.inf
+        assert math.isnan(b.nan)
+        assert b.bool is not None
+        assert b.float32 is not None and b.int64 is not None
+        assert b.finfo(b.float32).eps > 0
+        assert b.iinfo(b.int32).max > 0
+
+
 def test_backend_version_floors_when_imported():
     """Installed backends below declared floors should fail clearly at init."""
     # Smoke: constructing installed backends does not raise (versions OK).
