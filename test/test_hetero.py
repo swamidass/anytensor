@@ -238,39 +238,6 @@ def test_batch_requires_nonempty_sequence():
         HeteroGraphsTuple.__tree_batch__([])
 
 
-def test_n_graphs_from_globals_when_no_n_node():
-    g = HeteroGraphsTuple(
-        nodes={},
-        edges={},
-        senders={},
-        receivers={},
-        n_node={},
-        n_edge={},
-        globals=np.zeros((3, 1), dtype=np.float32),
-    )
-    assert g.n_graphs() == 3
-    g2 = HeteroGraphsTuple(
-        nodes={},
-        edges={},
-        senders={},
-        receivers={},
-        n_node={},
-        n_edge={},
-        globals=None,
-    )
-    assert g2.n_graphs() == 1
-    g3 = HeteroGraphsTuple(
-        nodes={},
-        edges={},
-        senders={},
-        receivers={},
-        n_node={},
-        n_edge={},
-        globals={},
-    )
-    assert g3.n_graphs() == 1
-
-
 def test_iter_skip_empty_nodes_and_filter_etypes():
     et = ("author", "writes", "paper")
     g = _author_paper_graph(0, 1, [], [])

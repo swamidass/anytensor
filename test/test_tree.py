@@ -531,46 +531,34 @@ def test_tree_split_nests_and_none():
     assert tree.split(np.arange(4), 2)[0].shape == (2,)
 
 
-def test_tree_length_cut_helpers_and_map_split():
-    assert tree.lengths_to_cuts(np.array([2, 1, 3])) == [2, 3]
-    assert tree.lengths_to_cuts(np.array([5])) == []
-    assert tree.lengths_to_cuts(np.array([], dtype=np.int32)) == []
+def test_tree_length_split_and_id_helpers():
+    assert tree.lengths_to_splits(np.array([2, 1, 3])).tolist() == [2, 3, 6]
+    assert tree.lengths_to_splits(np.array([5])).tolist() == [5]
     np.testing.assert_array_equal(tree.cuts_to_lengths([2, 3], 6), [2, 1, 3])
     np.testing.assert_array_equal(tree.lengths_to_ids(np.array([2, 1])), [0, 0, 1])
 
-    data = {"n": np.arange(3), "e": np.arange(10, 12)}
-    sizes = {"n": np.array([2, 1]), "e": np.array([1, 1])}
-    from anytensor.core import split as array_split
-
-    leaves, treedef = tree.flatten(data)
-    size_leaves = treedef.flatten_up_to(sizes)
-    split_leaves = tree.map(
-        lambda x, n: array_split(x, tree.lengths_to_cuts(n)),
-        leaves,
-        size_leaves,
-    )
-    parts = [tree.unflatten(treedef, list(part)) for part in zip(*split_leaves)]
+    # batch_ids / unbatch_ids roundtrip
+    local = [np.array([0, 1], dtype=np.int32), np.array([0], dtype=np.int32)]
+    n_node = np.array([3, 2], dtype=np.int32)
+    n_edge = np.array([2, 1], dtype=np.int32)
+    concat = np.concatenate(local)
+    batched = tree.batch_ids(concat, n_node, n_edge)
+    np.testing.assert_array_equal(batched, [0, 1, 3])
+    parts = tree.unbatch_ids(batched, n_node, n_edge)
     assert len(parts) == 2
-    np.testing.assert_array_equal(parts[0]["n"], [0, 1])
-    np.testing.assert_array_equal(parts[0]["e"], [10])
-    np.testing.assert_array_equal(parts[1]["n"], [2])
-    np.testing.assert_array_equal(parts[1]["e"], [11])
+    np.testing.assert_array_equal(parts[0], [0, 1])
+    np.testing.assert_array_equal(parts[1], [0])
+
+    data = {"n": np.arange(3), "e": np.arange(10, 12)}
+    # Shared cuts when one length vector applies to a whole nest:
+    node_parts = tree.split_by_lengths(data["n"], np.array([2, 1]))
+    np.testing.assert_array_equal(node_parts[0], [0, 1])
+    np.testing.assert_array_equal(node_parts[1], [2])
 
     nested = {"h": np.arange(4).reshape(2, 2)}
-    nested_sizes = tree.match_sizes(nested, np.array([1, 1]))
-    n_leaves, n_def = tree.flatten(nested)
-    nested_parts = [
-        tree.unflatten(n_def, list(part))
-        for part in zip(
-            *tree.map(
-                lambda x, n: array_split(x, tree.lengths_to_cuts(n)),
-                n_leaves,
-                n_def.flatten_up_to(nested_sizes),
-            )
-        )
-    ]
+    nested_parts = tree.split_by_lengths(nested, np.array([1, 1]))
     assert nested_parts[0]["h"].shape == (1, 2)
-    # Hetero-style: dict of length vectors broadcast onto dict of features
+
     feats = {"a": np.arange(3), "b": {"x": np.arange(4, 6)}}
     guides = {"a": np.array([2, 1]), "b": np.array([1, 1])}
     matched = tree.match_sizes(feats, guides)
@@ -583,6 +571,16 @@ def test_tree_length_cut_helpers_and_map_split():
     assert none_notes[1]["b"] is None
     with pytest.raises(ValueError, match="must align"):
         tree.match_sizes({"a": np.arange(2)}, {"b": np.array([1, 1])})
+    with pytest.raises(ValueError, match="nested but template is a leaf"):
+        tree.match_sizes(np.arange(2), {"a": np.array([1, 1])})
+    assert tree.match_sizes(None, np.array([1])) is None
+    assert tree.match_sizes(np.array([1]), None) is None
+    # flatten_up_to: None prefix and arity mismatch
+    _, none_def = tree.flatten(None)
+    assert none_def.flatten_up_to(None) == []
+    _, list_def = tree.flatten([1, 2])
+    with pytest.raises(ValueError, match="same structure"):
+        list_def.flatten_up_to([1])
 
 
 def test_batch_unbatch_magic_methods():

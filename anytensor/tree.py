@@ -61,20 +61,23 @@ __all__ = [
     "SequenceKey",
     "all",
     "batch",
+    "batch_ids",
     "cuts_to_lengths",
     "flatten",
     "flatten_with_path",
     "leaves",
     "leaves_with_path",
-    "lengths_to_cuts",
     "lengths_to_ids",
+    "lengths_to_splits",
     "map",
     "map_with_path",
     "match_sizes",
     "reduce",
     "split",
+    "split_by_lengths",
     "structure",
     "unbatch",
+    "unbatch_ids",
     "tree_flatten",
     "tree_flatten_with_path",
     "tree_leaves",
@@ -606,38 +609,8 @@ def split(structure, indices_or_sections, axis: int = 0):
     ]
 
 
-def lengths_to_cuts(lengths) -> list[int]:
-    """Length vector → cut indices for :func:`anytensor.split` / :func:`split`.
-
-    >>> import numpy as np
-    >>> import anytensor.tree as tree
-    >>> tree.lengths_to_cuts(np.array([2, 1, 3]))
-    [2, 3]
-    """
-    sizes = [int(v) for v in np.asarray(lengths).reshape(-1).tolist()]
-    if len(sizes) <= 1:
-        return []
-    cuts = []
-    running = 0
-    for n in sizes[:-1]:
-        running += n
-        cuts.append(running)
-    return cuts
-
-
-def cuts_to_lengths(cuts, total) -> np.ndarray:
-    """Cut indices + total length → length vector (inverse of :func:`lengths_to_cuts`).
-
-    >>> import anytensor.tree as tree
-    >>> tree.cuts_to_lengths([2, 3], 6).tolist()
-    [2, 1, 3]
-    """
-    edges = [0, *[int(c) for c in np.asarray(cuts).reshape(-1).tolist()], int(total)]
-    return np.asarray([edges[i + 1] - edges[i] for i in range(len(edges) - 1)], dtype=np.int64)
-
-
 def lengths_to_ids(lengths, *, total=None):
-    """Length vector → segment ids (``repeat(arange(n), lengths)``).
+    """Length vector → segment ids: ``repeat(arange(n), lengths)``.
 
     >>> import numpy as np
     >>> import anytensor.tree as tree
@@ -648,6 +621,76 @@ def lengths_to_ids(lengths, *, total=None):
 
     n = int(np.asarray(lengths).reshape(-1).shape[0])
     return repeat(arange(n, like=lengths), lengths, total_repeat_length=total)
+
+
+def lengths_to_splits(lengths):
+    """Length vector → cumulative split points: ``cumsum(lengths)``.
+
+    Pass ``splits[:-1]`` to :func:`anytensor.split` (NumPy cut-index semantics).
+
+    >>> import numpy as np
+    >>> import anytensor.tree as tree
+    >>> tree.lengths_to_splits(np.array([2, 1, 3])).tolist()
+    [2, 3, 6]
+    """
+    from anytensor.core import cumsum
+
+    return cumsum(np.asarray(lengths).reshape(-1))
+
+
+def cuts_to_lengths(cuts, total) -> np.ndarray:
+    """Cut indices + total length → length vector.
+
+    >>> import anytensor.tree as tree
+    >>> tree.cuts_to_lengths([2, 3], 6).tolist()
+    [2, 1, 3]
+    """
+    edges = [0, *[int(c) for c in np.asarray(cuts).reshape(-1).tolist()], int(total)]
+    return np.asarray([edges[i + 1] - edges[i] for i in range(len(edges) - 1)], dtype=np.int64)
+
+
+def _exclusive_offsets(lengths):
+    """Per-part start offsets: ``cumsum(lengths) - lengths``."""
+    lengths = np.asarray(lengths).reshape(-1)
+    return np.cumsum(lengths) - lengths
+
+
+def batch_ids(ids, lengths, part_lengths):
+    """Offset concatenated local ids into a batched id space.
+
+    ``ids + repeat(cumsum(lengths) - lengths, part_lengths)``.
+
+    Args:
+        ids: Already-concatenated local indices (no offsets yet).
+        lengths: Per-graph sizes of the id space (e.g. ``n_node``).
+        part_lengths: Per-graph sizes along ``ids`` (e.g. ``n_edge``).
+    """
+    from anytensor.core import repeat
+    from anytensor.namespace import array_namespace
+
+    offsets = _exclusive_offsets(lengths)
+    xp = array_namespace(ids)
+    off = xp.asarray(offsets, dtype=getattr(ids, "dtype", offsets.dtype))
+    return ids + repeat(off, part_lengths)
+
+
+def unbatch_ids(ids, lengths, part_lengths):
+    """Undo :func:`batch_ids`, then split into per-graph id arrays."""
+    from anytensor.core import repeat, split as array_split
+    from anytensor.namespace import array_namespace
+
+    offsets = _exclusive_offsets(lengths)
+    xp = array_namespace(ids)
+    off = xp.asarray(offsets, dtype=getattr(ids, "dtype", offsets.dtype))
+    local = ids - repeat(off, part_lengths)
+    splits = np.asarray(lengths_to_splits(part_lengths)).reshape(-1).tolist()
+    return list(array_split(local, splits[:-1] if splits else splits))
+
+
+def split_by_lengths(structure, lengths, axis: int = 0):
+    """``split(structure, cumsum(lengths)[:-1])`` → list of pytrees."""
+    splits = np.asarray(lengths_to_splits(lengths)).reshape(-1).tolist()
+    return split(structure, splits[:-1] if len(splits) > 1 else [], axis=axis)
 
 
 def match_sizes(template, sizes):

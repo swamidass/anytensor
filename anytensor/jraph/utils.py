@@ -240,21 +240,24 @@ def _zeros_like_leading(leaf, leading: int):
 
 
 def _batch_graphs(graphs: Sequence[GraphsTuple]) -> GraphsTuple:
-    """GraphsTuple ``__tree_batch__``: drop empties, offset senders/receivers."""
+    """Fieldwise concat, then offset senders/receivers from ``n_node``."""
     graphs = [g for g in graphs if _n_graphs(g) > 0]
     if not graphs:
         raise ValueError("batch() requires at least one non-empty GraphsTuple")
-    offsets = np.cumsum([0] + [_sum_n_node(g) for g in graphs[:-1]]).tolist()
-    return GraphsTuple(
+    batched = GraphsTuple(
         n_node=batch([g.n_node for g in graphs], axis=0),
         n_edge=batch([g.n_edge for g in graphs], axis=0),
         nodes=batch([g.nodes for g in graphs], axis=0),
         edges=batch([g.edges for g in graphs], axis=0),
         globals=batch([g.globals for g in graphs], axis=0),
-        senders=_concat_maybe([_offset_index(g.senders, o) for g, o in zip(graphs, offsets)]),
-        receivers=_concat_maybe(
-            [_offset_index(g.receivers, o) for g, o in zip(graphs, offsets)]
-        ),
+        senders=_concat_maybe([g.senders for g in graphs]),
+        receivers=_concat_maybe([g.receivers for g in graphs]),
+    )
+    if batched.senders is None:
+        return batched
+    return batched._replace(
+        senders=tree.batch_ids(batched.senders, batched.n_node, batched.n_edge),
+        receivers=tree.batch_ids(batched.receivers, batched.n_node, batched.n_edge),
     )
 
 
@@ -281,13 +284,6 @@ def batch_np(graphs: Sequence[GraphsTuple]) -> GraphsTuple:
     return batch([_graph_to_numpy(g) for g in graphs])
 
 
-def _offset_index(index, offset: int):
-    if index is None:
-        return None
-    xp = array_namespace(index)
-    return index + xp.asarray(offset, dtype=index.dtype)
-
-
 def _concat_maybe(arrays):
     if all(a is None for a in arrays):
         return None
@@ -295,61 +291,44 @@ def _concat_maybe(arrays):
     return concatenate(present, axis=0)
 
 
-def _graph_field_sizes(graph):
-    """Parallel length-tree for GraphsTuple / HeteroGraphsTuple unbatch."""
-    n_leaves = tree.leaves(graph.n_node)
-    if not n_leaves:
-        return 0, None
-    n_graphs = int(np.asarray(n_leaves[0]).shape[0])
-    if n_graphs == 0:
-        return 0, None
-    ones = np.ones((n_graphs,), dtype=np.asarray(n_leaves[0]).dtype)
-    sizes = type(graph)(
-        nodes=tree.match_sizes(graph.nodes, graph.n_node),
-        edges=tree.match_sizes(graph.edges, graph.n_edge),
-        senders=tree.match_sizes(graph.senders, graph.n_edge),
-        receivers=tree.match_sizes(graph.receivers, graph.n_edge),
-        n_node=tree.match_sizes(graph.n_node, ones),
-        n_edge=tree.match_sizes(graph.n_edge, ones),
-        globals=tree.match_sizes(graph.globals, ones),
-    )
-    return n_graphs, sizes
-
-
-def _split_by_lengths(graph, sizes):
-    """Map ``split`` over leaves, then zip + ``unflatten`` into parts.
-
-    Uses the unsplit batch's treedef to flatten ``sizes`` (and to rebuild).
-    """
-    from anytensor.core import split as array_split
-
-    leaves, treedef = tree.flatten(graph)
-    if not leaves:
-        return []
-    size_leaves = treedef.flatten_up_to(sizes)
-    split_leaves = tree.map(
-        lambda x, n: array_split(x, tree.lengths_to_cuts(n)),
-        leaves,
-        size_leaves,
-    )
-    return [tree.unflatten(treedef, list(part)) for part in zip(*split_leaves)]
-
-
 def _unbatch_graphs(graph: GraphsTuple) -> List[GraphsTuple]:
-    n_graphs, sizes = _graph_field_sizes(graph)
-    if sizes is None:
+    """``tree.map``/``split_by_lengths`` features, then zip into graphs."""
+    n_graphs = int(np.asarray(graph.n_node).shape[0])
+    if n_graphs == 0:
         return []
-    parts = _split_by_lengths(graph, sizes)
-    prefix = np.concatenate([[0], np.cumsum(np.asarray(graph.n_node)[:-1])])
-    for i, part in enumerate(parts):
-        off = int(prefix[i])
-        if off == 0:
-            continue
-        parts[i] = part._replace(
-            senders=tree.map(lambda x: x - off, part.senders),
-            receivers=tree.map(lambda x: x - off, part.receivers),
+
+    nodes = tree.split_by_lengths(graph.nodes, graph.n_node)
+    edges = tree.split_by_lengths(graph.edges, graph.n_edge)
+    if graph.senders is None:
+        senders = [None] * n_graphs
+        receivers = [None] * n_graphs
+    else:
+        senders = tree.unbatch_ids(graph.senders, graph.n_node, graph.n_edge)
+        receivers = tree.unbatch_ids(graph.receivers, graph.n_node, graph.n_edge)
+    globals_ = tree.split_by_lengths(
+        graph.globals, np.ones((n_graphs,), dtype=np.asarray(graph.n_node).dtype)
+    )
+    n_node = tree.split_by_lengths(
+        graph.n_node, np.ones((n_graphs,), dtype=np.asarray(graph.n_node).dtype)
+    )
+    n_edge = tree.split_by_lengths(
+        graph.n_edge, np.ones((n_graphs,), dtype=np.asarray(graph.n_edge).dtype)
+    )
+
+    out = []
+    for i in range(n_graphs):
+        out.append(
+            GraphsTuple(
+                nodes=nodes[i],
+                edges=edges[i],
+                receivers=receivers[i],
+                senders=senders[i],
+                globals=globals_[i],
+                n_node=n_node[i],
+                n_edge=n_edge[i],
+            )
         )
-    return parts
+    return out
 
 
 def unbatch_np(graph: GraphsTuple) -> List[GraphsTuple]:

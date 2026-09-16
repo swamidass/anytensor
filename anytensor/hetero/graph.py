@@ -27,7 +27,6 @@ import numpy as np
 
 from anytensor import tree
 from anytensor.core import concatenate
-from anytensor.namespace import array_namespace
 
 ArrayTree = Union[Any, Iterable["ArrayTree"], Mapping[Any, "ArrayTree"]]
 CanonicalEtype = Tuple[str, str, str]
@@ -41,19 +40,8 @@ def _sum_int(x) -> int:
 
 
 def _n_graphs_from_sizes(sizes: Mapping[Any, Any], globals_) -> int:
-    for v in sizes.values():
-        return int(np.asarray(v).shape[0])
-    if globals_ is not None:
-        leaves = tree.leaves(globals_)
-        if leaves:
-            return int(leaves[0].shape[0])
-        return 1
-    return 1
-
-
-def _offset_index(index, offset: int):
-    xp = array_namespace(index)
-    return index + xp.asarray(offset, dtype=index.dtype)
+    del globals_
+    return int(np.asarray(next(iter(sizes.values()))).shape[0])
 
 
 def _merge_map(base: Mapping, patch: Optional[Mapping]):
@@ -276,6 +264,7 @@ def _require_same_keys(graphs: Sequence[HeteroGraphsTuple]) -> None:
 
 
 def _batch_hetero(graphs: Sequence[HeteroGraphsTuple]) -> HeteroGraphsTuple:
+    """Fieldwise concat, then offset senders/receivers per ntype."""
     if not graphs:
         raise ValueError("batch() requires at least one HeteroGraphsTuple")
     _require_same_keys(graphs)
@@ -283,29 +272,23 @@ def _batch_hetero(graphs: Sequence[HeteroGraphsTuple]) -> HeteroGraphsTuple:
     ntypes = graphs[0].ntypes()
     etypes = graphs[0].canonical_etypes()
 
-    offsets = {t: [] for t in ntypes}
-    running = {t: 0 for t in ntypes}
-    for g in graphs:
-        for t in ntypes:
-            offsets[t].append(running[t])
-            running[t] += _sum_int(g.n_node[t])
-
     nodes = {t: tree.batch([g.nodes[t] for g in graphs], axis=0) for t in ntypes}
     n_node = {t: tree.batch([g.n_node[t] for g in graphs], axis=0) for t in ntypes}
     edges = {e: tree.batch([g.edges[e] for g in graphs], axis=0) for e in etypes}
     n_edge = {e: tree.batch([g.n_edge[e] for g in graphs], axis=0) for e in etypes}
-    senders = {}
-    receivers = {}
-    for e in etypes:
-        src, _r, dst = e
-        senders[e] = concatenate(
-            [_offset_index(g.senders[e], offsets[src][i]) for i, g in enumerate(graphs)],
-            axis=0,
-        )
-        receivers[e] = concatenate(
-            [_offset_index(g.receivers[e], offsets[dst][i]) for i, g in enumerate(graphs)],
-            axis=0,
-        )
+    senders = {
+        e: concatenate([g.senders[e] for g in graphs], axis=0) for e in etypes
+    }
+    receivers = {
+        e: concatenate([g.receivers[e] for g in graphs], axis=0) for e in etypes
+    }
+    # Offset ids: send uses src ntype lengths, recv uses dst.
+    senders = {
+        e: tree.batch_ids(senders[e], n_node[e[0]], n_edge[e]) for e in etypes
+    }
+    receivers = {
+        e: tree.batch_ids(receivers[e], n_node[e[2]], n_edge[e]) for e in etypes
+    }
 
     return HeteroGraphsTuple(
         nodes=nodes,
@@ -319,21 +302,41 @@ def _batch_hetero(graphs: Sequence[HeteroGraphsTuple]) -> HeteroGraphsTuple:
 
 
 def _unbatch_hetero(graph: HeteroGraphsTuple) -> list[HeteroGraphsTuple]:
-    from anytensor.jraph.utils import _graph_field_sizes, _split_by_lengths
-
-    _n_graphs, sizes = _graph_field_sizes(graph)
-    if sizes is None:
+    """Split features by lengths, then zip into graphs."""
+    n_graphs = graph.n_graphs()
+    if n_graphs == 0:
         return []
-    parts = _split_by_lengths(graph, sizes)
-    prefix = tree.map(
-        lambda n: np.concatenate([[0], np.cumsum(np.asarray(n)[:-1])]),
-        graph.n_node,
+    ones = np.ones(
+        (n_graphs,), dtype=np.asarray(next(iter(graph.n_node.values()))).dtype
     )
-    for i, part in enumerate(parts):
-        parts[i] = part._replace(
-            senders={e: part.senders[e] - int(prefix[e[0]][i]) for e in part.senders},
-            receivers={
-                e: part.receivers[e] - int(prefix[e[2]][i]) for e in part.receivers
-            },
+    ntypes = graph.ntypes()
+    etypes = graph.canonical_etypes()
+
+    nodes = {t: tree.split_by_lengths(graph.nodes[t], graph.n_node[t]) for t in ntypes}
+    edges = {e: tree.split_by_lengths(graph.edges[e], graph.n_edge[e]) for e in etypes}
+    senders = {
+        e: tree.unbatch_ids(graph.senders[e], graph.n_node[e[0]], graph.n_edge[e])
+        for e in etypes
+    }
+    receivers = {
+        e: tree.unbatch_ids(graph.receivers[e], graph.n_node[e[2]], graph.n_edge[e])
+        for e in etypes
+    }
+    n_node = {t: tree.split_by_lengths(graph.n_node[t], ones) for t in ntypes}
+    n_edge = {e: tree.split_by_lengths(graph.n_edge[e], ones) for e in etypes}
+    globals_ = tree.split_by_lengths(graph.globals, ones)
+
+    out = []
+    for i in range(n_graphs):
+        out.append(
+            HeteroGraphsTuple(
+                nodes={t: nodes[t][i] for t in ntypes},
+                edges={e: edges[e][i] for e in etypes},
+                senders={e: senders[e][i] for e in etypes},
+                receivers={e: receivers[e][i] for e in etypes},
+                n_node={t: n_node[t][i] for t in ntypes},
+                n_edge={e: n_edge[e][i] for e in etypes},
+                globals=globals_[i],
+            )
         )
-    return parts
+    return out
