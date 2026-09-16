@@ -233,6 +233,16 @@ def test_numpy_upcast_fallback_warn_or_error():
     with pytest.raises(ValueError, match="zero-copy"):
         _asarray(xp, host, copy=False, fallback="error")
 
+    class _RefuseNotImplemented:
+        def asarray(self, x, copy=None):
+            if copy is False:
+                raise NotImplementedError("copy=False is not yet implemented")
+            return np.array(x, copy=True)
+
+    with pytest.warns(UserWarning, match="fell back to a copy"):
+        out2 = _asarray(_RefuseNotImplemented(), host, copy=False, fallback="copy")
+    assert isinstance(out2, np.ndarray)
+
 
 @pytest.mark.parametrize("backend", [b for b in BACKENDS if b != "numpy"])
 def test_promote_data_widens_int_to_float(backend):

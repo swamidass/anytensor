@@ -102,9 +102,10 @@ def _asarray(
         return xp.asarray(x, copy=True)
 
     # Prefer reference. Non-contiguous / incompatible views may refuse.
+    # Older array-api-compat (<1.6) raises NotImplementedError for copy=False.
     try:
         return xp.asarray(x, copy=False)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, NotImplementedError) as exc:
         if fallback == "error":
             raise ValueError(
                 "NumPy upcast could not use a zero-copy reference "

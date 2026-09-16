@@ -16,6 +16,7 @@ even when the eager numerics are correct.
 
 from __future__ import annotations
 
+import os
 from typing import Any, Callable
 
 import numpy as np
@@ -231,6 +232,10 @@ def test_tf_compile_matches_eager(example):
 @_settings
 @given(example=_symbolic_example())
 @pytest.mark.skipif("torch" not in loaded_backends, reason="Torch not installed")
+@pytest.mark.skipif(
+    bool(os.environ.get("CI")),
+    reason="torch.compile disabled on CI runners (dynamo SIGSEGV)",
+)
 def test_torch_compile_matches_eager(example):
     """``torch.compile`` alone: compiled outputs and shapes match eager Torch."""
     torch = pytest.importorskip("torch")
