@@ -6,7 +6,7 @@ ntype: fuse with an explicit cross-reducer (order-independent).
 
 DGL ``multi_update_all`` alignment
 ---------------------------------
-With ``copy_u_message`` (DGL ``fn.copy_u``):
+With ``copy_u_message`` (DGL ``fn.copy_u``) or ``u_mul_e``-style messages:
 
 * **Per-relation** ``reduce="sum"|"mean"|"max"|"min"`` — values match DGL
   ``fn.sum`` / ``fn.mean`` / ``fn.max`` / ``fn.min``. Empty destinations are
@@ -14,7 +14,10 @@ With ``copy_u_message`` (DGL ``fn.copy_u``):
   / :func:`~anytensor.segment.segment_min_or_constant`, not raw segment
   ``±inf`` identities).
 * **Cross-reducers** ``sum`` / ``mean`` / ``max`` / ``min`` / ``stack`` —
-  match DGL. ``stack`` inserts a new axis at position ``1`` (shape
+  fuse those zero-filled mailboxes. This matches DGL ``multi_update_all`` when
+  every destination receives every involved etype (and matches composing DGL
+  per-etype ``update_all`` then the same cross fuse when coverage is partial).
+  ``stack`` inserts a new axis at position ``1`` (shape
   ``(n_dst, n_relations, ...)``, DGL convention); relation order follows
   ``etype_dict`` insertion order.
 """

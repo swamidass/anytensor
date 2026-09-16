@@ -349,3 +349,234 @@ def test_dgl_hetero_per_relation_reduce_parity_with_empties(reduce):
     np.testing.assert_allclose(
         _np(at_mail), _np(dg.nodes["b"].data["h"]), rtol=1e-5, atol=1e-5
     )
+
+
+def _complex_float_hetero():
+    """Float multi-dim feats, uneven degrees; every paper gets both etypes.
+
+    Full etype coverage avoids a DGL ``multi_update_all`` quirk where nodes that
+    miss some relations get wrong fused values when max/min write the same
+    out-feature. Empty-dst / partial-coverage behavior is covered separately
+    (per-relation empties + cross-backend refs with zeros).
+    """
+    writes = ("author", "writes", "paper")
+    cites = ("paper", "cites", "paper")
+    author = torch.tensor(
+        [
+            [0.7, -1.2, 3.5],
+            [1.1, 0.25, -0.5],
+            [2.4, 1.75, 0.125],
+            [-0.3, 4.0, 1.5],
+            [0.9, -0.8, 2.2],
+        ],
+        dtype=torch.float32,
+    )
+    paper = torch.tensor(
+        [
+            [0.5, 0.5, 0.5],
+            [1.25, -2.0, 0.75],
+            [3.0, 0.1, -1.5],
+        ],
+        dtype=torch.float32,
+    )
+    w_writes = torch.tensor(
+        [[0.5], [1.5], [2.0], [0.25], [1.25], [0.75]], dtype=torch.float32
+    )
+    w_cites = torch.tensor(
+        [[1.0], [0.5], [3.0], [0.8], [1.2]], dtype=torch.float32
+    )
+    g = HeteroGraphsTuple(
+        nodes={"author": author, "paper": paper},
+        edges={writes: w_writes, cites: w_cites},
+        senders={
+            writes: torch.tensor([0, 1, 2, 3, 4, 0], dtype=torch.int64),
+            cites: torch.tensor([1, 0, 2, 0, 1], dtype=torch.int64),
+        },
+        receivers={
+            # paper0 ← 3 writes, paper1 ← 2, paper2 ← 1
+            writes: torch.tensor([0, 0, 0, 1, 1, 2], dtype=torch.int64),
+            # paper0 ← 1 cite, paper1 ← 2, paper2 ← 2
+            cites: torch.tensor([0, 1, 1, 2, 2], dtype=torch.int64),
+        },
+        n_node={
+            "author": torch.tensor([5], dtype=torch.int64),
+            "paper": torch.tensor([3], dtype=torch.int64),
+        },
+        n_edge={
+            writes: torch.tensor([6], dtype=torch.int64),
+            cites: torch.tensor([5], dtype=torch.int64),
+        },
+    )
+    return g, writes, cites
+
+
+def _u_mul_e_message(src_nodes, dst_nodes, edges):
+    """DGL ``fn.u_mul_e``: message = src_feat * edge_weight."""
+    del dst_nodes
+    return src_nodes * edges
+
+
+def _to_dgl_complex(g, writes, cites):
+    dg = dgl.heterograph(
+        {
+            writes: (g.senders[writes], g.receivers[writes]),
+            cites: (g.senders[cites], g.receivers[cites]),
+        },
+        num_nodes_dict={"author": 5, "paper": 3},
+    )
+    dg.nodes["author"].data["h"] = g.nodes["author"].clone()
+    dg.nodes["paper"].data["h"] = g.nodes["paper"].clone()
+    dg.edges[writes].data["w"] = g.edges[writes].clone()
+    dg.edges[cites].data["w"] = g.edges[cites].clone()
+    return dg
+
+
+@pytest.mark.parametrize("reduce", ["sum", "mean", "max", "min"])
+@pytest.mark.parametrize("cross_reducer", ["sum", "mean", "max", "min", "stack"])
+def test_dgl_hetero_complex_float_multi_update_parity(reduce, cross_reducer):
+    """Float multi-dim features + u_mul_e + all reduce/cross combos vs DGL."""
+    import dgl.function as fn
+
+    g, writes, cites = _complex_float_hetero()
+    etype_dict = {
+        writes: (_u_mul_e_message, reduce),
+        cites: (_u_mul_e_message, reduce),
+    }
+    at_out = multi_update_all(g, etype_dict, cross_reducer=cross_reducer)
+
+    dg = _to_dgl_complex(g, writes, cites)
+    dgl_red = getattr(fn, reduce)
+    dg.multi_update_all(
+        {
+            writes: (fn.u_mul_e("h", "w", "m"), dgl_red("m", "h")),
+            cites: (fn.u_mul_e("h", "w", "m"), dgl_red("m", "h")),
+        },
+        cross_reducer,
+    )
+
+    np.testing.assert_allclose(
+        _np(at_out.nodes["paper"]),
+        _np(dg.nodes["paper"].data["h"]),
+        rtol=1e-5,
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(_np(at_out.nodes["author"]), _np(g.nodes["author"]))
+
+
+def test_dgl_hetero_mixed_per_etype_reduces_float_parity():
+    """Different reduce per etype (mean + max) then cross sum — float feats."""
+    import dgl.function as fn
+
+    g, writes, cites = _complex_float_hetero()
+    at_out = multi_update_all(
+        g,
+        {
+            writes: (_u_mul_e_message, "mean"),
+            cites: (_u_mul_e_message, "max"),
+        },
+        cross_reducer="sum",
+    )
+
+    dg = _to_dgl_complex(g, writes, cites)
+    dg.multi_update_all(
+        {
+            writes: (fn.u_mul_e("h", "w", "m"), fn.mean("m", "h")),
+            cites: (fn.u_mul_e("h", "w", "m"), fn.max("m", "h")),
+        },
+        "sum",
+    )
+
+    np.testing.assert_allclose(
+        _np(at_out.nodes["paper"]),
+        _np(dg.nodes["paper"].data["h"]),
+        rtol=1e-5,
+        atol=1e-6,
+    )
+
+
+@pytest.mark.parametrize("reduce", ["sum", "mean", "max", "min"])
+@pytest.mark.parametrize("cross_reducer", ["sum", "mean", "max", "min"])
+def test_dgl_hetero_partial_coverage_matches_composed_kernels(
+    reduce, cross_reducer
+):
+    """Partial etype coverage: match DGL per-etype kernels + empty=0 cross.
+
+    DGL ``multi_update_all`` writing one out-feature is unreliable when some
+    destinations miss an etype under max/min. Compose ``update_all`` per etype
+    (empties already 0) then fuse the same way anytensor does.
+    """
+    import dgl.function as fn
+    from anytensor.core import maximum, minimum
+
+    writes = ("author", "writes", "paper")
+    cites = ("paper", "cites", "paper")
+    # paper0 writes-only, paper1 both, paper2 cites-only
+    author = torch.tensor(
+        [[0.7, -1.2], [1.1, 0.25], [2.4, 1.75], [-0.3, 4.0]],
+        dtype=torch.float32,
+    )
+    paper = torch.tensor(
+        [[0.5, 0.5], [1.25, -2.0], [3.0, 0.1]], dtype=torch.float32
+    )
+    w_writes = torch.tensor([[0.5], [1.5], [2.0], [0.25]], dtype=torch.float32)
+    w_cites = torch.tensor([[1.0], [0.5], [3.0]], dtype=torch.float32)
+    g = HeteroGraphsTuple(
+        nodes={"author": author, "paper": paper},
+        edges={writes: w_writes, cites: w_cites},
+        senders={
+            writes: torch.tensor([0, 1, 2, 3], dtype=torch.int64),
+            cites: torch.tensor([0, 1, 2], dtype=torch.int64),
+        },
+        receivers={
+            writes: torch.tensor([0, 0, 0, 1], dtype=torch.int64),
+            cites: torch.tensor([1, 2, 2], dtype=torch.int64),
+        },
+        n_node={
+            "author": torch.tensor([4], dtype=torch.int64),
+            "paper": torch.tensor([3], dtype=torch.int64),
+        },
+        n_edge={
+            writes: torch.tensor([4], dtype=torch.int64),
+            cites: torch.tensor([3], dtype=torch.int64),
+        },
+    )
+    at_out = multi_update_all(
+        g,
+        {
+            writes: (_u_mul_e_message, reduce),
+            cites: (_u_mul_e_message, reduce),
+        },
+        cross_reducer=cross_reducer,
+    )
+
+    dg = dgl.heterograph(
+        {
+            writes: (g.senders[writes], g.receivers[writes]),
+            cites: (g.senders[cites], g.receivers[cites]),
+        },
+        num_nodes_dict={"author": 4, "paper": 3},
+    )
+    dg.nodes["author"].data["h"] = author.clone()
+    dg.nodes["paper"].data["h"] = paper.clone()
+    dg.edges[writes].data["w"] = w_writes.clone()
+    dg.edges[cites].data["w"] = w_cites.clone()
+    dgl_red = getattr(fn, reduce)
+    dg.update_all(
+        fn.u_mul_e("h", "w", "m"), dgl_red("m", "hw"), etype=writes
+    )
+    dg.update_all(
+        fn.u_mul_e("h", "w", "m"), dgl_red("m", "hc"), etype=cites
+    )
+    hw, hc = dg.nodes["paper"].data["hw"], dg.nodes["paper"].data["hc"]
+    if cross_reducer == "sum":
+        expected = hw + hc
+    elif cross_reducer == "mean":
+        expected = (hw + hc) / 2
+    elif cross_reducer == "max":
+        expected = maximum(hw, hc)
+    else:
+        expected = minimum(hw, hc)
+
+    np.testing.assert_allclose(
+        _np(at_out.nodes["paper"]), _np(expected), rtol=1e-5, atol=1e-6
+    )

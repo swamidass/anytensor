@@ -526,3 +526,107 @@ def test_multi_update_all_edge_cases_and_stack():
         hm._host_concrete_int = real
     # None nodes take path
     assert hm._take_nodes(None, g.senders[writes]) is None
+
+
+def _complex_float_hetero_np(*, with_empty_dsts: bool):
+    """Float multi-dim u_mul_e fixture; optional paper missing an etype."""
+    writes = ("author", "writes", "paper")
+    cites = ("paper", "cites", "paper")
+    if with_empty_dsts:
+        # paper0 writes-only, paper1 both, paper2 cites-only
+        author = [
+            [0.7, -1.2, 3.5],
+            [1.1, 0.25, -0.5],
+            [2.4, 1.75, 0.125],
+            [-0.3, 4.0, 1.5],
+        ]
+        w_writes = [[0.5], [1.5], [2.0], [0.25]]
+        w_cites = [[1.0], [0.5], [3.0]]
+        send_w, recv_w = [0, 1, 2, 3], [0, 0, 0, 1]
+        send_c, recv_c = [0, 1, 2], [1, 2, 2]
+        n_author, n_writes, n_cites = 4, 4, 3
+    else:
+        # Every paper receives both etypes; uneven degrees.
+        author = [
+            [0.7, -1.2, 3.5],
+            [1.1, 0.25, -0.5],
+            [2.4, 1.75, 0.125],
+            [-0.3, 4.0, 1.5],
+            [0.9, -0.8, 2.2],
+        ]
+        w_writes = [[0.5], [1.5], [2.0], [0.25], [1.25], [0.75]]
+        w_cites = [[1.0], [0.5], [3.0], [0.8], [1.2]]
+        send_w, recv_w = [0, 1, 2, 3, 4, 0], [0, 0, 0, 1, 1, 2]
+        send_c, recv_c = [1, 0, 2, 0, 1], [0, 1, 1, 2, 2]
+        n_author, n_writes, n_cites = 5, 6, 5
+    paper = [
+        [0.5, 0.5, 0.5],
+        [1.25, -2.0, 0.75],
+        [3.0, 0.1, -1.5],
+    ]
+    g = HeteroGraphsTuple(
+        nodes={
+            "author": np.asarray(author, dtype=np.float32),
+            "paper": np.asarray(paper, dtype=np.float32),
+        },
+        edges={
+            writes: np.asarray(w_writes, dtype=np.float32),
+            cites: np.asarray(w_cites, dtype=np.float32),
+        },
+        senders={
+            writes: np.asarray(send_w, dtype=np.int32),
+            cites: np.asarray(send_c, dtype=np.int32),
+        },
+        receivers={
+            writes: np.asarray(recv_w, dtype=np.int32),
+            cites: np.asarray(recv_c, dtype=np.int32),
+        },
+        n_node={
+            "author": np.asarray([n_author], dtype=np.int32),
+            "paper": np.asarray([3], dtype=np.int32),
+        },
+        n_edge={
+            writes: np.asarray([n_writes], dtype=np.int32),
+            cites: np.asarray([n_cites], dtype=np.int32),
+        },
+    )
+    return g, writes, cites
+
+
+def _u_mul_e_message_np(src_nodes, dst_nodes, edges):
+    del dst_nodes
+    return src_nodes * edges
+
+
+@pytest.mark.parametrize("name", BACKENDS)
+@pytest.mark.parametrize("with_empty_dsts", [False, True])
+@pytest.mark.parametrize("reduce", ["sum", "mean", "max", "min"])
+@pytest.mark.parametrize("cross_reducer", ["sum", "mean", "max", "min"])
+def test_multi_update_all_complex_float_values_all_backends(
+    name, with_empty_dsts, reduce, cross_reducer
+):
+    """Non-trivial float u_mul_e: backends match NumPy (incl. empty dst = 0)."""
+    backend = loaded_backends[name]
+    g_np, writes, cites = _complex_float_hetero_np(with_empty_dsts=with_empty_dsts)
+    etype_dict = {
+        writes: (_u_mul_e_message_np, reduce),
+        cites: (_u_mul_e_message_np, reduce),
+    }
+    ref = multi_update_all(g_np, etype_dict, cross_reducer=cross_reducer)
+    g_b = _to_backend_hetero(g_np, backend)
+
+    def _msg(src, dst, edges):
+        del dst
+        return src * edges
+
+    out = multi_update_all(
+        g_b,
+        {writes: (_msg, reduce), cites: (_msg, reduce)},
+        cross_reducer=cross_reducer,
+    )
+    np.testing.assert_allclose(
+        backend.to_numpy(out.nodes["paper"]),
+        np.asarray(ref.nodes["paper"]),
+        rtol=1e-5,
+        atol=1e-6,
+    )
