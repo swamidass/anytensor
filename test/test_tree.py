@@ -543,7 +543,7 @@ def test_tree_length_cut_helpers_and_map_split():
     from anytensor.core import split as array_split
 
     leaves, treedef = tree.flatten(data)
-    size_leaves, _ = tree.flatten(sizes)
+    size_leaves = treedef.flatten_up_to(sizes)
     split_leaves = tree.map(
         lambda x, n: array_split(x, tree.lengths_to_cuts(n)),
         leaves,
@@ -559,14 +559,13 @@ def test_tree_length_cut_helpers_and_map_split():
     nested = {"h": np.arange(4).reshape(2, 2)}
     nested_sizes = tree.match_sizes(nested, np.array([1, 1]))
     n_leaves, n_def = tree.flatten(nested)
-    n_sizes, _ = tree.flatten(nested_sizes)
     nested_parts = [
         tree.unflatten(n_def, list(part))
         for part in zip(
             *tree.map(
                 lambda x, n: array_split(x, tree.lengths_to_cuts(n)),
                 n_leaves,
-                n_sizes,
+                n_def.flatten_up_to(nested_sizes),
             )
         )
     ]

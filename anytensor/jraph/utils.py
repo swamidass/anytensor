@@ -317,17 +317,16 @@ def _graph_field_sizes(graph):
 
 
 def _split_by_lengths(graph, sizes):
-    """Map ``split`` over leaves, then zip + ``unflatten`` into parts."""
+    """Map ``split`` over leaves, then zip + ``unflatten`` into parts.
+
+    Uses the unsplit batch's treedef to flatten ``sizes`` (and to rebuild).
+    """
     from anytensor.core import split as array_split
 
     leaves, treedef = tree.flatten(graph)
-    size_leaves, size_def = tree.flatten(sizes)
-    if size_def != treedef:
-        raise ValueError(
-            "pytree structure error: data and sizes must have the same structure."
-        )
     if not leaves:
         return []
+    size_leaves = treedef.flatten_up_to(sizes)
     split_leaves = tree.map(
         lambda x, n: array_split(x, tree.lengths_to_cuts(n)),
         leaves,

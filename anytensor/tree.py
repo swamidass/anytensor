@@ -166,6 +166,40 @@ class PyTreeDef:
             vals.append(v)
         return _rebuild(self, vals), i
 
+    def flatten_up_to(self, tree) -> list:
+        """Flatten ``tree`` using this schema; stop at each leaf of ``self``.
+
+        ``self`` must be a prefix of ``tree``'s structure (same as JAX). Values
+        at leaf positions are returned as-is — so a post-``split`` tree of
+        chunk lists can be flattened with the unsplit batch's treedef.
+        """
+        acc: list = []
+        self._flatten_up_to(tree, acc)
+        return acc
+
+    def _flatten_up_to(self, node, acc) -> None:
+        if self.kind == "leaf":
+            acc.append(node)
+            return
+        if self.kind == "none":
+            if node is not None:
+                raise ValueError(
+                    "pytree structure error: trees must have the same structure."
+                )
+            return
+        entry = _one_level(node)
+        if entry is None or entry[0] != self.kind or entry[1] != self.metadata:
+            raise ValueError(
+                "pytree structure error: trees must have the same structure."
+            )
+        _kind, _metadata, children, _restore = entry
+        if len(children) != len(self.children):
+            raise ValueError(
+                "pytree structure error: trees must have the same structure."
+            )
+        for child_def, child in zip(self.children, children):
+            child_def._flatten_up_to(child, acc)
+
 
 _LEAF = PyTreeDef("leaf", None, ())
 _NONE = PyTreeDef("none", None, ())
@@ -423,6 +457,9 @@ def structure(tree, is_leaf=None) -> PyTreeDef:
 def map(f, tree, *rest, is_leaf=None):  # noqa: A001
     """Map ``f`` over the leaves of ``tree`` (and ``rest``).
 
+    Subsequent trees are flattened with ``tree``'s schema via
+    :meth:`PyTreeDef.flatten_up_to` (JAX-style prefix).
+
     >>> import anytensor.tree as tree
     >>> tree.map(lambda v: v * 2, {"b": 1, "a": [2, 3]})
     {'a': [4, 6], 'b': 2}
@@ -430,14 +467,7 @@ def map(f, tree, *rest, is_leaf=None):  # noqa: A001
     True
     """
     leaves0, treedef = flatten(tree, is_leaf=is_leaf)
-    rest_leaves = []
-    for other in rest:
-        other_leaves, other_def = flatten(other, is_leaf=is_leaf)
-        if other_def != treedef:
-            raise ValueError(
-                "pytree structure error: trees must have the same structure."
-            )
-        rest_leaves.append(other_leaves)
+    rest_leaves = [treedef.flatten_up_to(other) for other in rest]
     if rest_leaves:
         out = [f(*xs) for xs in zip(leaves0, *rest_leaves)]
     else:
@@ -478,14 +508,7 @@ def map_with_path(f, tree, *rest, is_leaf=None):
     pairs, treedef = flatten_with_path(tree, is_leaf=is_leaf)
     paths = [p for p, _ in pairs]
     leaves0 = [v for _, v in pairs]
-    rest_leaves = []
-    for other in rest:
-        other_pairs, other_def = flatten_with_path(other, is_leaf=is_leaf)
-        if other_def != treedef:
-            raise ValueError(
-                "pytree structure error: trees must have the same structure."
-            )
-        rest_leaves.append([v for _, v in other_pairs])
+    rest_leaves = [treedef.flatten_up_to(other) for other in rest]
     if rest_leaves:
         out = [f(p, *xs) for p, xs in zip(paths, zip(leaves0, *rest_leaves))]
     else:
