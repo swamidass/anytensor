@@ -79,6 +79,98 @@ def test_eager_still_multi_backend_with_torchscript_enabled():
     np.testing.assert_allclose(y, np.array([1.0, 5.0, 4.0]))
 
 
+def test_einops_rearrange_function_is_not_scriptable():
+    """Einops functions are the reason they use layers (``**axes_lengths``)."""
+    from einops import rearrange
+
+    class M(th.nn.Module):
+        def forward(self, x: th.Tensor) -> th.Tensor:
+            return rearrange(x, "a b -> b a")
+
+    with pytest.raises((RuntimeError, th.jit.frontend.NotSupportedError)):
+        th.jit.script(M())
+
+
+def test_einops_rearrange_layer_scripts():
+    """Control: einops' ``nn.Module`` layer pattern is scriptable."""
+    from einops import rearrange
+    from einops.layers.torch import Rearrange
+
+    class M(th.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.rearrange = Rearrange("a b -> b a")
+
+        def forward(self, x: th.Tensor) -> th.Tensor:
+            return self.rearrange(x)
+
+    m = th.jit.script(M())
+    x = th.randn(2, 3)
+    y = m(x)
+    assert tuple(y.shape) == (3, 2)
+    assert th.allclose(y, rearrange(x, "a b -> b a"))
+
+
+def test_einops_layer_pattern_scripts_segment_sum():
+    """Same split as einops layers: ``nn.Module.forward`` + static Torch kernel.
+
+    Not a public API — proves the pattern works on our kernels, matching eager.
+    """
+    from anytensor import torchscript as ts
+
+    class SegmentSum(th.nn.Module):
+        def __init__(self, num_segments: int):
+            super().__init__()
+            self.num_segments = num_segments
+
+        def forward(self, x: th.Tensor, segment_ids: th.Tensor) -> th.Tensor:
+            return ts.segment_sum(x, segment_ids, self.num_segments)
+
+    m = th.jit.script(SegmentSum(5))
+    x = th.randn(10)
+    s = th.randint(0, 5, (10,))
+    y = m(x, s)
+    assert y.shape[0] == 5
+    assert th.allclose(y, at.segment_sum(x, s, 5))
+
+
+def test_einops_static_clone_scripts_segment_softmax():
+    """A Torch-only clone of ``segment_softmax`` scripts and matches eager.
+
+    The public helper cannot (Python dispatch). This is the einops
+    ``apply_for_scriptable_torch`` move applied to a composite — proof that
+    the pattern works here, not a new public kernel.
+    """
+    from anytensor import torchscript as ts
+
+    def segment_softmax(
+        x: th.Tensor, segment_ids: th.Tensor, num_segments: int
+    ) -> th.Tensor:
+        maxs = ts.segment_max(x, segment_ids, num_segments)
+        maxs = maxs[segment_ids]
+        exps = th.exp(x - maxs)
+        norms = ts.segment_sum(exps, segment_ids, num_segments)
+        return exps / norms[segment_ids]
+
+    @th.jit.script
+    def f(x: th.Tensor, s: th.Tensor, n: int) -> th.Tensor:
+        return segment_softmax(x, s, n)
+
+    x = th.randn(8)
+    s = th.tensor([0, 0, 0, 1, 1, 2, 2, 2])
+    y = f(x, s, 3)
+    assert th.allclose(y, at.segment_softmax(x, s, 3), atol=1e-6)
+
+
+def test_public_segment_softmax_is_not_scriptable():
+    """Public ``at.segment_softmax`` still goes through Python dispatch."""
+    with pytest.raises((RuntimeError, th.jit.frontend.NotSupportedError)):
+
+        @th.jit.script
+        def f(x: th.Tensor, s: th.Tensor, n: int) -> th.Tensor:
+            return at.segment_softmax(x, s, n)
+
+
 def test_trace():
     x = th.randn(10)
     s = th.randint(0, 5, (10,))

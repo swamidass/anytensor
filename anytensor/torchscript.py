@@ -9,6 +9,11 @@ This module is intentionally **not** covered by the jaxtyping import hook:
 ``torch.jit.script`` must compile the divert wrappers, and jaxtyped wrappers
 hide free variables like ``torch``.
 
+Einops scripts ``nn.Module`` layers over a static Torch backend because
+``rearrange(x, pattern, **axes_lengths)`` is not a scriptable signature. Our
+segment ops already are ``(Tensor, Tensor, int)``, so the divert above is
+enough — there is no ``anytensor.layers.torch``.
+
 Importing this module requires PyTorch. ``num_segments`` must be a Python
 ``int`` under script; segment ids are cast to ``int64``. Empty-slot identities
 match :mod:`anytensor.semantics`. Integer fills avoid ``torch.iinfo`` (not

@@ -104,7 +104,10 @@ do not use them in new code.
 
 `anytensor.enable_torchscript()` remains for legacy `torch.jit.script` call
 sites that still hit `segment_sum` / `min` / `max`; it is not the recommended
-path.
+path. Tests in `test/test_torchscript.py` lock this in (einops `Rearrange`
+scripts; a Module wrapping our static `segment_sum` matches eager; a
+Torch-only `segment_softmax` clone scripts; public `segment_softmax` does
+not). See [Design](design.md#9-legacy-torchscript-divert-not-recommended).
 
 ## Typing
 
