@@ -45,6 +45,7 @@ dev = [
   "towncrier>=24",
   "hatch>=1.12",
   "ruff>=0.8",
+  "sybil>=9.3.0",
 ]
 docs = [
   "mkdocs-material>=9.5",
@@ -75,15 +76,19 @@ include = [
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib"
-testpaths = ["test"]
+testpaths = ["test", "docs"]
 pythonpath = [".", "test"]
 fuzz_examples = 1000
+norecursedirs = ["site", ".venv", "artifacts"]
+# Sybil only executes docs/examples.md (see test/docs_sybil.py).
 markers = [
   "fuzz: Hypothesis / cross-backend fuzz (excluded from the coverage gate)",
 ]
 filterwarnings = [
   # Beartype still emits these for some nested / re-exported hints under the hook.
   "ignore::beartype.roar.BeartypeDecorHintPep585DeprecationWarning",
+  # TF AutoGraph / gast noise under Sybil-executed doc examples.
+  "ignore::DeprecationWarning:gast",
 ]
 
 [tool.coverage.run]

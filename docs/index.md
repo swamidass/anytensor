@@ -173,6 +173,20 @@ You did not rewrite the algorithm. Callers keep their stack; your library keeps
 one source of truth. For the battery-included form, prefer
 `at.segment_softmax` directly (same numerics as the PyG index softmax path).
 
+### Compile, `jit`, and TorchScript
+
+Eager four-backend use is the easy part. Compilers need extra care (static
+`num_nodes`, which ops are scriptable, tracing vs scripting). **Runnable,
+pytest-checked recipes** live in [Worked examples](examples.md):
+
+- `jax.jit(..., static_argnames=("num_nodes",))`
+- `torch.compile(neighbor_attention)`
+- `tf.function` / `jit_compile=True`
+- `torch.jit.script` through `segment_sum` after `enable_torchscript()`
+- `torch.jit.trace` with Python ints closed over
+
+Those fences are executed in CI via Sybil so they do not rot.
+
 ---
 
 ## Install
@@ -203,6 +217,7 @@ constant, or 0-d integral tensor scalar.
 
 ## Next
 
+- [Worked examples](examples.md) — pytest-verified GAT helper + jit/compile/script
 - [Usage](usage.md) — promotion, segment helpers, TorchScript, typing
 - [Surprising differences](semantics.md) — NaN / ±inf / graph / GPU gotchas
 - [Design](design.md) — hybrid Array API + segment backends
