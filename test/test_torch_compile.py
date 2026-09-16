@@ -16,16 +16,22 @@ fail ``SegmentIds`` even when numerics match.
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 import pytest
 
-torch = pytest.importorskip("torch")
+# Quiet Dynamo traces if a parent process exported TORCH_LOGS.
+os.environ.pop("TORCH_LOGS", None)
 
-import anytensor as at  # noqa: E402
-from helpers import close  # noqa: E402
+pytest.importorskip("torch")
+import torch
+import torch._dynamo  # load Dynamo before helpers pulls TensorFlow
+from helpers import close
+
+import anytensor as at
 
 pytestmark = [
     pytest.mark.skipif(
@@ -205,13 +211,29 @@ def _to_numpy(out):
     return np.asarray(out)
 
 
+def _agree(eager, compiled) -> None:
+    if isinstance(eager, tuple):
+        assert isinstance(compiled, tuple) and len(eager) == len(compiled)
+        for a, b in zip(eager, compiled):
+            _agree(a, b)
+        return
+    if torch.is_tensor(eager):
+        close(_to_numpy(eager), _to_numpy(compiled), equal_nan=True)
+        return
+    if isinstance(eager, float) and isinstance(compiled, float):
+        if eager != compiled:
+            assert np.isnan(eager) and np.isnan(compiled)
+        return
+    assert eager == compiled, (type(eager), eager, type(compiled), compiled)
+
+
 def _compile_and_match(fn: Callable[[Bundle], Any], *, fullgraph: bool) -> None:
     bundle = _bundle()
     torch._dynamo.reset()
     compiled = torch.compile(fn, fullgraph=fullgraph, backend=_BACKEND)
     y_c = compiled(bundle)
     y_e = fn(bundle)
-    close(_to_numpy(y_e), _to_numpy(y_c), equal_nan=True)
+    _agree(y_e, y_c)
 
 
 _CASE_NAMES = sorted(_cases())
@@ -223,21 +245,38 @@ def test_compile_fullgraph_false_matches_eager(name):
     _compile_and_match(_cases()[name], fullgraph=False)
 
 
-@pytest.mark.parametrize(
-    "name",
-    [
-        pytest.param(
-            n,
-            marks=pytest.mark.xfail(reason=_FULLGRAPH_TRUE_XFAIL[n], strict=True),
+def test_compile_fullgraph_true_matches_eager_without_typecheck_hook():
+    """``fullgraph=True`` is the user path (runtime jaxtyping off).
+
+    Pytest's import hook wraps public functions; Dynamo then fails on
+    ``_ignore_fp_invalid`` / jaxtyping contextmanagers. Users do not install
+    that hook. Run a child interpreter so this matches production.
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    env = os.environ.copy()
+    env["ANYTENSOR_TYPECHECK"] = "0"
+    env["ANYTENSOR_COMPILE_CHILD"] = "1"
+    env.pop("PYTEST_CURRENT_TEST", None)
+    root = Path(__file__).resolve().parents[1]
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(root), str(root / "test"), env.get("PYTHONPATH", "")]
+    )
+    proc = subprocess.run(
+        [sys.executable, str(Path(__file__).resolve())],
+        env=env,
+        cwd=str(Path(__file__).resolve().parents[1]),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise AssertionError(
+            f"fullgraph=True child failed (exit {proc.returncode}):\n"
+            f"{proc.stdout}\n{proc.stderr}"
         )
-        if n in _FULLGRAPH_TRUE_XFAIL
-        else n
-        for n in _CASE_NAMES
-    ],
-)
-def test_compile_fullgraph_true_matches_eager(name):
-    """Recent PyTorch can fuse most portable helpers; exceptions are listed."""
-    _compile_and_match(_cases()[name], fullgraph=True)
 
 
 def test_all_public_ops_have_compile_case():
@@ -271,3 +310,30 @@ def test_neighbor_attention_fullgraph_true():
     y_c = compiled(messages, scores, dst, 3)
     y_e = neighbor_attention(messages, scores, dst, 3)
     close(_to_numpy(y_e), _to_numpy(y_c), equal_nan=True)
+
+
+def _child_fullgraph_true() -> int:
+    """Run under ``python test/test_torch_compile.py`` (no pytest typecheck hook)."""
+    failures: list[str] = []
+    for name, fn in _cases().items():
+        try:
+            _compile_and_match(fn, fullgraph=True)
+        except Exception as exc:  # noqa: BLE001 — child reports any compile failure
+            if name in _FULLGRAPH_TRUE_XFAIL:
+                continue
+            failures.append(f"{name}: {type(exc).__name__}: {str(exc).splitlines()[0][:200]}")
+        else:
+            if name in _FULLGRAPH_TRUE_XFAIL:
+                failures.append(f"{name}: expected fullgraph=True to fail ({_FULLGRAPH_TRUE_XFAIL[name]})")
+    if failures:
+        print("FAILED")
+        print("\n".join(failures))
+        return 1
+    print("OK", len(_cases()), "ops")
+    return 0
+
+
+if __name__ == "__main__":
+    if os.environ.get("ANYTENSOR_COMPILE_CHILD") == "1":
+        raise SystemExit(_child_fullgraph_true())
+    raise SystemExit("set ANYTENSOR_COMPILE_CHILD=1 to run the fullgraph=True child")

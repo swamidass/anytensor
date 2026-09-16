@@ -9,6 +9,17 @@ from __future__ import annotations
 
 import os
 
+# Import Dynamo before TensorFlow. ``import tensorflow`` then ``torch._dynamo``
+# SIGSEGVs in triton on this stack (same crash as CI inductor/triton). Test
+# modules load TF via ``helpers``; compiling must not be the first Dynamo
+# import after that.
+try:
+    import importlib
+
+    importlib.import_module("torch._dynamo")
+except ImportError:
+    pass
+
 # Install before Hypothesis / any test module imports ``anytensor``.
 # Skip if explicitly disabled (e.g. debugging) or beartype is missing.
 # Hook specific submodules — not ``anytensor.torchscript`` — so TorchScript

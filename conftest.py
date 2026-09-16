@@ -13,7 +13,15 @@ _TEST = Path(__file__).resolve().parent / "test"
 if str(_TEST) not in sys.path:
     sys.path.insert(0, str(_TEST))
 
-from docs_sybil import docs_sybil  # noqa: E402
+# Dynamo before TensorFlow: TF-then-triton SIGSEGVs (see test/conftest.py).
+try:
+    import importlib
+
+    importlib.import_module("torch._dynamo")
+except ImportError:
+    pass
+
+from docs_sybil import docs_sybil
 
 pytest_collect_file = docs_sybil.pytest()
 
