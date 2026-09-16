@@ -97,13 +97,11 @@ np.testing.assert_allclose(np.asarray(out), out_np)
 
 ### `torch.compile` — portable helper (`fullgraph=False`)
 
-Dynamo can run the portable helper if you allow graph breaks
-(`fullgraph=False`, the default): breaks land in `@promote` /
-`array-api-compat`, those pieces run eager, and numerics still match. Reset
-Dynamo first so a prior compile in the same process does not leave state
-behind. Sybil setup imports ``torch`` and seeds ``messages_t`` / ``scores_t`` /
-``dst_t``. Docs use ``backend="aot_eager"`` so this stays reliable after the
-fuzz suite (default inductor codegen flakes in-process); apps omit ``backend``:
+`fullgraph=False` is the portable default (graph breaks allowed). Reset Dynamo
+first so a prior compile in the same process does not leave state behind. Sybil
+setup imports ``torch`` and seeds ``messages_t`` / ``scores_t`` / ``dst_t``.
+Docs use ``backend="aot_eager"`` so this stays reliable after the fuzz suite
+(default inductor codegen flakes in-process); apps omit ``backend``:
 
 ```python
 import os
@@ -120,22 +118,35 @@ out = compiled(messages_t, scores_t, dst_t, num_nodes)
 np.testing.assert_allclose(out.detach().cpu().numpy(), out_np)
 ```
 
-### `torch.compile(..., fullgraph=True)` — needs a Torch-only body
+### `torch.compile(..., fullgraph=True)` — works for this helper on recent PyTorch
 
-A single fused graph requires `fullgraph=True`. That fails on the portable
-helper above (Dynamo graph-breaks on `@promote` / `inspect.Signature.bind` and
-`array-api-compat` lookup). To get `fullgraph=True`, specialize: rewrite the
-body with Torch ops only (`torch.where`, `scatter_reduce` / `scatter_add`,
-etc.) and compile that function — same numerics, no AnyTensor dispatch in the
-traced region. That specialization is Torch-only; it is not what the portable
-helper is for.
+On recent PyTorch the same portable helper compiles as one graph. Public ops
+are locked by `test/test_torch_compile.py`. The remaining exception is
+`partition_softmax` (data-dependent `repeat` of tensor partition lengths) —
+keep `fullgraph=False` there, same as passing a static `sum_partitions` under
+`jax.jit`. Older PyTorch may still graph-break on array-api-compat; then
+`fullgraph=False` is the contract.
+
+```python
+import os
+
+pytest.importorskip("torch")
+if os.environ.get("CI"):
+    pytest.skip("torch.compile disabled on CI runners (dynamo/triton)")
+torch._dynamo.reset()
+compiled = torch.compile(
+    neighbor_attention, fullgraph=True, backend="aot_eager"
+)
+out = compiled(messages_t, scores_t, dst_t, num_nodes)
+np.testing.assert_allclose(out.detach().cpu().numpy(), out_np)
+```
 
 ### `torch.export` — wrap in `nn.Module.forward`
 
 PyTorch’s replacement for deprecated `torch.jit.script` / `trace` (alongside
 `torch.compile`). `torch.export.export` expects an **`nn.Module`**, not a bare
 function — put the portable helper in `forward`. That path works with AnyTensor
-dispatch (unlike `fullgraph=True`):
+dispatch:
 
 ```python
 import os
@@ -200,7 +211,7 @@ np.testing.assert_allclose(np.asarray(out_xla), out_np)
 |------|------------------|
 | `jax.jit` | `static_argnames=("num_nodes",)` (or `static_argnums`) for shape-sizes |
 | `tf.function` | Pass Python `int` for `num_segments` / `num_nodes`; prefer `shape(x)` over raw `.shape` under polymorphic graphs |
-| `torch.compile` | Prefer this over deprecated `torch.jit.script` / `trace`. Portable helpers need `fullgraph=False`; docs use `backend="aot_eager"` for suite stability |
+| `torch.compile` | Prefer this over deprecated `torch.jit.script` / `trace`. `fullgraph=False` is the portable default; `fullgraph=True` works for most public ops on recent PyTorch (`partition_softmax` excepted). Docs use `backend="aot_eager"` for suite stability |
 | `torch.export` | Wrap the helper in `nn.Module.forward` (bare functions are rejected) |
 
 See also [Usage](usage.md) and [Surprising differences](semantics.md).

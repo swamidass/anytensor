@@ -391,8 +391,10 @@ def mean(x: ShapedArray, axes: Axes = None) -> ShapedArray:
     """
     xp = array_namespace(x)
     # NumPy emits RuntimeWarning "Mean of empty slice" (not via errstate).
+    # ``ndarray.size`` is an int; Torch ``Tensor.size`` is a method. Comparing
+    # the method to ``0`` breaks ``torch.compile(fullgraph=True)``.
     size = getattr(x, "size", None)
-    if axes is None and size == 0:
+    if axes is None and isinstance(size, int) and size == 0:
         dtype = getattr(x, "dtype", None)
         return xp.asarray(float("nan"), dtype=dtype) if dtype is not None else xp.asarray(float("nan"))
     with _ignore_fp_invalid(xp):

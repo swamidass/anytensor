@@ -226,6 +226,11 @@ def test_mean_empty_and_repeat_guards():
     torch = pytest.importorskip("torch")
     from anytensor.namespace import array_namespace
 
+    # Torch ``Tensor.size`` is a method, so this must not take the NumPy
+    # ``size == 0`` shortcut (that comparison breaks ``torch.compile``).
+    t_empty = at.mean(torch.tensor([], dtype=torch.float32))
+    assert bool(torch.isnan(t_empty))
+
     tx = torch.tensor([1.0, 2.0, 3.0])
     xp = array_namespace(tx)
     padded = _pad_or_slice_leading(xp, tx, 5)
