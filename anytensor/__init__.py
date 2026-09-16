@@ -16,6 +16,7 @@ from .segment import (
     segment_min_or_constant,
     segment_max_or_constant,
     partition_softmax,
+    enable_torchscript,
 )
 
 from .core import (
@@ -78,6 +79,28 @@ from .core import (
 )
 
 from .semantics import empty_segment_identity
+from .typing import (
+    ArrayT,
+    Axes,
+    Bool,
+    DtypeLike,
+    Float,
+    FloatArray,
+    Inexact,
+    Int,
+    IntArray,
+    Integer,
+    Num,
+    Real,
+    SegmentIds,
+    SegmentOut,
+    SegmentValues,
+    ShapeLike,
+    ShapeSize,
+    Shaped,
+    ShapedArray,
+    enable_typecheck,
+)
 
 try:
     from ._version import __version__
@@ -87,6 +110,26 @@ except ImportError:  # pragma: no cover
 __all__ = [
     "backends",
     "get_backend",
+    "ArrayT",
+    "Axes",
+    "Bool",
+    "DtypeLike",
+    "Float",
+    "FloatArray",
+    "Inexact",
+    "Int",
+    "IntArray",
+    "Integer",
+    "Num",
+    "Real",
+    "SegmentIds",
+    "SegmentOut",
+    "SegmentValues",
+    "ShapeLike",
+    "ShapeSize",
+    "Shaped",
+    "ShapedArray",
+    "enable_typecheck",
     "einsum",
     "pack",
     "unpack",
@@ -103,6 +146,7 @@ __all__ = [
     "segment_min_or_constant",
     "segment_max_or_constant",
     "partition_softmax",
+    "enable_torchscript",
     "repeat",
     "take",
     "exp",
