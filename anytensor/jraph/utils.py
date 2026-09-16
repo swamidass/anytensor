@@ -17,18 +17,21 @@ import numpy as np
 
 from anytensor import tree
 from anytensor.tree import batch, unbatch
-from anytensor.lengths import batch_ids, split_by_lengths, unbatch_ids
 from anytensor.core import (
     arange,
     astype,
     concatenate,
     full,
     maximum,
+    ones,
     reshape,
     rsqrt,
+    shape,
     take,
     zeros,
 )
+from anytensor.core import _host_concrete_int
+from anytensor.lengths import batch_ids, split_by_lengths, unbatch_ids
 from anytensor.namespace import array_namespace
 from anytensor.segment import (
     partition_softmax as _partition_softmax,
@@ -218,7 +221,10 @@ def _np_vec(x) -> np.ndarray:
 
 
 def _n_graphs(graph: GraphsTuple) -> int:
-    return int(_np_vec(graph.n_node).shape[0])
+    n = _host_concrete_int(shape(graph.n_node)[0])
+    if n is None:
+        raise ValueError("n_graphs requires a concrete batch size")
+    return n
 
 
 def _sum_n_node(graph: GraphsTuple) -> int:
@@ -293,11 +299,12 @@ def _concat_maybe(arrays):
 
 
 def _unbatch_graphs(graph: GraphsTuple) -> List[GraphsTuple]:
-    """``tree.map``/``split_by_lengths`` features, then zip into graphs."""
-    n_graphs = int(np.asarray(graph.n_node).shape[0])
-    if n_graphs == 0:
+    """Split features by lengths, then zip into graphs."""
+    n_graphs = _host_concrete_int(shape(graph.n_node)[0])
+    if not n_graphs:
         return []
 
+    ones_g = ones((n_graphs,), dtype=graph.n_node.dtype, like=graph.n_node)
     nodes = split_by_lengths(graph.nodes, graph.n_node)
     edges = split_by_lengths(graph.edges, graph.n_edge)
     if graph.senders is None:
@@ -306,15 +313,9 @@ def _unbatch_graphs(graph: GraphsTuple) -> List[GraphsTuple]:
     else:
         senders = unbatch_ids(graph.senders, graph.n_node, graph.n_edge)
         receivers = unbatch_ids(graph.receivers, graph.n_node, graph.n_edge)
-    globals_ = split_by_lengths(
-        graph.globals, np.ones((n_graphs,), dtype=np.asarray(graph.n_node).dtype)
-    )
-    n_node = split_by_lengths(
-        graph.n_node, np.ones((n_graphs,), dtype=np.asarray(graph.n_node).dtype)
-    )
-    n_edge = split_by_lengths(
-        graph.n_edge, np.ones((n_graphs,), dtype=np.asarray(graph.n_edge).dtype)
-    )
+    globals_ = split_by_lengths(graph.globals, ones_g)
+    n_node = split_by_lengths(graph.n_node, ones_g)
+    n_edge = split_by_lengths(graph.n_edge, ones_g)
 
     out = []
     for i in range(n_graphs):

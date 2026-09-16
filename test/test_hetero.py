@@ -328,3 +328,19 @@ def test_edge_map_key_mismatch():
     )
     with pytest.raises(ValueError, match="edge maps must share keys"):
         tree.batch([g, g])
+
+
+def test_n_graphs_rejects_nonconcrete_batch_size(monkeypatch):
+    import anytensor.hetero.graph as hg
+
+    monkeypatch.setattr(hg, "_host_concrete_int", lambda _v: None)
+    g = HeteroGraphsTuple(
+        nodes={"a": np.ones((1, 1), dtype=np.float32)},
+        edges={},
+        senders={},
+        receivers={},
+        n_node={"a": np.asarray([1], dtype=np.int32)},
+        n_edge={},
+    )
+    with pytest.raises(ValueError, match="concrete batch size"):
+        g.n_graphs()

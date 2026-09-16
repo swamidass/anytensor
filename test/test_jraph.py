@@ -574,6 +574,15 @@ def test_unbatch_zero_length_n_node_vector():
     assert atj.unbatch(g) == []
 
 
+def test_n_graphs_rejects_nonconcrete_batch_size(monkeypatch):
+    import anytensor.jraph.utils as ju
+
+    monkeypatch.setattr(ju, "_host_concrete_int", lambda _v: None)
+    g1, _ = _toy_graphs()
+    with pytest.raises(ValueError, match="concrete batch size"):
+        ju._n_graphs(g1)
+
+
 def test_pad_without_senders_and_zero_edge_padding():
     g1, _ = _toy_graphs()
     none_idx = _none_connectivity(g1)

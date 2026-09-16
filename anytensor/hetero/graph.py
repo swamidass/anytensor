@@ -23,10 +23,9 @@ from typing import (
     Union,
 )
 
-import numpy as np
-
 from anytensor import tree
-from anytensor.core import concatenate
+from anytensor.core import concatenate, ones, shape, sum as at_sum
+from anytensor.core import _host_concrete_int
 from anytensor.lengths import batch_ids, split_by_lengths, unbatch_ids
 
 ArrayTree = Union[Any, Iterable["ArrayTree"], Mapping[Any, "ArrayTree"]]
@@ -37,12 +36,15 @@ _UNSET = object()
 
 
 def _sum_int(x) -> int:
-    return int(np.asarray(x).sum())
+    return int(at_sum(x))
 
 
 def _n_graphs_from_sizes(sizes: Mapping[Any, Any], globals_) -> int:
     del globals_
-    return int(np.asarray(next(iter(sizes.values()))).shape[0])
+    n = _host_concrete_int(shape(next(iter(sizes.values())))[0])
+    if n is None:
+        raise ValueError("n_graphs requires a concrete batch size")
+    return n
 
 
 def _merge_map(base: Mapping, patch: Optional[Mapping]):
@@ -307,9 +309,8 @@ def _unbatch_hetero(graph: HeteroGraphsTuple) -> list[HeteroGraphsTuple]:
     n_graphs = graph.n_graphs()
     if n_graphs == 0:
         return []
-    ones = np.ones(
-        (n_graphs,), dtype=np.asarray(next(iter(graph.n_node.values()))).dtype
-    )
+    n_node0 = next(iter(graph.n_node.values()))
+    ones_g = ones((n_graphs,), dtype=n_node0.dtype, like=n_node0)
     ntypes = graph.ntypes()
     etypes = graph.canonical_etypes()
 
@@ -323,9 +324,9 @@ def _unbatch_hetero(graph: HeteroGraphsTuple) -> list[HeteroGraphsTuple]:
         e: unbatch_ids(graph.receivers[e], graph.n_node[e[2]], graph.n_edge[e])
         for e in etypes
     }
-    n_node = {t: split_by_lengths(graph.n_node[t], ones) for t in ntypes}
-    n_edge = {e: split_by_lengths(graph.n_edge[e], ones) for e in etypes}
-    globals_ = split_by_lengths(graph.globals, ones)
+    n_node = {t: split_by_lengths(graph.n_node[t], ones_g) for t in ntypes}
+    n_edge = {e: split_by_lengths(graph.n_edge[e], ones_g) for e in etypes}
+    globals_ = split_by_lengths(graph.globals, ones_g)
 
     out = []
     for i in range(n_graphs):
