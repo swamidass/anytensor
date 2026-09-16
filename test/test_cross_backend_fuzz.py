@@ -624,6 +624,8 @@ def fuzz_partition_softmax(logits, partitions, sum_partitions):
 _NON_FUZZ_PUBLIC = frozenset(
     {
         "backends",
+        "tree",
+        "jraph",
         "get_backend",
         "einsum",
         "pack",

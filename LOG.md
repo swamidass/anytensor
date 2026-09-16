@@ -5,7 +5,8 @@
 - Folded `anytensor.jraph` into the 100% coverage gate (None connectivity,
   padding without senders, dynamically_batch flush/split, 1-d zero-out,
   `_flip0` fallbacks, extra jraph pad parity). Minimal-numpy CI smokes
-  GraphsTuple batch + GraphNetwork.
+  GraphsTuple batch + GraphNetwork. Fuzz inventory allowlists `tree` /
+  `jraph` (modules, not ops).
 
 ## 2026-09-15
 
