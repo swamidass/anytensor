@@ -487,9 +487,9 @@ def test_multi_update_all_edge_cases_and_stack():
     # single-relation path (len(parts)==1 in cross reduce)
     one = multi_update_all(g, etypes=[writes], cross_reducer="sum")
     np.testing.assert_allclose(one.nodes["paper"], [[3.0], [3.0]])
-    # stack cross-reducer
+    # stack cross-reducer (DGL axis-1: n_dst × n_relations × ...)
     stacked = multi_update_all(g, cross_reducer="stack", reduce="sum")
-    assert stacked.nodes["paper"].shape[0] == 2
+    assert stacked.nodes["paper"].shape == (2, 2, 1)
     # etype_dict with (message_fn, reduce) tuple
     custom = multi_update_all(
         g,

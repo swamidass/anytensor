@@ -2,8 +2,21 @@
 
 Per relation: gather source node features along ``senders`` (``copy_u``), then
 segment-reduce onto ``receivers``. Across relations that share a destination
-ntype: fuse with an explicit cross-reducer (order-independent; same contract as
-DGL ``multi_update_all``).
+ntype: fuse with an explicit cross-reducer (order-independent).
+
+DGL ``multi_update_all`` alignment
+---------------------------------
+With ``copy_u_message`` (DGL ``fn.copy_u``):
+
+* **Per-relation** ``reduce="sum"|"mean"|"max"|"min"`` — values match DGL
+  ``fn.sum`` / ``fn.mean`` / ``fn.max`` / ``fn.min``. Empty destinations are
+  ``0`` (``max``/``min`` use :func:`~anytensor.segment.segment_max_or_constant`
+  / :func:`~anytensor.segment.segment_min_or_constant`, not raw segment
+  ``±inf`` identities).
+* **Cross-reducers** ``sum`` / ``mean`` / ``max`` / ``min`` / ``stack`` —
+  match DGL. ``stack`` inserts a new axis at position ``1`` (shape
+  ``(n_dst, n_relations, ...)``, DGL convention); relation order follows
+  ``etype_dict`` insertion order.
 """
 
 from __future__ import annotations
@@ -11,9 +24,14 @@ from __future__ import annotations
 from typing import Any, Callable, Literal, Mapping, Optional, Sequence, Union
 
 from anytensor import tree
-from anytensor.core import maximum, minimum, shape, take
+from anytensor.core import maximum, minimum, shape, stack, take
 from anytensor.core import _host_concrete_int
-from anytensor.segment import segment_max, segment_mean, segment_min, segment_sum
+from anytensor.segment import (
+    segment_max_or_constant,
+    segment_mean,
+    segment_min_or_constant,
+    segment_sum,
+)
 
 from .graph import CanonicalEtype, HeteroGraphsTuple
 
@@ -23,8 +41,9 @@ CrossReduceName = Literal["sum", "mean", "max", "min", "stack"]
 _SEGMENT_REDUCE = {
     "sum": segment_sum,
     "mean": segment_mean,
-    "max": segment_max,
-    "min": segment_min,
+    # DGL fills empty destinations with 0 for max/min; use *_or_constant.
+    "max": segment_max_or_constant,
+    "min": segment_min_or_constant,
 }
 
 ArrayTree = Any
@@ -84,9 +103,8 @@ def _cross_reduce_leaves(parts: Sequence[Any], cross_reducer: CrossReduceName):
             out = minimum(out, p)
         return out
     if cross_reducer == "stack":
-        from anytensor.core import stack
-
-        return stack(list(parts), axis=0)
+        # DGL stacks relation mailboxes on axis 1 → (n_dst, n_rel, ...).
+        return stack(list(parts), axis=1)
     raise ValueError(f"unknown cross_reducer {cross_reducer!r}")
 
 
@@ -105,7 +123,12 @@ def relation_mailbox(
     message_fn: MessageFn = copy_u_message,
     reduce: ReduceName = "sum",
 ):
-    """Per-relation messages reduced onto destination nodes (DGL type-wise step)."""
+    """Per-relation messages reduced onto destination nodes (DGL type-wise step).
+
+    With :func:`copy_u_message`, ``reduce`` matches DGL ``fn.copy_u`` +
+    ``fn.sum``/``fn.mean``/``fn.max``/``fn.min``. Empty destinations are ``0``
+    (including max/min via ``segment_*_or_constant``).
+    """
     if etype not in graph.n_edge:
         raise KeyError(f"etype {etype!r} not in graph")
     if reduce not in _SEGMENT_REDUCE:
@@ -129,17 +152,24 @@ def multi_update_all(
     reduce: ReduceName = "sum",
     etypes: Optional[Sequence[CanonicalEtype]] = None,
 ) -> HeteroGraphsTuple:
-    """DGL-like multi-relation update: per-etype reduce, then cross-type fuse.
+    """Multi-relation update aligned with DGL ``multi_update_all``.
+
+    Per etype: message + segment-reduce onto destination nodes. Then fuse
+    mailboxes that share a destination ntype with ``cross_reducer``.
 
     Args:
         graph: Heterogeneous graph(s).
         etype_dict: Optional map ``etype -> message_fn`` or
             ``(message_fn, reduce_name)``. Default: ``copy_u`` + ``reduce`` for
             every etype in ``etypes`` / ``canonical_etypes()``.
-        cross_reducer: Fuse per-relation mailboxes that share a destination
-            ntype (``sum`` / ``mean`` / ``max`` / ``min`` / ``stack``).
+        cross_reducer: Fuse per-relation mailboxes for the same destination
+            ntype. ``sum`` / ``mean`` / ``max`` / ``min`` / ``stack`` match DGL
+            when per-relation mailboxes match (see module docstring). ``stack``
+            uses axis ``1`` (DGL shape ``(n_dst, n_relations, ...)``); order is
+            ``etype_dict`` insertion order.
         reduce: Default per-relation segment reduce when not set in
-            ``etype_dict``.
+            ``etype_dict``. ``sum``/``mean``/``max``/``min`` match DGL
+            (empty destinations ``0``).
         etypes: Subset of relations when ``etype_dict`` is omitted.
 
     Returns:

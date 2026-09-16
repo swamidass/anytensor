@@ -18,7 +18,7 @@ torch = pytest.importorskip("torch")
 
 from anytensor import jraph as atj
 from anytensor import tree
-from anytensor.hetero import HeteroGraphsTuple, multi_update_all
+from anytensor.hetero import HeteroGraphsTuple, copy_u_message, multi_update_all
 
 
 def _require_dgl():
@@ -228,14 +228,7 @@ def _kernel_hetero_pair():
     return g, writes, cites
 
 
-@pytest.mark.parametrize("cross_reducer", ["sum", "max", "min", "mean"])
-def test_dgl_hetero_multi_update_all_value_parity(cross_reducer):
-    """Kernel update values match DGL ``multi_update_all`` (copy_u + sum)."""
-    import dgl.function as fn
-
-    g, writes, cites = _kernel_hetero_pair()
-    at_out = multi_update_all(g, cross_reducer=cross_reducer, reduce="sum")
-
+def _to_dgl_kernel(g, writes, cites):
     dg = dgl.heterograph(
         {
             writes: (g.senders[writes], g.receivers[writes]),
@@ -245,6 +238,27 @@ def test_dgl_hetero_multi_update_all_value_parity(cross_reducer):
     )
     dg.nodes["author"].data["h"] = g.nodes["author"].clone()
     dg.nodes["paper"].data["h"] = g.nodes["paper"].clone()
+    return dg
+
+
+_DGL_REDUCE = {
+    "sum": "sum",
+    "mean": "mean",
+    "max": "max",
+    "min": "min",
+}
+
+
+@pytest.mark.parametrize("cross_reducer", ["sum", "max", "min", "mean", "stack"])
+def test_dgl_hetero_multi_update_all_cross_reducer_parity(cross_reducer):
+    """Cross-reducers match DGL when per-relation reduce is ``sum`` (empties 0)."""
+    import dgl.function as fn
+
+    g, writes, cites = _kernel_hetero_pair()
+    etype_dict = {writes: copy_u_message, cites: copy_u_message}
+    at_out = multi_update_all(g, etype_dict, cross_reducer=cross_reducer, reduce="sum")
+
+    dg = _to_dgl_kernel(g, writes, cites)
     dg.multi_update_all(
         {
             writes: (fn.copy_u("h", "m"), fn.sum("m", "h")),
@@ -259,10 +273,79 @@ def test_dgl_hetero_multi_update_all_value_parity(cross_reducer):
         rtol=1e-5,
         atol=1e-5,
     )
-    # Source-only ntype unchanged on both sides.
-    np.testing.assert_allclose(
-        _np(at_out.nodes["author"]), _np(g.nodes["author"])
+    np.testing.assert_allclose(_np(at_out.nodes["author"]), _np(g.nodes["author"]))
+
+
+@pytest.mark.parametrize("reduce", ["sum", "mean", "max", "min"])
+def test_dgl_hetero_per_relation_reduce_parity_dense(reduce):
+    """Per-relation copy_u + reduce matches DGL when every dst has ≥1 edge."""
+    import dgl.function as fn
+    from anytensor.hetero import relation_mailbox
+
+    et = ("a", "r", "b")
+    # Both b nodes receive at least one message → max/min empties irrelevant.
+    g = HeteroGraphsTuple(
+        nodes={
+            "a": torch.tensor([[1.0], [2.0], [4.0]]),
+            "b": torch.tensor([[0.0], [0.0]]),
+        },
+        edges={et: torch.ones(3, 1)},
+        senders={et: torch.tensor([0, 1, 2], dtype=torch.int64)},
+        receivers={et: torch.tensor([0, 0, 1], dtype=torch.int64)},
+        n_node={
+            "a": torch.tensor([3], dtype=torch.int64),
+            "b": torch.tensor([2], dtype=torch.int64),
+        },
+        n_edge={et: torch.tensor([3], dtype=torch.int64)},
     )
+    at_mail = relation_mailbox(g, et, reduce=reduce)
+
+    dg = dgl.heterograph(
+        {et: (g.senders[et], g.receivers[et])},
+        num_nodes_dict={"a": 3, "b": 2},
+    )
+    dg.nodes["a"].data["h"] = g.nodes["a"].clone()
+    dg.nodes["b"].data["h"] = g.nodes["b"].clone()
+    dgl_red = getattr(fn, reduce)
+    dg.multi_update_all({et: (fn.copy_u("h", "m"), dgl_red("m", "h"))}, "sum")
+
     np.testing.assert_allclose(
-        _np(dg.nodes["author"].data["h"]), _np(g.nodes["author"])
+        _np(at_mail), _np(dg.nodes["b"].data["h"]), rtol=1e-5, atol=1e-5
+    )
+
+
+@pytest.mark.parametrize("reduce", ["sum", "mean", "max", "min"])
+def test_dgl_hetero_per_relation_reduce_parity_with_empties(reduce):
+    """Per-relation copy_u + reduce matches DGL, including empty dst = 0."""
+    import dgl.function as fn
+    from anytensor.hetero import relation_mailbox
+
+    et = ("a", "r", "b")
+    g = HeteroGraphsTuple(
+        nodes={
+            "a": torch.tensor([[1.0], [5.0]]),
+            "b": torch.tensor([[9.0], [8.0], [7.0]]),
+        },
+        edges={et: torch.ones(2, 1)},
+        senders={et: torch.tensor([0, 1], dtype=torch.int64)},
+        receivers={et: torch.tensor([0, 0], dtype=torch.int64)},
+        n_node={
+            "a": torch.tensor([2], dtype=torch.int64),
+            "b": torch.tensor([3], dtype=torch.int64),
+        },
+        n_edge={et: torch.tensor([2], dtype=torch.int64)},
+    )
+    at_mail = relation_mailbox(g, et, reduce=reduce)
+
+    dg = dgl.heterograph(
+        {et: (g.senders[et], g.receivers[et])},
+        num_nodes_dict={"a": 2, "b": 3},
+    )
+    dg.nodes["a"].data["h"] = g.nodes["a"].clone()
+    dg.nodes["b"].data["h"] = torch.zeros(3, 1)
+    dgl_red = getattr(fn, reduce)
+    dg.multi_update_all({et: (fn.copy_u("h", "m"), dgl_red("m", "h"))}, "sum")
+
+    np.testing.assert_allclose(
+        _np(at_mail), _np(dg.nodes["b"].data["h"]), rtol=1e-5, atol=1e-5
     )
