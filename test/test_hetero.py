@@ -14,6 +14,7 @@ from anytensor.hetero import (
     schemas_equal,
 )
 from anytensor.jraph import GraphsTuple
+from helpers import BACKENDS, loaded_backends
 
 
 def _np_graph(
@@ -60,6 +61,26 @@ def _author_paper_graph(
         },
         n_edge={et: np.asarray([len(writes_src)], dtype=np.int32)},
         globals_=globals_,
+    )
+
+
+def _to_backend_hetero(graph: HeteroGraphsTuple, backend):
+    if backend.framework_name == "numpy":
+        return graph
+
+    def conv(x):
+        if x is None:
+            return None
+        return backend.from_numpy(np.asarray(x))
+
+    return HeteroGraphsTuple(
+        nodes={k: conv(v) for k, v in graph.nodes.items()},
+        edges={k: conv(v) for k, v in graph.edges.items()},
+        senders={k: conv(v) for k, v in graph.senders.items()},
+        receivers={k: conv(v) for k, v in graph.receivers.items()},
+        n_node={k: conv(v) for k, v in graph.n_node.items()},
+        n_edge={k: conv(v) for k, v in graph.n_edge.items()},
+        globals=conv(graph.globals),
     )
 
 
@@ -127,6 +148,36 @@ def test_batch_unbatch_same_schema_roundtrip():
     assert np.allclose(parts[0].senders[et], g1.senders[et])
     assert np.allclose(parts[1].senders[et], g2.senders[et])
 
+
+@pytest.mark.parametrize("name", BACKENDS)
+def test_batch_unbatch_same_schema_all_backends(name):
+    backend = loaded_backends[name]
+    g1 = _author_paper_graph(2, 1, [0, 1], [0, 0], globals_=np.asarray([[1.0]]))
+    g2 = _author_paper_graph(1, 2, [0], [1], globals_=np.asarray([[2.0]]))
+    bg1, bg2 = _to_backend_hetero(g1, backend), _to_backend_hetero(g2, backend)
+    batched = tree.batch([bg1, bg2])
+    et = ("author", "writes", "paper")
+    assert backend.is_appropriate_type(batched.senders[et])
+    assert backend.is_appropriate_type(batched.n_node["author"])
+    np.testing.assert_array_equal(
+        backend.to_numpy(batched.n_node["author"]), [2, 1]
+    )
+    parts = tree.unbatch(batched)
+    assert len(parts) == 2
+    assert backend.is_appropriate_type(parts[0].nodes["author"])
+    assert backend.is_appropriate_type(parts[1].senders[et])
+    np.testing.assert_allclose(
+        backend.to_numpy(parts[0].nodes["author"]), g1.nodes["author"]
+    )
+    np.testing.assert_allclose(
+        backend.to_numpy(parts[1].nodes["paper"]), g2.nodes["paper"]
+    )
+    np.testing.assert_array_equal(
+        backend.to_numpy(parts[0].senders[et]), g1.senders[et]
+    )
+    np.testing.assert_array_equal(
+        backend.to_numpy(parts[1].senders[et]), g2.senders[et]
+    )
 
 def test_batch_rejects_mismatched_keys():
     et_writes = ("author", "writes", "paper")

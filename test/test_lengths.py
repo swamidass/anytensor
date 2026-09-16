@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from anytensor import lengths
+from helpers import BACKENDS, loaded_backends
 
 
 def test_lengths_to_ids_splits_and_cuts():
@@ -29,6 +30,29 @@ def test_batch_unbatch_ids_roundtrip():
     assert len(parts) == 2
     np.testing.assert_array_equal(parts[0], [0, 1])
     np.testing.assert_array_equal(parts[1], [0])
+
+
+@pytest.mark.parametrize("name", BACKENDS)
+def test_batch_unbatch_ids_roundtrip_all_backends(name):
+    backend = loaded_backends[name]
+    ids = backend.from_numpy(np.array([0, 1, 0], dtype=np.int32))
+    n_node = backend.from_numpy(np.array([3, 2], dtype=np.int32))
+    n_edge = backend.from_numpy(np.array([2, 1], dtype=np.int32))
+    batched = lengths.batch_ids(ids, n_node, n_edge)
+    assert backend.is_appropriate_type(batched)
+    np.testing.assert_array_equal(backend.to_numpy(batched), [0, 1, 3])
+    parts = lengths.unbatch_ids(batched, n_node, n_edge)
+    assert len(parts) == 2
+    assert all(backend.is_appropriate_type(p) for p in parts)
+    np.testing.assert_array_equal(backend.to_numpy(parts[0]), [0, 1])
+    np.testing.assert_array_equal(backend.to_numpy(parts[1]), [0])
+    split = lengths.split_by_lengths(
+        backend.from_numpy(np.arange(3, dtype=np.int32)),
+        backend.from_numpy(np.array([2, 1], dtype=np.int32)),
+    )
+    assert all(backend.is_appropriate_type(p) for p in split)
+    np.testing.assert_array_equal(backend.to_numpy(split[0]), [0, 1])
+    np.testing.assert_array_equal(backend.to_numpy(split[1]), [2])
 
 
 def test_batch_ids_promotes_numpy_lengths_onto_torch():

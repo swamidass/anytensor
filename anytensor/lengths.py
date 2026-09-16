@@ -63,9 +63,14 @@ def cuts_to_lengths(cuts, total):
 
 
 def _exclusive_offsets(lengths):
-    """Per-part start offsets: ``cumsum(lengths) - lengths``."""
+    """Per-part start offsets: ``cumsum(lengths) - lengths``.
+
+    Cast ``lengths`` to the cumsum dtype so backends that widen integer
+    reductions (TF ``cumsum`` int32→int64) still subtract cleanly.
+    """
     lengths = reshape(lengths, (-1,))
-    return cumsum(lengths) - lengths
+    totals = cumsum(lengths)
+    return totals - astype(lengths, totals.dtype)
 
 
 def _on_backend(x, like):
