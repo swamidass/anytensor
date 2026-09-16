@@ -626,6 +626,7 @@ _NON_FUZZ_PUBLIC = frozenset(
         "backends",
         "tree",
         "jraph",
+        "hetero",
         "get_backend",
         "einsum",
         "pack",
