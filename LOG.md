@@ -37,4 +37,9 @@
 - `promote_options(copy=True)` / decorator `copy=True` when host NumPy buffers mutate.
 - Added boundary tests + Hypothesis fuzz; coverage ~74% (backends TF paths / unused AbstractBackend methods dominate miss). `segment_normalize` avoids 0/0 warnings via safe denominator.
 - Backend patches: Torch `from_numpy` no longer sets `requires_grad`; dtype-safe min/max fills + int64 segment ids; JAX `jax.Array` detection; TF sorted `segment_*` arity (no `num_segments`); version floors at backend init.
-- Deferred: GraphsTuple / RaggedTensor; ORT not a v1 backend.
+- Jraph: portable GraphsTuple / GraphNetwork (`anytensor.jraph`) on AnyTensor
+  segment ops; `anytensor.tree` implements the dm-tree API in pure Python with
+  `__tree_flatten__` / `__tree_unflatten__` and JAX/Torch/optree registry hooks.
+  `tree.concat` / `tree.split` dispatch to `__tree_concat__` / `__tree_split__`
+  so GraphsTuple and custom feature objects own batch/unbatch. Dev extra
+  installs `jraph` + `dm-tree` for parity tests.

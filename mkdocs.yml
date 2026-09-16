@@ -71,6 +71,8 @@ nav:
       - Core ops: api/core.md
       - Segment ops: api/segment.md
       - Semantics helpers: api/semantics_api.md
+      - Tree: api/tree.md
+      - Jraph: api/jraph.md
       - Namespace: api/namespace.md
   - Contributing: contributing.md
   - Release: release.md

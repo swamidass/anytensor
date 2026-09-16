@@ -133,3 +133,25 @@ group. Set `JAXTYPING_DISABLE=1` to force runtime checks off.
 - Array API `nan_to_num`, element-wise `equal_nan`
 - `inf(x)` / `ninf(x)` / `nan(x)` / `pi(x)` / `e(x)`, `dtype(...)`, `finfo` / `iinfo`
 - `newaxis` is `None`
+
+## Nested structures (`anytensor.tree`)
+
+:mod:`anytensor.tree` follows the [dm-tree](https://tree.readthedocs.io/) API
+(`flatten`, `unflatten_as`, `map_structure`, `traverse`, …) without a C++
+dependency. NumPy arrays and framework tensors are **leaves**. Custom types
+opt in with `__tree_flatten__` / `__tree_unflatten__` (JAX child/aux
+convention), or by already being registered with `jax.tree_util`,
+`torch.utils._pytree`, or `optree` (those modules are consulted only if
+already imported). Concatenation and split (`tree.concat` / `tree.split`,
+and jraph `batch` / `unbatch`) call `__tree_concat__` / `__tree_split__`
+on the object if present, before walking children — so a feature container
+or `GraphsTuple` can own join/partition logic.
+
+## Graphs (`anytensor.jraph`)
+
+Portable [jraph](https://github.com/google-deepmind/jraph): `GraphsTuple`,
+`batch` / `unbatch`, `pad_with_graphs`, and `GraphNetwork` (plus the usual
+thin wrappers). Segment helpers on this module still require `num_segments`.
+`None` node/edge/global features are empty graphs, matching jraph/JAX rather
+than dm-tree's "None is a leaf".
+

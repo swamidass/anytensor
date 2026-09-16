@@ -1,6 +1,5 @@
 # TODO
 
-- jraph-style GraphsTuple API (after segment primitives settle)
 - RaggedTensor / richer partition helpers
 - Configure PyPI Trusted Publishing (GitHub env `pypi` + PyPI pending publisher) then cut first `v*` release
 - Torch `sorted=` fast path (currently no-op; documented as unsorted-safe)

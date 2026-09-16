@@ -42,6 +42,8 @@ dev = [
   "pytest-cov>=5",
   "hypothesis>=6.100",
   "beartype>=0.18",
+  "dm-tree>=0.1.8",
+  "jraph",
   "towncrier>=24",
   "hatch>=1.12",
   "ruff>=0.8",

@@ -40,8 +40,9 @@ else.
    discipline). Prefer `torch.compile` over deprecated TorchScript; portable
    helpers expect graph breaks (`fullgraph=False`).
 
-Non-goals (for now): a full GraphsTuple / RaggedTensor API, ONNX Runtime as a
-backend, or papering over every XLA vs eager disagreement.
+Non-goals (for now): a RaggedTensor API, ONNX Runtime as a backend, or
+papering over every XLA vs eager disagreement. GraphsTuple lives in
+[`anytensor.jraph`](api/jraph.md) (jraph-compatible, any backend).
 
 ---
 

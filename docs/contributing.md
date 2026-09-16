@@ -60,7 +60,8 @@ Override order: `--fuzz-examples` > `ANYTENSOR_FUZZ_EXAMPLES` > pyproject.
 Add coverage in `test/test_ops.py`, boundaries in `test/test_boundaries.py`,
 fuzz registrations in `test/test_cross_backend_fuzz.py`, contracts in
 `test/test_backend_contracts.py`, symbolic/compiled coverage in
-`test/test_symbolic_fuzz.py`. Fenced examples under `docs/*.md` (except
+`test/test_symbolic_fuzz.py`, tree/jraph in `test/test_tree.py` and
+`test/test_jraph.py`. Fenced examples under `docs/*.md` (except
 `docs/api/`) are executed by Sybil via `test/test_docs.py`.
 
 ## Docs

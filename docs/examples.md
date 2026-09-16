@@ -204,3 +204,44 @@ np.testing.assert_allclose(np.asarray(out_xla), out_np)
 | `torch.export` | Wrap the helper in `nn.Module.forward` (bare functions are rejected) |
 
 See also [Usage](usage.md) and [Surprising differences](semantics.md).
+
+## Portable GraphsTuple (jraph)
+
+Same sparse graph layout as [jraph](https://github.com/google-deepmind/jraph), on
+whatever tensor the caller already has.
+
+```python
+import numpy as np
+from anytensor import jraph as atj
+
+g1 = atj.GraphsTuple(
+    nodes=np.arange(6.0).reshape(3, 2),
+    edges=np.arange(10.0).reshape(5, 2),
+    senders=np.array([0, 0, 1, 1, 2]),
+    receivers=np.array([1, 2, 0, 2, 1]),
+    n_node=np.array([3]),
+    n_edge=np.array([5]),
+    globals=np.array([[1.0, 0.0]]),
+)
+g2 = atj.GraphsTuple(
+    nodes=np.arange(6.0, 10.0).reshape(2, 2),
+    edges=np.arange(4.0).reshape(2, 2),
+    senders=np.array([0, 1]),
+    receivers=np.array([1, 0]),
+    n_node=np.array([2]),
+    n_edge=np.array([2]),
+    globals=np.array([[0.0, 1.0]]),
+)
+batched = atj.batch([g1, g2])
+assert batched.nodes.shape == (5, 2)
+assert list(np.asarray(batched.senders[5:])) == [3, 4]
+
+net = atj.GraphNetwork(
+    update_edge_fn=lambda e, s, r, g: e,
+    update_node_fn=lambda n, s, r, g: n,
+    update_global_fn=lambda n, e, g: g,
+)
+out = net(batched)
+np.testing.assert_allclose(out.nodes, batched.nodes)
+```
+

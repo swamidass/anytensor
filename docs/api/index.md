@@ -9,6 +9,8 @@ Generated from package docstrings with
 | [Core ops](core.md) | Ordinary Array-API ops, promote, specials |
 | [Segment ops](segment.md) | Segment reductions and `partition_softmax` |
 | [Semantics](semantics_api.md) | `empty_segment_identity` |
+| [Tree](tree.md) | dm-tree API (`map_structure`, `flatten`, …) |
+| [Jraph](jraph.md) | GraphsTuple, batching/padding, GraphNetwork |
 | [Namespace](namespace.md) | TF Array-API shim (`array_namespace`) |
 
 Backends (`anytensor.backends`) are internal; use public helpers instead of

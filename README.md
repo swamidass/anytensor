@@ -33,6 +33,10 @@ y = at.segment_sum(x, seg_ids, num_segments=2)
 
 The same call works on JAX / Torch / TF tensors. `num_segments` is **required** (JAX convention).
 
+`anytensor.jraph` is a portable [jraph](https://github.com/google-deepmind/jraph):
+`GraphsTuple`, batching/padding, and `GraphNetwork` on any backend. Nested
+feature trees use `anytensor.tree` (dm-tree API).
+
 Read next:
 
 - [Home / motivation](docs/index.md) — why AnyTensor, GAT neighbor-softmax case study across four backends
