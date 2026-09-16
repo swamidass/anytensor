@@ -31,8 +31,10 @@ jobs:
           uv venv --clear
           uv pip install .
       - name: Assert optional / dev packages are absent
+        # Use the venv interpreter directly — ``uv run`` may sync the project
+        # and pull dependency-groups (hypothesis), defeating this check.
         run: |
-          uv run python - <<'PY'
+          .venv/bin/python - <<'PY'
           import importlib.util
           for name in ("hypothesis", "torch", "jax", "tensorflow"):
               spec = importlib.util.find_spec(name)
@@ -41,7 +43,7 @@ jobs:
           PY
       - name: Smoke import and NumPy segment ops
         run: |
-          uv run python - <<'PY'
+          .venv/bin/python - <<'PY'
           import anytensor as at
           import numpy as np
 
@@ -109,7 +111,8 @@ jobs:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@v5
         with:
-          # TF 2.10 / Torch 2.0 wheels are not available on newer CPythons.
+          # Older TF/Torch floors need ≤3.10; raised floors still use 3.10 for
+          # a conservative co-install matrix.
           python-version: "3.10"
       - name: Install package + backends at declared minimum pins
         run: |

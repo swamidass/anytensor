@@ -204,8 +204,8 @@ pip install "anytensor[jax]" "anytensor[torch]" "anytensor[tensorflow]"
 pip install "anytensor[all]"
 ```
 
-Requires Python ≥3.10. Backend floors: NumPy ≥1.24, JAX ≥0.4.32, PyTorch ≥2.0,
-TensorFlow ≥2.10.
+Requires Python ≥3.10. Backend floors: NumPy ≥1.24, JAX ≥0.4.32, PyTorch ≥2.1,
+TensorFlow ≥2.13.
 
 ## Quick start
 

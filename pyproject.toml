@@ -21,13 +21,13 @@ dependencies = [
 
 [project.optional-dependencies]
 jax = ["jax>=0.4.32"]
-torch = ["torch>=2.0"]
-tensorflow = ["tensorflow>=2.10"]
+torch = ["torch>=2.1"]
+tensorflow = ["tensorflow>=2.13"]
 typecheck = ["beartype>=0.18"]
 all = [
   "jax>=0.4.32",
-  "torch>=2.0",
-  "tensorflow>=2.10",
+  "torch>=2.1",
+  "tensorflow>=2.13",
   "beartype>=0.18",
 ]
 
