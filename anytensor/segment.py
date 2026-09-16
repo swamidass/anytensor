@@ -16,10 +16,10 @@ an end user ``torch.jit.script``s the library. See docs/usage.md.
 
 from __future__ import annotations
 
-import sys
 from typing import Optional
 
 from .backends import get_backend
+from .optional import loaded
 from .typing import ArrayT, ShapeSize, SegmentValues, SegmentIds, SegmentOut, ShapedArray, IntArray
 from .core import (
     take,
@@ -92,8 +92,9 @@ def segment_sum(x: SegmentValues, segment_ids: SegmentIds, num_segments: ShapeSi
         ids.
 
         Under ``torch.jit.script``, call :func:`enable_torchscript` first (or
-        import ``torch`` before ``anytensor``). Eager calls still dispatch by
-        tensor type; only the scripted path uses :mod:`anytensor.torchscript`.
+        import ``torch`` at any point — the divert auto-enables via
+        :func:`anytensor.loaded`). Eager calls still dispatch by tensor type;
+        only the scripted path uses :mod:`anytensor.torchscript`.
 
     Examples:
         >>> import numpy as np
@@ -195,13 +196,13 @@ def enable_torchscript() -> bool:
     Requires ``torch`` to be imported already (AnyTensor does not import it).
     Safe to call more than once. Returns whether TorchScript support is active.
 
-    Prefer importing ``torch`` before ``anytensor`` so this runs at package
-    load; otherwise call ``anytensor.enable_torchscript()`` before scripting.
+    If ``torch`` is imported after AnyTensor, this is invoked automatically via
+    :func:`anytensor.loaded`. Calling it yourself remains safe and idempotent.
     """
     global _TORCHSCRIPT_ENABLED, segment_sum, segment_min, segment_max, _segment_reduce
     if _TORCHSCRIPT_ENABLED:
         return True
-    torch = sys.modules.get("torch")
+    torch = loaded("torch")
     if torch is None:
         return False
 
@@ -223,7 +224,7 @@ def enable_torchscript() -> bool:
     segment_min = divert_min
     _TORCHSCRIPT_ENABLED = True
 
-    pkg = sys.modules.get("anytensor")
+    pkg = loaded("anytensor")
     if pkg is not None:  # pragma: no branch - package always loaded in normal use
         pkg.segment_sum = segment_sum
         pkg.segment_max = segment_max
@@ -232,8 +233,8 @@ def enable_torchscript() -> bool:
     return True
 
 
-# If the user already imported torch, enable scripting divert at load time.
-enable_torchscript()
+# Enable now if torch is already imported; otherwise when it is first imported.
+loaded("torch", lambda _torch: enable_torchscript())
 
 
 def segment_count(segment_ids: SegmentIds, num_segments: ShapeSize, sorted: bool = False) -> SegmentOut:

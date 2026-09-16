@@ -639,6 +639,7 @@ _NON_FUZZ_PUBLIC = frozenset(
         "empty_segment_identity",
         "enable_torchscript",
         "enable_typecheck",
+        "loaded",
         # typing helpers / jaxtyping re-exports (not runtime ops)
         "ArrayT",
         "Axes",

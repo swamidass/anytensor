@@ -23,10 +23,11 @@ Currently supported backends are:
 A new backend can be added by creating a subclass of `AbstractBackend` and implementing the required methods. 
 """
 
-import sys
 from typing import Literal
 from contextlib import nullcontext
 from importlib.metadata import PackageNotFoundError, version as pkg_version
+
+from .optional import loaded
 
 _loaded_backends: dict = {}
 _type2backend: dict = {}
@@ -50,7 +51,7 @@ def _require_pkg_version(distribution: str, minimum: str, *, import_name: str | 
         current = pkg_version(distribution)
     except PackageNotFoundError:
         # Module may be present without metadata; fall back to __version__.
-        mod = sys.modules.get(name)
+        mod = loaded(name)
         current = getattr(mod, "__version__", None)
         if current is None:
             return
@@ -89,7 +90,7 @@ def get_backend(tensor: Any) -> "AbstractBackend":
             print("Testing for subclass of ", BackendSubclass)
         if BackendSubclass.framework_name not in _loaded_backends:
             # check that module was already imported. Otherwise it can't be imported
-            if BackendSubclass.framework_name in sys.modules:
+            if loaded(BackendSubclass.framework_name) is not None:
                 if _debug_importing:
                     print("Imported backend for ", BackendSubclass.framework_name)
                 backend = BackendSubclass()

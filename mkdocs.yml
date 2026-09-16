@@ -72,5 +72,6 @@ nav:
       - Segment ops: api/segment.md
       - Semantics helpers: api/semantics_api.md
       - Namespace: api/namespace.md
+      - Optional imports: api/optional.md
   - Contributing: contributing.md
   - Release: release.md

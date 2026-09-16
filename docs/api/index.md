@@ -10,6 +10,7 @@ Generated from package docstrings with
 | [Segment ops](segment.md) | Segment reductions and `partition_softmax` |
 | [Semantics](semantics_api.md) | `empty_segment_identity` |
 | [Namespace](namespace.md) | TF Array-API shim (`array_namespace`) |
+| [Optional imports](optional.md) | `loaded()` — already-imported extras, with callbacks |
 
 Backends (`anytensor.backends`) are internal; use public helpers instead of
 `get_backend` unless you are extending the library.

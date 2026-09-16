@@ -205,7 +205,8 @@ rely on NaN under XLA for portability.
 `enable_torchscript()` divert exists so old scripted call sites that reach
 `segment_sum` / `min` / `max` keep working: under `is_scripting()` those ops
 take pure-Torch kernels while eager stays multi-backend. Do not build new
-APIs around scripting.
+APIs around scripting. ``enable_torchscript`` uses :func:`anytensor.loaded`
+so it never imports Torch; a later ``import torch`` still enables the divert.
 
 ### 10. Typing is for humans; runtime checks are opt-in
 

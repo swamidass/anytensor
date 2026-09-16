@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from .optional import loaded
+
 
 _SCALAR_TYPES = (bool, int, float, complex)
 
@@ -34,12 +36,10 @@ def _is_numpy_ndarray(x: Any) -> bool:
 
 
 def _is_tensorflow_tensor(x: Any) -> bool:
-    try:
-        import tensorflow as tf
-
-        return isinstance(x, (tf.Tensor, tf.Variable))
-    except ImportError:
+    tf = loaded("tensorflow")
+    if tf is None:
         return False
+    return isinstance(x, (tf.Tensor, tf.Variable))
 
 
 class _TensorflowNumpyNamespace:

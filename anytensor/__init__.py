@@ -1,5 +1,6 @@
 from . import backends
 from .backends import get_backend
+from .optional import loaded
 
 # Import einops functions, which work the same way as anytensor.
 from einops import einsum, pack, unpack, rearrange, reduce
@@ -110,6 +111,7 @@ except ImportError:  # pragma: no cover
 __all__ = [
     "backends",
     "get_backend",
+    "loaded",
     "ArrayT",
     "Axes",
     "Bool",
