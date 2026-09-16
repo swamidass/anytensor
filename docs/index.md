@@ -224,6 +224,8 @@ constant, or 0-d integral tensor scalar.
 ## Next
 
 - [Worked examples](examples.md) — pytest-verified GAT helper + jit/compile/script
+- [Jraph](jraph/index.md) — portable GraphsTuple / GraphNetwork (follows [jraph](https://github.com/google-deepmind/jraph))
+- [Tree](tree/index.md) — `jax.tree` nest helpers (`concat` / `split` stable; registration beta)
 - [Usage](usage.md) — promotion, segment helpers, `torch.compile`, typing
 - [Design](design.md) — principles, decisions, and what to expect on edges
 - [Surprising differences](semantics.md) — NaN / ±inf / graph / GPU gotchas

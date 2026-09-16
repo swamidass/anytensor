@@ -7,6 +7,10 @@
   `_flip0` fallbacks, extra jraph pad parity). Minimal-numpy CI smokes
   GraphsTuple batch + GraphNetwork. Fuzz inventory allowlists `tree` /
   `jraph` (modules, not ops).
+- Docs: dedicated Tree and Jraph sections (examples moved off usage /
+  worked-examples). Tree marks flatten-style registration as beta; public
+  tree/jraph API is stable. Jraph overview links upstream and discusses
+  why the library’s data model is worth following.
 
 ## 2026-09-15
 

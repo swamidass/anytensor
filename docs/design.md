@@ -42,7 +42,8 @@ else.
 
 Non-goals (for now): a RaggedTensor API, ONNX Runtime as a backend, or
 papering over every XLA vs eager disagreement. GraphsTuple lives in
-[`anytensor.jraph`](api/jraph.md) (jraph-compatible, any backend).
+[`anytensor.jraph`](jraph/index.md) (jraph-compatible, any backend);
+nested features use [`anytensor.tree`](tree/index.md).
 
 ---
 

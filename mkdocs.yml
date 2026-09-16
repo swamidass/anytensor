@@ -65,14 +65,20 @@ nav:
   - Usage: usage.md
   - Surprising differences: semantics.md
   - Design: design.md
+  - Tree:
+      - Overview: tree/index.md
+      - Examples: tree/examples.md
+      - API: tree/api.md
+  - Jraph:
+      - Overview: jraph/index.md
+      - Examples: jraph/examples.md
+      - API: jraph/api.md
   - API:
       - Overview: api/index.md
       - Package root: api/anytensor.md
       - Core ops: api/core.md
       - Segment ops: api/segment.md
       - Semantics helpers: api/semantics_api.md
-      - Tree: api/tree.md
-      - Jraph: api/jraph.md
       - Namespace: api/namespace.md
   - Contributing: contributing.md
   - Release: release.md

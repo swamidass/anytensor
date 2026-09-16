@@ -11,7 +11,7 @@ rules follow `jax.tree` / `jax.tree_util`:
 
 **Custom nodes**
 
-1. Magic methods (highest priority)::
+1. Magic flatten (beta)::
 
        def __tree_flatten__(self):
            return children, aux
@@ -20,7 +20,7 @@ rules follow `jax.tree` / `jax.tree_util`:
        def __tree_unflatten__(cls, aux, children):
            return cls(...)
 
-2. Concat / split (used by :func:`concat` / :func:`split` and jraph
+2. Concat / split (**stable**; used by :func:`concat` / :func:`split` and jraph
    ``batch`` / ``unbatch``). Checked **before** walking children::
 
        @classmethod
@@ -30,9 +30,14 @@ rules follow `jax.tree` / `jax.tree_util`:
 
    ``GraphsTuple`` implements these (offset senders/receivers).
 
-3. Already-imported pytree registries, looked up by **type** (never imported
-   as a side effect): ``jax.tree_util``, ``torch.utils._pytree``, and
-   ``optree``. Built-in containers stay on this module's path.
+3. Already-imported pytree registries (**beta**), looked up by **type**
+   (never imported as a side effect): ``jax.tree_util``,
+   ``torch.utils._pytree``, and ``optree``. Built-in containers stay on this
+   module's path.
+
+Public ``map`` / ``flatten`` / ``concat`` / ``split`` and built-in walking
+rules are **stable**. Flatten-style registration (item 1 and item 3) may
+change.
 """
 
 from __future__ import annotations
@@ -382,10 +387,12 @@ def flatten(tree, is_leaf=None):
     """Flatten ``tree`` into ``(leaves, treedef)``.
 
     >>> import anytensor.tree as tree
-    >>> tree.flatten([1, [2, 3]])[0]
-    [1, 2, 3]
-    >>> tree.flatten(None)[0]
-    []
+    >>> leaves, _ = tree.flatten((1, (2, 3)))
+    >>> tuple(leaves)
+    (1, 2, 3)
+    >>> empty, _ = tree.flatten(None)
+    >>> len(empty)
+    0
     """
     acc: list = []
     treedef = _flatten_into(tree, acc, is_leaf)
@@ -577,8 +584,9 @@ def split(structure, sizes, axis: int = 0):
 
     >>> import numpy as np
     >>> import anytensor.tree as tree
-    >>> [list(x) for x in tree.split(np.array([1, 2, 3, 4]), [1, 3])]
-    [[1], [2, 3, 4]]
+    >>> head, tail = tree.split(np.arange(1, 5), (1, 3))
+    >>> tuple(int(x) for x in head), tuple(int(x) for x in tail)
+    ((1,), (2, 3, 4))
     """
     sizes = tuple(int(s) for s in sizes)
     return _split_impl(structure, sizes, axis=axis)
