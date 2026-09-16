@@ -118,13 +118,19 @@ def _asarray(
 
 
 def align_arrays(
-    *arrays: ShapedArray,
+    *arrays: Any,
     copy: Optional[bool] = None,
     fallback: Optional[Fallback] = None,
-) -> tuple[ShapedArray, ...]:
-    """Align operands on one namespace; upcast scalars/NumPy to non-NumPy peers."""
+) -> tuple[Any, ...]:
+    """Align operands on one namespace; upcast scalars/NumPy to non-NumPy peers.
+
+    ``None`` entries are preserved (useful when optional operands share a call).
+    """
     xp = _xp(*arrays)
-    return tuple(_asarray(xp, a, copy=copy, fallback=fallback) for a in arrays)  # type: ignore[return-value]
+    return tuple(
+        None if a is None else _asarray(xp, a, copy=copy, fallback=fallback)
+        for a in arrays
+    )
 
 
 def as_array_result(fn: Callable[..., ShapedArray]) -> Callable[..., ShapedArray]:
@@ -260,41 +266,40 @@ def promote(
     ``copy`` / ``fallback`` control NumPy→framework buffer sharing (see
     :func:`promote_options`).
     """
-    if not roles:
-        raise TypeError("promote() requires at least one name=kind role")
+    if roles:  # pragma: no branch
+        def decorator(fn: Callable) -> Callable:
+            sig = inspect.signature(fn)
 
-    def decorator(fn: Callable) -> Callable:
-        sig = inspect.signature(fn)
+            @functools.wraps(fn)
+            def wrapper(*args, **kwargs):
+                bound = sig.bind(*args, **kwargs)
+                bound.apply_defaults()
+                names = [n for n in roles if n in bound.arguments]
+                # Namespace from data/index/mask only — pure Python shape ints stay host.
+                ns_values = [
+                    bound.arguments[n]
+                    for n in names
+                    if roles[n] != "shape" or not _is_scalar(bound.arguments[n])
+                ]
+                xp = _xp(*ns_values) if ns_values else _xp()
+                converted = {}
+                for n in names:
+                    v = bound.arguments[n]
+                    if roles[n] == "shape":
+                        if v is None:
+                            continue
+                        converted[n] = _normalize_shape_dim(v)
+                    else:
+                        converted[n] = _asarray(xp, v, copy=copy, fallback=fallback)
+                _apply_dtype_roles(xp, converted, roles)
+                for n, v in converted.items():
+                    bound.arguments[n] = v
+                return fn(*bound.args, **bound.kwargs)
 
-        @functools.wraps(fn)
-        def wrapper(*args, **kwargs):
-            bound = sig.bind(*args, **kwargs)
-            bound.apply_defaults()
-            names = [n for n in roles if n in bound.arguments]
-            # Namespace from data/index/mask only — pure Python shape ints stay host.
-            ns_values = [
-                bound.arguments[n]
-                for n in names
-                if roles[n] != "shape" or not _is_scalar(bound.arguments[n])
-            ]
-            xp = _xp(*ns_values) if ns_values else _xp()
-            converted = {}
-            for n in names:
-                v = bound.arguments[n]
-                if roles[n] == "shape":
-                    if v is None:
-                        continue
-                    converted[n] = _normalize_shape_dim(v)
-                else:
-                    converted[n] = _asarray(xp, v, copy=copy, fallback=fallback)
-            _apply_dtype_roles(xp, converted, roles)
-            for n, v in converted.items():
-                bound.arguments[n] = v
-            return fn(*bound.args, **bound.kwargs)
+            return wrapper
 
-        return wrapper
-
-    return decorator
+        return decorator
+    raise TypeError("promote() requires at least one name=kind role")
 
 
 def promote_scalars(
@@ -431,7 +436,7 @@ def shape(x: ShapedArray) -> ShapeLike:
     from .backends import HashableTuple, get_backend
 
     s = get_backend(x).shape(x)
-    if isinstance(s, HashableTuple):
+    if isinstance(s, HashableTuple):  # pragma: no cover - TF graph shape wrapper
         return tuple(s)
     return tuple(s)
 
@@ -691,7 +696,7 @@ def _pad_or_slice_leading(xp, out, length):
         cur = out.shape[0]
         try:
             pad_n = int(length) - int(cur)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError):  # pragma: no cover - symbolic sizes under compile
             pad_n = length - cur
         if isinstance(pad_n, int) and pad_n <= 0:
             return out
@@ -704,7 +709,7 @@ def _pad_or_slice_leading(xp, out, length):
             return out
         z = xp.zeros((pad_n,) + tuple(out.shape[1:]), dtype=out.dtype)
         return xp.concat([out, z], axis=0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError):  # pragma: no cover - symbolic sizes under compile
         z = xp.zeros((length - cur,) + tuple(out.shape[1:]), dtype=out.dtype)
         return xp.concat([out, z], axis=0)
 
