@@ -106,7 +106,7 @@ do not use them in new code.
 sites that still hit `segment_sum` / `min` / `max`; it is not the recommended
 path. It does not import Torch: if Torch is already imported it enables
 immediately, and if Torch is imported later the divert is enabled then
-(`anytensor.loaded("torch", …)`).
+(`anytensor.module_if_loaded("torch", …)`).
 
 ## Typing
 

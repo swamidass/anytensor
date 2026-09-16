@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from .optional import loaded
+from .optional import module_if_loaded
 
 
 _SCALAR_TYPES = (bool, int, float, complex)
@@ -30,7 +30,7 @@ def _is_numpy_ndarray(x: Any) -> bool:
 
 
 def _is_tensorflow_tensor(x: Any) -> bool:
-    tf = loaded("tensorflow")
+    tf = module_if_loaded("tensorflow")
     if tf is None:
         return False
     return isinstance(x, (tf.Tensor, tf.Variable))
@@ -40,9 +40,7 @@ class _TensorflowNumpyNamespace:
     """``tf.experimental.numpy`` plus Array API helpers array-api-compat would normally add."""
 
     def __init__(self):
-        tf = loaded("tensorflow")
-        if tf is None:
-            raise RuntimeError("tensorflow is not imported")
+        tf = module_if_loaded("tensorflow", raises=True)
         import tensorflow.experimental.numpy as tnp
 
         self._tf = tf

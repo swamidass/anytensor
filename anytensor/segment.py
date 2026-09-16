@@ -19,7 +19,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .backends import get_backend
-from .optional import loaded
+from .optional import module_if_loaded
 from .typing import ArrayT, ShapeSize, SegmentValues, SegmentIds, SegmentOut, ShapedArray, IntArray
 from .core import (
     take,
@@ -93,7 +93,7 @@ def segment_sum(x: SegmentValues, segment_ids: SegmentIds, num_segments: ShapeSi
 
         Under ``torch.jit.script``, call :func:`enable_torchscript` first (or
         import ``torch`` at any point — the divert auto-enables via
-        :func:`anytensor.loaded`). Eager calls still dispatch by tensor type;
+        :func:`anytensor.module_if_loaded`). Eager calls still dispatch by tensor type;
         only the scripted path uses :mod:`anytensor.torchscript`.
 
     Examples:
@@ -197,12 +197,12 @@ def enable_torchscript() -> bool:
     otherwise whether the divert is active. Safe to call more than once.
 
     If ``torch`` is imported after AnyTensor, this is invoked automatically via
-    :func:`anytensor.loaded`. Calling it yourself remains safe and idempotent.
+    :func:`anytensor.module_if_loaded`. Calling it yourself remains safe and idempotent.
     """
     global _TORCHSCRIPT_ENABLED, segment_sum, segment_min, segment_max, _segment_reduce
     if _TORCHSCRIPT_ENABLED:
         return True
-    torch = loaded("torch")
+    torch = module_if_loaded("torch")
     if torch is None:
         return False
 
@@ -224,7 +224,7 @@ def enable_torchscript() -> bool:
     segment_min = divert_min
     _TORCHSCRIPT_ENABLED = True
 
-    pkg = loaded("anytensor")
+    pkg = module_if_loaded("anytensor")
     if pkg is not None:  # pragma: no branch - package always loaded in normal use
         pkg.segment_sum = segment_sum
         pkg.segment_max = segment_max
@@ -234,7 +234,7 @@ def enable_torchscript() -> bool:
 
 
 # Enable now if torch is already imported; otherwise when it is first imported.
-loaded("torch", lambda _torch: enable_torchscript())
+module_if_loaded("torch", lambda _torch: enable_torchscript())
 
 
 def segment_count(segment_ids: SegmentIds, num_segments: ShapeSize, sorted: bool = False) -> SegmentOut:

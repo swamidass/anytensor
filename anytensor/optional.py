@@ -1,12 +1,13 @@
 """Peek at optional libraries that are already imported — never import them.
 
 AnyTensor does not import JAX / Torch / TensorFlow unless the caller already
-did. Use :func:`loaded` instead of ``try: import …`` when a missing extra
+did. Use :func:`module_if_loaded` instead of ``try: import …`` when a missing extra
 must stay unloaded (broken installs, memory, import order).
 
 A callback can run now if the module is present, or later when it is first
 imported in this process — the pattern used by TorchScript divert and by
-JAX pytree registration on structured types.
+JAX pytree registration on structured types. ``raises=True`` still registers
+that callback before raising, so a later import can complete the side effect.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from collections.abc import Callable
 from types import ModuleType
 from typing import Any, Optional
 
-__all__ = ["loaded"]
+__all__ = ["module_if_loaded"]
 
 _Callback = Callable[[ModuleType], Any]
 _pending: dict[str, list[_Callback]] = {}
@@ -48,7 +49,7 @@ def _fire_ready() -> None:
 
 
 class _NotifyLoader:
-    """Delegates to a real loader, then drains pending :func:`loaded` callbacks."""
+    """Delegates to a real loader, then drains pending :func:`module_if_loaded` callbacks."""
 
     def __init__(self, loader, name: str):
         self._loader = loader
@@ -117,46 +118,61 @@ def _install_hook() -> None:
         sys.meta_path.insert(0, _finder)
 
 
-def loaded(
-    name: str, callback: Optional[_Callback] = None
+def module_if_loaded(
+    name: str, callback: Optional[_Callback] = None, *, raises: bool = False
 ) -> ModuleType | None:
     """Return ``name`` if it is already imported, else ``None``.
 
     Never imports ``name``. If ``callback`` is given and the module is
     already loaded, it is invoked immediately with the module. If not,
-    ``callback`` is invoked later when that module is imported in this
-    process (including when a submodule import loads the parent).
+    ``callback`` is registered first and invoked later when that module is
+    imported in this process (including when a submodule import loads the
+    parent).
+
+    If ``raises`` is true and the module is still absent after that
+    registration, raise :class:`RuntimeError`. The pending callback is kept,
+    so a later import still runs it.
 
     Args:
         name: Absolute module name (``"torch"``, ``"jax"``, ``"tensorflow"``).
         callback: Optional ``callback(module)`` run now or on a future import.
+        raises: If true, raise when ``name`` is not already imported.
 
     Returns:
-        The loaded module, or ``None`` if it is not in ``sys.modules``.
+        The loaded module, or ``None`` if it is not in ``sys.modules``
+        (only when ``raises`` is false).
 
     Examples:
         Check without importing::
 
-            torch = loaded("torch")
+            torch = module_if_loaded("torch")
             if torch is None:
                 return
+
+        Require an extra that must already be imported::
+
+            jax = module_if_loaded("jax", raises=True)
 
         Register a side effect for now-or-later (JAX pytree, TorchScript)::
 
             def _register_jax_pytree(jax):
                 jax.tree_util.register_pytree_node(Ragged, flatten, unflatten)
 
-            loaded("jax", _register_jax_pytree)
+            module_if_loaded("jax", _register_jax_pytree)
+            # or module_if_loaded("jax", _register_jax_pytree, raises=True)
+            # to fail now while still running the callback on a later import.
     """
     mod = _module(name)
-    if callback is None:
-        return mod
-    if mod is not None:
-        callback(mod)
-        return mod
-    with _lock:
-        _pending.setdefault(name, []).append(callback)
-    _install_hook()
-    # A concurrent import may have finished while we registered.
-    _fire_ready()
-    return _module(name)
+    if callback is not None:
+        if mod is not None:
+            callback(mod)
+        else:
+            with _lock:
+                _pending.setdefault(name, []).append(callback)
+            _install_hook()
+            # A concurrent import may have finished while we registered.
+            _fire_ready()
+            mod = _module(name)
+    if mod is None and raises:
+        raise RuntimeError(f"{name} is not imported")
+    return mod
