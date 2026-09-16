@@ -16,7 +16,7 @@ dependencies = [
   "array-api-compat>=1.4",
   "einops>=0.8.1",
   "numpy>=1.24",
-  "jaxtyping>=0.2.28",
+  "jaxtyping>=0.2.34",
 ]
 
 [project.optional-dependencies]
@@ -111,8 +111,10 @@ filterwarnings = [
   # NaN / empty-segment fuzz hits intentional ±inf and 0/0 paths.
   "ignore:invalid value encountered in:RuntimeWarning",
   # Trace size checks and constant fills under legacy jit.trace paths.
-  "ignore:Converting a tensor to a Python boolean:torch.jit.TracerWarning",
-  "ignore:torch.tensor results are registered as constants:torch.jit.TracerWarning",
+  # Message-only: a torch.jit.* category would import torch during pytest startup
+  # (before anytensor), hiding enable_torchscript()'s "torch not imported" branch.
+  "ignore:Converting a tensor to a Python boolean",
+  "ignore:torch.tensor results are registered as constants",
 ]
 
 [tool.coverage.run]

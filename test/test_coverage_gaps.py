@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 import numpy as np
 import pytest
 
@@ -252,6 +254,27 @@ def test_tensorflow_namespace_helpers():
 def test_enable_typecheck_installs_hook():
     # Idempotent: may already be installed by pytest conftest.
     at.enable_typecheck()
+
+
+def test_enable_torchscript_returns_false_without_torch():
+    """``enable_torchscript`` is a no-op until ``torch`` is imported."""
+    from anytensor import segment
+
+    was = segment._TORCHSCRIPT_ENABLED
+    segment._TORCHSCRIPT_ENABLED = False
+    torch_mod = sys.modules.pop("torch", None)
+    torch_subs = {
+        k: sys.modules.pop(k) for k in list(sys.modules) if k.startswith("torch.")
+    }
+    try:
+        assert segment.enable_torchscript() is False
+    finally:
+        if torch_mod is not None:
+            sys.modules["torch"] = torch_mod
+        sys.modules.update(torch_subs)
+        segment._TORCHSCRIPT_ENABLED = was
+        if was:
+            assert segment.enable_torchscript() is True
 
 
 def test_repeat_host_concrete_and_pad_fallback(monkeypatch):
