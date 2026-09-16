@@ -531,3 +531,65 @@ def repeat(x, repeats, *, total_repeat_length: Optional[int] = None, axis: Optio
 def matmul(x, y):
     """Matrix product of two arrays. NumPy operands upcast onto peers."""
     return array_namespace(x, y).matmul(x, y)
+
+
+# --- NaN / finiteness utilities -------------------------------------------
+
+
+@as_array_result
+def is_nan(x):
+    """Element-wise NaN test (Array API ``isnan``)."""
+    return array_namespace(x).isnan(x)
+
+
+@as_array_result
+def is_finite(x):
+    """Element-wise finite test (Array API ``isfinite``)."""
+    return array_namespace(x).isfinite(x)
+
+
+@as_array_result
+def is_inf(x):
+    """Element-wise infinity test (Array API ``isinf``)."""
+    return array_namespace(x).isinf(x)
+
+
+# Array API short names
+isnan = is_nan
+isfinite = is_finite
+isinf = is_inf
+
+
+@as_array_result
+@promote(x="data", value="data")
+def fill_nan(x, value=0.0):
+    """Replace NaNs in ``x`` with ``value`` (broadcasts). Leaves ±inf unchanged."""
+    xp = array_namespace(x, value)
+    return xp.where(xp.isnan(x), value, x)
+
+
+nan_fill = fill_nan  # alias
+
+
+@as_array_result
+@promote(x="data")
+def nan_to_num(x, *, nan=0.0, posinf=None, neginf=None):
+    """Replace NaN and ±inf (Array API ``nan_to_num``).
+
+    Defaults: NaN → ``nan`` (0.0); ``posinf`` / ``neginf`` ``None`` → large
+    finite values from the dtype's finfo (framework-dependent).
+    """
+    return array_namespace(x).nan_to_num(x, nan=nan, posinf=posinf, neginf=neginf)
+
+
+@as_array_result
+@promote(x="data", y="data")
+def equal_nan(x, y):
+    """Element-wise equality treating NaN as equal to NaN.
+
+    Returns a boolean array: ``(x == y) | (isnan(x) & isnan(y))``.
+    Non-NaN values compare with ordinary ``==`` (so ``+inf == +inf``).
+    """
+    xp = array_namespace(x, y)
+    both_nan = xp.logical_and(xp.isnan(x), xp.isnan(y))
+    return xp.logical_or(x == y, both_nan)
