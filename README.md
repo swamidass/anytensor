@@ -36,11 +36,12 @@ The same call works on JAX / Torch / TF tensors. `num_segments` is **required** 
 `anytensor.jraph` is a portable [jraph](https://github.com/google-deepmind/jraph):
 `GraphsTuple`, batching/padding, and `GraphNetwork` on any backend. Nested
 feature trees use `anytensor.tree` (`jax.tree` API; pure Python, NumPy is the
-only binary dep). `anytensor.hetero` adds **heterogeneous graphs** (multiple
-node/edge types), DGL-style `multi_update_all` with optional attention, and a
-small model zoo (relational GCN, heterogeneous GraphSAGE, HAN, HGT, CompGCN —
-see [Hetero](docs/hetero/index.md) for full names and citations). Also see
-[Jraph](docs/jraph/index.md) and [Tree](docs/tree/index.md).
+only binary dep). `anytensor.hetero` is a **portable hetero niche**: DGL-style
+`multi_update_all` on your NumPy/JAX/Torch/TF arrays (not a full DGL/PyG
+stack) — typed incidence, vectorized mailboxes, optional attention, reverse
+etypes, and a small zoo (R-GCN, GraphSAGE, HAN, HGT, CompGCN — see
+[Hetero](docs/hetero/index.md)). Also see [Jraph](docs/jraph/index.md) and
+[Tree](docs/tree/index.md).
 
 Read next:
 

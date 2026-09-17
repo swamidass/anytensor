@@ -6,30 +6,45 @@ than one **node type** (ntype) and/or **edge type** (etype)—for example
 authors, papers, and “writes” / “cites” relations—unlike a
 **homogeneous** graph where every node and edge shares one type.
 
-It is **not** part of the jraph-mirroring API — import it explicitly:
+## Why this package
+
+Homogeneous GNNs assume one node/edge type. Many real graphs do not: authors
+write papers, papers cite papers, users rate movies. Frameworks that own the
+full stack ([DGL](https://www.dgl.ai/),
+[PyG](https://pytorch-geometric.readthedocs.io/)) already do hetero well —
+**inside one backend**.
+
+`anytensor.hetero` fills a narrower niche:
+
+| | This package | DGL / PyG hetero | `anytensor.jraph` |
+|---|---|---|---|
+| Backend | Your arrays (NumPy / JAX / Torch / TF) | Framework-native graphs | Portable jraph homo API |
+| Core idea | DGL-style `multi_update_all` on `take` / `segment_*` | Full training stack + samplers | GraphsTuple + GraphNetwork |
+| Ownership | You own weights / modules | Framework modules | You own weights |
+| Scope | Typed incidence + vectorized mailboxes + small zoo | Production hetero tooling | Homogeneous only |
+
+In short: **portable hetero message passing without leaving your tensor
+stack** — same kernels on four backends, compile-friendly (no edge Python
+loops), and a thin zoo (R-GCN, GraphSAGE, HAN, HGT, CompGCN) as plain
+functions. It is **not** a DGL replacement (no neighbor sampling, no graph
+store) and **not** part of the jraph-mirroring API — import it explicitly:
 
 ```python
 from anytensor.hetero import HeteroGraphsTuple, multi_update_all
 from anytensor.hetero import relational_graph_convolution
 ```
 
-Runnable recipes: [Examples](examples.md). Generated API: [API](api.md).
-
-## Why this package
-
-Homogeneous graph neural networks (GNNs) assume one node/edge type. Many
-graphs in practice do not: authors write papers, papers cite papers, users
-rate movies. [DGL](https://www.dgl.ai/)’s
-[`multi_update_all`](https://docs.dgl.ai/generated/dgl.DGLGraph.multi_update_all.html)
-pattern — **per-relation message + reduce**, then an explicit
-**cross-relation fuse** — is the portable core. This module follows that
-shape on AnyTensor primitives (`take`, `segment_*`, and
-`segment_attention` for neighborhood attention).
+The portable core mirrors DGL’s
+[`multi_update_all`](https://docs.dgl.ai/generated/dgl.DGLGraph.multi_update_all.html):
+**per-relation message + reduce**, then an explicit **cross-relation fuse**,
+built on AnyTensor primitives (`take`, `segment_*`, `segment_attention`).
 
 Nested features use [`anytensor.tree`](../tree/index.md). Batching is
 `tree.batch` / `tree.unbatch` via `HeteroGraphsTuple.__tree_batch__`
 (matching ntype/etype keys required; use empty arrays, not `None`, to pad
 schemas).
+
+Runnable recipes: [Examples](examples.md). Generated API: [API](api.md).
 
 ## Data model
 
@@ -40,7 +55,44 @@ schemas).
 | `RelationSpec` | Per-relation `message_fn`, optional `src_apply` (before gather), reduce, attention |
 
 A **canonical etype** is a triple such as `("author", "writes", "paper")`:
-source node type, relation name, destination node type.
+source node type, relation name, destination node type. Edges are
+**directed**. Bidirectional traffic is two etypes (see
+[Reverse edges](#reverse-edges)), not an undirected flag.
+
+## Reverse edges
+
+Hetero message passing only sees **stored** etype keys in
+`senders` / `receivers` / `n_edge`. Two tools:
+
+| API | What it does | Use for |
+|---|---|---|
+| `relation_view(etype, reverse=True)` | Zero-copy swapped send/recv **aliases** | Inspection, custom loops |
+| `add_reverse_edges(graph, …)` | Materializes `(dst, rev_rel, src)` with swapped incidence | R-GCN / HAN / any `etype_dict` that needs both directions |
+
+```python
+from anytensor.hetero import add_reverse_edges, reverse_canonical_etype
+
+writes = ("author", "writes", "paper")
+# Default reverse relation name: rev_writes
+g2 = add_reverse_edges(g, [writes])
+assert ("paper", "rev_writes", "author") in g2.n_edge
+
+# Named reverse (author–paper both ways)
+g3 = add_reverse_edges(
+    g,
+    [writes],
+    rev_relation="written_by",  # -> ("paper", "written_by", "author")
+)
+```
+
+`rev_relation` may also be a callable `etype -> str`. Pass
+`skip_existing=True` if some reverses are already present.
+`copy_edata=True` (default) reuses the forward edge-feature object on the
+reverse key; set `False` to store `None`.
+
+Example: author → paper → institution needs both forward and reverse hops
+as stored etypes if you run message passing in both directions or build
+HAN meta-paths like author→paper→author offline as separate etypes.
 
 ## Message passing
 

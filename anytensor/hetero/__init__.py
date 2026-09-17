@@ -12,8 +12,10 @@ from .graph import (
     HeteroGraphsTuple,
     Ntype,
     SendRecvTuple,
+    add_reverse_edges,
     graphs_tuple_as_send_recv,
     key_schema,
+    reverse_canonical_etype,
     schemas_equal,
 )
 from .message import (
@@ -47,6 +49,7 @@ __all__ = [
     "RelationSpec",
     "SendRecvTuple",
     "SrcApplyFn",
+    "add_reverse_edges",
     "attention_weight_messages",
     "comp_gcn",
     "copy_u_message",
@@ -59,5 +62,6 @@ __all__ = [
     "multi_update_all",
     "relation_mailbox",
     "relational_graph_convolution",
+    "reverse_canonical_etype",
     "schemas_equal",
 ]

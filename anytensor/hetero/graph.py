@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import (
     Any,
+    Callable,
     Iterable,
     Iterator,
     Mapping,
@@ -63,6 +64,93 @@ def key_schema(g: "HeteroGraphsTuple") -> Tuple[Tuple[str, ...], Tuple[Canonical
 def schemas_equal(a: "HeteroGraphsTuple", b: "HeteroGraphsTuple") -> bool:
     """True if ``a`` and ``b`` have the same ntype / etype key sets."""
     return key_schema(a) == key_schema(b)
+
+
+def reverse_canonical_etype(
+    etype: CanonicalEtype,
+    *,
+    relation: Optional[str] = None,
+) -> CanonicalEtype:
+    """Flip ``(src, rel, dst)`` to ``(dst, rev_rel, src)``.
+
+    Default reverse relation name is ``\"rev_\" + rel`` (DGL-style). Pass
+    ``relation=`` for names like ``\"written_by\"`` opposite ``\"writes\"``.
+    """
+    src, rel, dst = etype
+    rev_rel = f"rev_{rel}" if relation is None else relation
+    return (dst, rev_rel, src)
+
+
+def add_reverse_edges(
+    graph: "HeteroGraphsTuple",
+    etypes: Optional[Sequence[CanonicalEtype]] = None,
+    *,
+    rev_relation: Optional[Union[str, Callable[[CanonicalEtype], str]]] = None,
+    copy_edata: bool = True,
+    skip_existing: bool = False,
+) -> "HeteroGraphsTuple":
+    """Materialize reverse relations as new canonical etypes.
+
+    Message passing (:func:`~anytensor.hetero.relation_mailbox` /
+    :func:`~anytensor.hetero.multi_update_all`) only sees **stored** etype
+    keys. :meth:`HeteroGraphsTuple.relation_view` with ``reverse=True`` is a
+    zero-copy inspection view and is **not** enough for R-GCN / HAN meta-paths
+    that need both directions as first-class relations.
+
+    For each selected ``(src, rel, dst)``, this adds
+    ``(dst, rev_rel, src)`` with ``senders`` / ``receivers`` swapped (same
+    ``n_edge``). Node pools and globals are shared via :meth:`~HeteroGraphsTuple.update`.
+
+    Args:
+        graph: Input heterograph.
+        etypes: Relations to reverse; default all ``canonical_etypes()``.
+        rev_relation: Reverse relation name. ``None`` → ``\"rev_\" + rel``;
+            a ``str`` used for every etype; or ``callable(etype) -> str``
+            (e.g. ``lambda e: \"written_by\"`` for writes).
+        copy_edata: If true, reuse the forward ``edges[etype]`` object on the
+            reverse key; if false, store ``None``.
+        skip_existing: If the reverse key already exists, skip it when true;
+            otherwise raise ``ValueError``.
+
+    Returns:
+        A new :class:`HeteroGraphsTuple` with reverse etypes merged in.
+    """
+    keys = list(etypes) if etypes is not None else list(graph.canonical_etypes())
+    new_edges = dict(graph.edges)
+    new_senders = dict(graph.senders)
+    new_receivers = dict(graph.receivers)
+    new_n_edge = dict(graph.n_edge)
+
+    for etype in keys:
+        if etype not in graph.n_edge:
+            raise KeyError(f"etype {etype!r} not in graph")
+        if rev_relation is None:
+            rev = reverse_canonical_etype(etype)
+        elif callable(rev_relation):
+            rev = reverse_canonical_etype(etype, relation=rev_relation(etype))
+        else:
+            rev = reverse_canonical_etype(etype, relation=rev_relation)
+        if rev in new_n_edge:
+            if skip_existing:
+                continue
+            raise ValueError(
+                f"reverse etype {rev!r} already exists; pass skip_existing=True "
+                "or choose a different rev_relation"
+            )
+        new_senders[rev] = graph.receivers[etype]
+        new_receivers[rev] = graph.senders[etype]
+        new_n_edge[rev] = graph.n_edge[etype]
+        if copy_edata:
+            new_edges[rev] = graph.edges.get(etype)
+        else:
+            new_edges[rev] = None
+
+    return graph.update(
+        edges=new_edges,
+        senders=new_senders,
+        receivers=new_receivers,
+        n_edge=new_n_edge,
+    )
 
 
 class SendRecvTuple(NamedTuple):
@@ -179,7 +267,12 @@ class HeteroGraphsTuple(NamedTuple):
     def relation_view(
         self, etype: CanonicalEtype, *, reverse: bool = False
     ) -> SendRecvTuple:
-        """Aliasing send→recv view for one canonical etype."""
+        """Aliasing send→recv view for one canonical etype.
+
+        ``reverse=True`` swaps send/recv **aliases** only (zero-copy). It does
+        **not** add a stored reverse etype — use :func:`add_reverse_edges` when
+        message passing needs both directions as keys in ``etype_dict``.
+        """
         src, _rel, dst = etype
         if reverse:
             return SendRecvTuple(

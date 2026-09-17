@@ -105,6 +105,35 @@ def test_iter_relations_skip_empty_and_reverse():
     assert rev[1].senders is g.receivers[("author", "writes", "paper")]
 
 
+def test_add_reverse_edges_materializes_etype():
+    from anytensor.hetero import add_reverse_edges, reverse_canonical_etype
+
+    g = _author_paper_graph(3, 2, [0, 1, 2], [0, 0, 1])
+    writes = ("author", "writes", "paper")
+    assert reverse_canonical_etype(writes) == ("paper", "rev_writes", "author")
+
+    g2 = add_reverse_edges(g, [writes], rev_relation="written_by")
+    written_by = ("paper", "written_by", "author")
+    assert written_by in g2.n_edge
+    np.testing.assert_array_equal(g2.senders[written_by], g.receivers[writes])
+    np.testing.assert_array_equal(g2.receivers[written_by], g.senders[writes])
+    np.testing.assert_array_equal(g2.n_edge[written_by], g.n_edge[writes])
+    # Edge features reused by default (same object).
+    assert g2.edges[written_by] is g.edges[writes]
+    # Original direction unchanged.
+    assert writes in g2.n_edge
+    assert g2.nodes["author"] is g.nodes["author"]
+
+    g3 = add_reverse_edges(g, copy_edata=False)
+    rev = ("paper", "rev_writes", "author")
+    assert g3.edges[rev] is None
+
+    with pytest.raises(ValueError, match="already exists"):
+        add_reverse_edges(g2, [writes], rev_relation="written_by")
+    g4 = add_reverse_edges(g2, [writes], rev_relation="written_by", skip_existing=True)
+    assert schemas_equal(g2, g4)
+
+
 def test_update_merges_partial_dicts():
     g = _author_paper_graph(2, 1, [0, 1], [0, 0])
     g2 = g.update(nodes={"author": np.zeros((2, 1), dtype=np.float32)})

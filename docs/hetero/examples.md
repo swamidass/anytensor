@@ -7,6 +7,41 @@ Pass learnable maps as callables (`lambda x: x @ W`, a module `__call__`,
 Overview and term definitions: [Heterogeneous graphs](index.md).
 API: [Hetero API](api.md).
 
+## Reverse edges (materialize both directions)
+
+Stored etypes are directed. For message passing in both directions (or
+HAN-style meta-paths), add reverse relations with
+[`add_reverse_edges`](index.md#reverse-edges):
+
+```python
+import numpy as np
+from anytensor.hetero import HeteroGraphsTuple, add_reverse_edges, multi_update_all
+
+writes = ("author", "writes", "paper")
+g = HeteroGraphsTuple(
+    nodes={
+        "author": np.ones((3, 2), dtype=np.float32),
+        "paper": np.ones((2, 2), dtype=np.float32),
+    },
+    edges={writes: None},
+    senders={writes: np.array([0, 1, 2])},
+    receivers={writes: np.array([0, 0, 1])},
+    n_node={"author": np.array([3]), "paper": np.array([2])},
+    n_edge={writes: np.array([3])},
+)
+g = add_reverse_edges(g, [writes], rev_relation="written_by")
+written_by = ("paper", "written_by", "author")
+assert list(g.senders[written_by]) == [0, 0, 1]
+assert list(g.receivers[written_by]) == [0, 1, 2]
+# Both directions are first-class keys for multi_update_all / zoo models.
+out = multi_update_all(g, {writes: lambda s, d, e: s, written_by: lambda s, d, e: s})
+assert out.nodes["paper"].shape == (2, 2)
+assert out.nodes["author"].shape == (3, 2)
+```
+
+`relation_view(..., reverse=True)` only aliases send/recv for inspection —
+it does **not** register a reverse etype.
+
 ## Per-relation attention (kernel)
 
 Before the named models, the shared neighborhood primitive is
