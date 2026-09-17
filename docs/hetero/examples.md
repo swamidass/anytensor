@@ -9,7 +9,7 @@ API: [Hetero API](api.md).
 
 ## Per-relation attention (kernel)
 
-Before the named models, the shared primitive is
+Before the named models, the shared neighborhood primitive is
 `segment_attention`: score each edge, softmax
 **within each destination node’s neighborhood**, weight messages, sum.
 Same idea as
@@ -19,11 +19,16 @@ different edge counts — do not interleave into one multi-relation edge
 tensor). HAN/HGT reuse this for node-level attention; HAN semantic mixing
 over stacked path embeddings stays a dense `(n, R)` softmax.
 
+For the source linear, prefer `src_apply` (nodes) + `copy_u_message` over
+`message_fn=lambda s, d, e: s @ W` (edges). See
+[Before gather vs after gather](index.md#before-gather-vs-after-gather).
+
 ```python
 import numpy as np
 from anytensor.hetero import (
     HeteroGraphsTuple,
     RelationSpec,
+    copy_u_message,
     gat_attention_logit,
     multi_update_all,
 )
@@ -47,7 +52,8 @@ out = multi_update_all(
     g,
     {
         writes: RelationSpec(
-            message_fn=lambda s, d, e: s @ W,
+            message_fn=copy_u_message,
+            src_apply=lambda h: h @ W,
             reduce="sum",
             attention_logit_fn=lambda s, d, e: gat_attention_logit(
                 s, d, lambda x: x @ a

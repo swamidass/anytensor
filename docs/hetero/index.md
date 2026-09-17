@@ -37,7 +37,7 @@ schemas).
 |---|---|
 | `HeteroGraphsTuple` | Nodes / edges keyed by ntype and **canonical etype** `(src_ntype, relation, dst_ntype)` |
 | `SendRecvTuple` | One directed send→receive incidence (same ntype = homo view; two ntypes = bipartite) |
-| `RelationSpec` | Per-relation message function, reduce name, and optional edge attention |
+| `RelationSpec` | Per-relation `message_fn`, optional `src_apply` (before gather), reduce, attention |
 
 A **canonical etype** is a triple such as `("author", "writes", "paper")`:
 source node type, relation name, destination node type.
@@ -46,14 +46,17 @@ source node type, relation name, destination node type.
 
 `relation_mailbox` runs **one** etype:
 
-1. Gather source features along `senders` (and destination features along
+1. Optional **`src_apply`** on `graph.nodes[src]` (size `N_src`).
+2. Gather source features along `senders` (and destination features along
    `receivers` when needed).
-2. Optional **attention**: score each edge, then
+3. Optional **`message_fn(src, dst, edges)`** on those **edge-sized** tensors
+   (default `copy_u` = return gathered source).
+4. Optional **attention**: score each edge, then
    `segment_attention` (softmax within each destination’s
    neighborhood + weighted `segment_sum`). Edge work is vectorized — there
    is **no Python loop over messages**. Schema-sized loops over etypes only
    (a handful of relations) are fine under `jax.jit` / `tf.function`.
-3. **Segment reduce** onto destinations (`sum` / `mean` / `max` / `min`)
+5. **Segment reduce** onto destinations (`sum` / `mean` / `max` / `min`)
    when attention is off. Nodes with no incoming edges of that type get `0`.
 
 `multi_update_all` runs many etypes, then fuses mailboxes that share a
@@ -71,15 +74,49 @@ is what lets this stack express **Heterogeneous Graph Attention Network**
 (HAN) node-level attention and **Heterogeneous Graph Transformer** (HGT)
 typed attention.
 
-**Efficiency note:** neighborhood attention stays **per etype**
-(`segment_attention` on that relation’s ragged edge list). Relations are
-not interleaved into one `(n, R, E…)` edge tensor — different etypes have
-different edge counts and would force copies. Source-only linears use
-`src_apply` on nodes **before** gather (`N` rows); maps that need edge or
-destination features stay in `message_fn` after gather. HAN **semantic**
-attention is different: after `stack`, every node has the same schema-sized
-`R` path embeddings `(n, R, d)`, so mixing uses a **dense** softmax on axis
-`R` (no `repeat` path-ids / segment scatter).
+## Before gather vs after gather
+
+Source-only maps (typical relation linears) can run in two places:
+
+| Hook | When it runs | Tensor size | Use when |
+|---|---|---|---|
+| `RelationSpec.src_apply` | **Before** gather | `N_src` nodes | Source-only linear / row map; usually best if `E > N` |
+| `RelationSpec.message_fn` | **After** gather | `E` edges | Map needs edge or destination features, or you deliberately want the edge-sized path (e.g. very sparse `E ≪ N`) |
+
+Preferred source-linear pattern:
+
+```python
+from anytensor.hetero import RelationSpec, copy_u_message
+
+RelationSpec(
+    message_fn=copy_u_message,  # gather only
+    src_apply=lambda h: h @ W,  # matmul on nodes
+    reduce="sum",
+)
+```
+
+Equivalent numerically for a row-wise linear, but costlier when `E > N`:
+
+```python
+RelationSpec(
+    message_fn=lambda s, d, e: s @ W,  # matmul on edges
+    reduce="sum",
+)
+```
+
+There is no separate “post-gather flag”: **after gather is `message_fn`**.
+Zoo models that only transform sources (R-GCN, GraphSAGE, HAN, HGT) use
+`src_apply`. CompGCN keeps the linear in `message_fn` because it composes
+with edge features first.
+
+Other efficiency rules:
+
+- Neighborhood attention stays **per etype** (`segment_attention` on that
+  relation’s ragged edge list). Do not interleave relations into one
+  `(n, R, E…)` edge tensor — edge counts differ and would force copies.
+- HAN **semantic** attention (after `stack`) is a **dense** softmax on
+  schema-sized `(n, R, d)` — not `segment_attention` (that would
+  flatten / `repeat` path ids / scatter).
 
 ## Model zoo
 
