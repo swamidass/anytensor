@@ -266,6 +266,27 @@ def sample_segment_finite(draw) -> tuple:
     return (x, seg, num_segments)
 
 
+def sample_segment_attention(draw) -> tuple:
+    """Messages ``(E, F)`` + finite logits ``(E,)`` for ``segment_attention``."""
+    n = draw(st.integers(0, 8))
+    f = draw(st.integers(1, 3))
+    messages = np.asarray(
+        [
+            _f32_vec(draw, f, allow_nan=False, allow_infinity=False)
+            for _ in range(n)
+        ],
+        dtype=np.float32,
+    ).reshape(n, f) if n else np.zeros((0, f), dtype=np.float32)
+    logits = _f32_vec(draw, n, allow_nan=False, allow_infinity=False)
+    if n == 0:
+        seg = np.asarray([], dtype=np.int64)
+        num_segments = draw(st.integers(1, 6))
+    else:
+        seg = _i64_ids(draw, n)
+        num_segments = max(int(seg.max()) + 1, draw(st.integers(1, 6)))
+    return (messages, logits, seg, num_segments)
+
+
 def sample_clip(draw) -> tuple:
     n = draw(st.integers(0, 8))
     x = _f32_vec(draw, n, allow_nan=True, allow_infinity=True)
@@ -616,6 +637,11 @@ def fuzz_segment_softmax(x, segment_ids, num_segments):
     return at.segment_softmax(x, segment_ids, num_segments)
 
 
+@fuzz_op(sample_segment_attention)
+def fuzz_segment_attention(messages, logits, segment_ids, num_segments):
+    return at.segment_attention(messages, logits, segment_ids, num_segments)
+
+
 @fuzz_op(sample_segment)
 def fuzz_segment_min_or_constant(x, segment_ids, num_segments):
     return at.segment_min_or_constant(x, segment_ids, num_segments, constant=0.0)
@@ -642,7 +668,7 @@ _NON_FUZZ_PUBLIC = frozenset(
         "backends",
         "tree",
         "jraph",
-        "hetero",
+        "hgraph",
         "get_backend",
         "einsum",
         "pack",

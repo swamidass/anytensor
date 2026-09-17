@@ -1,4 +1,4 @@
-# Hetero examples
+# HGraph examples
 
 These recipes assume a `HeteroGraphsTuple` graph `g` is already built.
 Pass learnable maps as callables (`lambda x: x @ W`, a module `__call__`,
@@ -15,7 +15,7 @@ HAN-style meta-paths), add reverse relations with
 
 ```python
 import numpy as np
-from anytensor.hetero import HeteroGraphsTuple, add_reverse_edges, multi_update_all
+from anytensor.hgraph import HeteroGraphsTuple, add_reverse_edges, multi_update_all
 
 writes = ("author", "writes", "paper")
 g = HeteroGraphsTuple(
@@ -61,7 +61,7 @@ For the source linear, prefer `src_apply` (nodes) + `copy_u_message` over
 
 ```python
 import numpy as np
-from anytensor.hetero import (
+from anytensor.hgraph import (
     HeteroGraphsTuple,
     RelationSpec,
     copy_u_message,
@@ -109,7 +109,7 @@ relation, aggregate neighbors (usually mean), add a self/root term.
 
 ```python
 import numpy as np
-from anytensor.hetero import HeteroGraphsTuple, relational_graph_convolution
+from anytensor.hgraph import HeteroGraphsTuple, relational_graph_convolution
 
 writes = ("author", "writes", "paper")
 cites = ("paper", "cites", "paper")
@@ -154,7 +154,7 @@ hetero wrap runs that pattern per relation and sums relation mailboxes.
 
 ```python
 import numpy as np
-from anytensor.hetero import HeteroGraphsTuple, hetero_sage
+from anytensor.hgraph import HeteroGraphsTuple, hetero_sage
 
 writes = ("author", "writes", "paper")
 g = HeteroGraphsTuple(
@@ -195,7 +195,7 @@ assert out.nodes["paper"].shape == (2, 2)
 
 ```python
 import numpy as np
-from anytensor.hetero import HeteroGraphsTuple, gat_attention_logit, han
+from anytensor.hgraph import HeteroGraphsTuple, gat_attention_logit, han
 
 writes = ("author", "writes", "paper")
 cites = ("paper", "cites", "paper")
@@ -244,7 +244,7 @@ and edge-type matrices into those callables as needed.
 
 ```python
 import numpy as np
-from anytensor.hetero import HeteroGraphsTuple, hgt
+from anytensor.hgraph import HeteroGraphsTuple, hgt
 
 writes = ("author", "writes", "paper")
 g = HeteroGraphsTuple(
@@ -282,7 +282,7 @@ adds a self term. Edge features are required on every used etype.
 
 ```python
 import numpy as np
-from anytensor.hetero import HeteroGraphsTuple, comp_gcn
+from anytensor.hgraph import HeteroGraphsTuple, comp_gcn
 
 writes = ("author", "writes", "paper")
 g = HeteroGraphsTuple(

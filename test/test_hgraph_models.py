@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from anytensor.hetero import (
+from anytensor.hgraph import (
     HeteroGraphsTuple,
     RelationSpec,
     attention_weight_messages,
@@ -225,7 +225,7 @@ def test_rgcn_shapes_and_values():
     assert out.nodes["author"].shape == (3, 2)
 
 
-def test_heterosage_concat_combine():
+def test_hgraphsage_concat_combine():
     g, writes, cites = _author_paper()
     rel = {
         writes: _lin(np.eye(2, dtype=np.float32)),

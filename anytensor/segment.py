@@ -385,7 +385,7 @@ def segment_attention(
 
     ``messages`` is typically ``(n_edges, ...)``; ``logits`` is ``(n_edges,)``
     or ``(n_edges, 1)`` (or any shape that broadcasts with ``messages`` after
-    softmax). Used by :func:`anytensor.hetero.relation_mailbox` and the docs
+    softmax). Used by :func:`anytensor.hgraph.relation_mailbox` and the docs
     neighbor-attention recipes.
     """
     num_segments = _normalize_shape_dim(num_segments)

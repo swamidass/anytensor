@@ -39,7 +39,7 @@ Optional ``attention_logit_fn`` + ``attention_reduce_fn`` on a relation use
 :func:`~anytensor.segment.segment_softmax` on ``receivers``, weight messages,
 segment reduce). That is **vectorized** over edges — no Python loop over
 messages. Schema-sized Python loops over etypes only (typically a handful of
-relations) are unrolled at compile time. See :mod:`anytensor.hetero.models`.
+relations) are unrolled at compile time. See :mod:`anytensor.hgraph.models`.
 """
 
 from __future__ import annotations

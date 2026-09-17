@@ -1,4 +1,4 @@
-"""MVP tests for :mod:`anytensor.hetero`."""
+"""MVP tests for :mod:`anytensor.hgraph`."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 import anytensor.tree as tree
-from anytensor.hetero import (
+from anytensor.hgraph import (
     HeteroGraphsTuple,
     SendRecvTuple,
     graphs_tuple_as_send_recv,
@@ -105,8 +105,15 @@ def test_iter_relations_skip_empty_and_reverse():
     assert rev[1].senders is g.receivers[("author", "writes", "paper")]
 
 
+def test_hetero_shim_warns_and_reexports():
+    with pytest.warns(DeprecationWarning, match="renamed to anytensor.hgraph"):
+        import anytensor.hetero as legacy
+    assert legacy.HeteroGraphsTuple is HeteroGraphsTuple
+    assert legacy.multi_update_all is multi_update_all
+
+
 def test_add_reverse_edges_materializes_etype():
-    from anytensor.hetero import add_reverse_edges, reverse_canonical_etype
+    from anytensor.hgraph import add_reverse_edges, reverse_canonical_etype
 
     g = _author_paper_graph(3, 2, [0, 1, 2], [0, 0, 1])
     writes = ("author", "writes", "paper")
@@ -431,7 +438,7 @@ def test_edge_map_key_mismatch():
 
 
 def test_n_graphs_rejects_nonconcrete_batch_size(monkeypatch):
-    import anytensor.hetero.graph as hg
+    import anytensor.hgraph.graph as hg
 
     monkeypatch.setattr(hg, "_host_concrete_int", lambda _v: None)
     g = HeteroGraphsTuple(
@@ -509,7 +516,7 @@ def test_multi_update_all_values_all_backends(name, cross_reducer):
 
 
 def test_multi_update_all_edge_cases_and_stack():
-    import anytensor.hetero.message as hm
+    import anytensor.hgraph.message as hm
 
     g = _kernel_update_graph()
     writes = ("author", "writes", "paper")

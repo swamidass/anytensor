@@ -1,6 +1,6 @@
-# Heterogeneous graphs
+# HGraph — heterogeneous graphs
 
-`anytensor.hetero` is a small **heterogeneous graph** stack on the caller’s
+`anytensor.hgraph` is a small **heterogeneous graph** stack on the caller’s
 tensors (NumPy / JAX / PyTorch / TensorFlow). A heterogeneous graph has more
 than one **node type** (ntype) and/or **edge type** (etype)—for example
 authors, papers, and “writes” / “cites” relations—unlike a
@@ -14,7 +14,7 @@ full stack ([DGL](https://www.dgl.ai/),
 [PyG](https://pytorch-geometric.readthedocs.io/)) already do hetero well —
 **inside one backend**.
 
-`anytensor.hetero` fills a narrower niche:
+`anytensor.hgraph` fills a narrower niche:
 
 | | This package | DGL / PyG hetero | `anytensor.jraph` |
 |---|---|---|---|
@@ -30,8 +30,8 @@ functions. It is **not** a DGL replacement (no neighbor sampling, no graph
 store) and **not** part of the jraph-mirroring API — import it explicitly:
 
 ```python
-from anytensor.hetero import HeteroGraphsTuple, multi_update_all
-from anytensor.hetero import relational_graph_convolution
+from anytensor.hgraph import HeteroGraphsTuple, multi_update_all
+from anytensor.hgraph import relational_graph_convolution
 ```
 
 The portable core mirrors DGL’s
@@ -70,7 +70,7 @@ Hetero message passing only sees **stored** etype keys in
 | `add_reverse_edges(graph, …)` | Materializes `(dst, rev_rel, src)` with swapped incidence | R-GCN / HAN / any `etype_dict` that needs both directions |
 
 ```python
-from anytensor.hetero import add_reverse_edges, reverse_canonical_etype
+from anytensor.hgraph import add_reverse_edges, reverse_canonical_etype
 
 writes = ("author", "writes", "paper")
 # Default reverse relation name: rev_writes
@@ -161,7 +161,7 @@ Source-only maps (typical relation linears) can run in two places:
 Preferred source-linear pattern:
 
 ```python
-from anytensor.hetero import RelationSpec, copy_u_message
+from anytensor.hgraph import RelationSpec, copy_u_message
 
 RelationSpec(
     message_fn=copy_u_message,  # gather only
@@ -195,8 +195,8 @@ Other efficiency rules:
 
 ## Model zoo
 
-Plain functions in `anytensor.hetero.models` (also re-exported from
-`anytensor.hetero`). Each takes a graph plus callables for the learnable
+Plain functions in `anytensor.hgraph.models` (also re-exported from
+`anytensor.hgraph`). Each takes a graph plus callables for the learnable
 pieces — your framework owns the weights (`lambda x: x @ W`, module
 `__call__`, etc.).
 

@@ -13,15 +13,15 @@ import pytest
 from helpers import BACKENDS
 
 import anytensor as at
-from anytensor.hetero import (
+from anytensor.hgraph import (
     HeteroGraphsTuple,
     RelationSpec,
     han,
     multi_update_all,
     relation_mailbox,
 )
-from anytensor.hetero import message as hetero_message
-from anytensor.hetero import models as hetero_models
+from anytensor.hgraph import message as hetero_message
+from anytensor.hgraph import models as hetero_models
 from anytensor.segment import segment_attention
 
 

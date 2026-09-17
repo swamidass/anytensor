@@ -1,5 +1,5 @@
 from . import backends
-from . import hetero
+from . import hgraph
 from . import jraph
 from . import tree
 from .backends import get_backend
@@ -115,7 +115,7 @@ except ImportError:  # pragma: no cover
 
 __all__ = [
     "backends",
-    "hetero",
+    "hgraph",
     "jraph",
     "tree",
     "get_backend",

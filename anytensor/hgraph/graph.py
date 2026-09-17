@@ -91,8 +91,8 @@ def add_reverse_edges(
 ) -> "HeteroGraphsTuple":
     """Materialize reverse relations as new canonical etypes.
 
-    Message passing (:func:`~anytensor.hetero.relation_mailbox` /
-    :func:`~anytensor.hetero.multi_update_all`) only sees **stored** etype
+    Message passing (:func:`~anytensor.hgraph.relation_mailbox` /
+    :func:`~anytensor.hgraph.multi_update_all`) only sees **stored** etype
     keys. :meth:`HeteroGraphsTuple.relation_view` with ``reverse=True`` is a
     zero-copy inspection view and is **not** enough for R-GCN / HAN meta-paths
     that need both directions as first-class relations.

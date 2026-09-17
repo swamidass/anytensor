@@ -137,5 +137,5 @@ group. Set `JAXTYPING_DISABLE=1` to force runtime checks off.
 - `newaxis` is `None`
 
 Nested structures and graphs have their own sections:
-[Tree](tree/index.md), [Jraph](jraph/index.md), [Hetero](hetero/index.md).
+[Tree](tree/index.md), [Jraph](jraph/index.md), [HGraph](hgraph/index.md).
 
