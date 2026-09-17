@@ -36,13 +36,17 @@ The same call works on JAX / Torch / TF tensors. `num_segments` is **required** 
 `anytensor.jraph` is a portable [jraph](https://github.com/google-deepmind/jraph):
 `GraphsTuple`, batching/padding, and `GraphNetwork` on any backend. Nested
 feature trees use `anytensor.tree` (`jax.tree` API; pure Python, NumPy is the
-only binary dep). See the docs
-[Jraph](docs/jraph/index.md) and [Tree](docs/tree/index.md) sections.
+only binary dep). `anytensor.hetero` adds **heterogeneous graphs** (multiple
+node/edge types), DGL-style `multi_update_all` with optional attention, and a
+small model zoo (relational GCN, heterogeneous GraphSAGE, HAN, HGT, CompGCN —
+see [Hetero](docs/hetero/index.md) for full names and citations). Also see
+[Jraph](docs/jraph/index.md) and [Tree](docs/tree/index.md).
 
 Read next:
 
 - [Home / motivation](docs/index.md) — why AnyTensor, GAT neighbor-softmax case study across four backends
 - [Jraph](docs/jraph/index.md) — portable GraphsTuple / GraphNetwork
+- [Hetero](docs/hetero/index.md) — heterographs, attention, model zoo + citations
 - [Tree](docs/tree/index.md) — nest helpers (pure Python + NumPy) for graphs and any structured record
 - [Design](docs/design.md) — principles, edge cases, **testing as contract**, SemVer
 - [Usage](docs/usage.md) — promotion, segment helpers, `torch.compile`, typing

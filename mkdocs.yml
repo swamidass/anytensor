@@ -73,6 +73,10 @@ nav:
       - Overview: jraph/index.md
       - Examples: jraph/examples.md
       - API: jraph/api.md
+  - Hetero:
+      - Overview: hetero/index.md
+      - Examples: hetero/examples.md
+      - API: hetero/api.md
   - API:
       - Overview: api/index.md
       - Package root: api/anytensor.md
