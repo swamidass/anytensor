@@ -10,6 +10,7 @@ import inspect
 
 import numpy as np
 import pytest
+from helpers import BACKENDS
 
 import anytensor as at
 from anytensor.hetero import (
@@ -22,7 +23,6 @@ from anytensor.hetero import (
 from anytensor.hetero import message as hetero_message
 from anytensor.hetero import models as hetero_models
 from anytensor.segment import segment_attention
-from helpers import BACKENDS
 
 
 def _author_paper_np():
@@ -84,16 +84,28 @@ def test_default_attention_uses_segment_attention_helper():
     assert "_softmax_axis1" not in inspect.getsource(hetero_models)
 
 
+def _legacy_segment_attention(messages, logits, segment_ids, num_segments):
+    """Frozen pre-refactor formula used as the equivalence oracle."""
+    weights = at.segment_softmax(logits, segment_ids, num_segments)
+    w = np.asarray(weights)
+    msgs = np.asarray(messages)
+    while w.ndim < msgs.ndim:
+        w = np.expand_dims(w, axis=-1)
+    return at.segment_sum(msgs * w, segment_ids, num_segments)
+
+
 def test_segment_attention_matches_manual_softmax_sum():
     messages = np.asarray(
         [[1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [2.0, 0.0]], dtype=np.float32
     )
-    logits = np.asarray([1.0, 1.0, 0.5, 2.0], dtype=np.float32)
+    logits = np.asarray([1.0, -0.5, 0.5, 2.0], dtype=np.float32)
     dst = np.asarray([0, 0, 1, 2], dtype=np.int32)
     got = segment_attention(messages, logits, dst, 3)
-    w = at.segment_softmax(logits, dst, 3)
-    expected = at.segment_sum(messages * w[:, None], dst, 3)
+    expected = _legacy_segment_attention(messages, logits, dst, 3)
     np.testing.assert_allclose(got, expected, rtol=1e-5, atol=1e-6)
+    # Also (E, 1) logits must match the (E,) path after broadcast.
+    got_col = segment_attention(messages, logits[:, None], dst, 3)
+    np.testing.assert_allclose(got_col, expected, rtol=1e-5, atol=1e-6)
 
 
 def test_relation_mailbox_attention_matches_segment_attention():

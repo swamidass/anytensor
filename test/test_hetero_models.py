@@ -64,6 +64,22 @@ def _lin(w):
     return apply
 
 
+def _legacy_segment_attention(messages, logits, segment_ids, num_segments):
+    """Pre-refactor hand-roll: segment_softmax → multiply → segment_sum."""
+    weights = segment_softmax(logits, segment_ids, num_segments)
+    w = weights
+    while getattr(w, "ndim", 0) < getattr(messages, "ndim", 0):
+        w = np.expand_dims(w, axis=-1)
+    return segment_sum(messages * w, segment_ids, num_segments)
+
+
+def _legacy_dense_softmax_axis1(score):
+    """Pre-refactor HAN semantic softmax over dense axis 1."""
+    m = np.max(score, axis=1, keepdims=True)
+    e = np.exp(score - m)
+    return e / np.sum(e, axis=1, keepdims=True)
+
+
 def test_relation_mailbox_attention_matches_manual_softmax():
     g, writes, _ = _author_paper()
 
@@ -73,7 +89,8 @@ def test_relation_mailbox_attention_matches_manual_softmax():
 
     def logit(src, dst, edges):
         del dst, edges
-        return src[:, :1]
+        # Non-uniform logits so softmax is nontrivial.
+        return src[:, :1] * 2.0 - 0.25
 
     mail = relation_mailbox(
         g,
@@ -83,11 +100,12 @@ def test_relation_mailbox_attention_matches_manual_softmax():
         attention_logit_fn=logit,
     )
     src = g.nodes["author"][g.senders[writes]]
-    expected = segment_attention(src, src[:, :1], g.receivers[writes], 2)
-    weights = segment_softmax(src[:, :1], g.receivers[writes], 2)
-    expected_manual = segment_sum(src * weights, g.receivers[writes], 2)
-    np.testing.assert_allclose(mail, expected, rtol=1e-5, atol=1e-6)
-    np.testing.assert_allclose(mail, expected_manual, rtol=1e-5, atol=1e-6)
+    logits = src[:, :1] * 2.0 - 0.25
+    expected_helper = segment_attention(src, logits, g.receivers[writes], 2)
+    expected_legacy = _legacy_segment_attention(src, logits, g.receivers[writes], 2)
+    np.testing.assert_allclose(mail, expected_helper, rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(mail, expected_legacy, rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(expected_helper, expected_legacy, rtol=1e-5, atol=1e-6)
 
 
 def test_multi_update_all_relation_spec_attention():
@@ -254,6 +272,56 @@ def test_han_node_and_semantic_attention():
     )
     assert out.nodes["paper"].shape == (2, 2)
     assert np.all(np.isfinite(out.nodes["paper"]))
+
+
+def test_han_matches_legacy_dense_semantic_softmax():
+    """HAN after segment_attention refactor ≡ prior hand-rolled dense softmax."""
+    g, writes, cites = _author_paper()
+    W = np.eye(2, dtype=np.float32)
+    q = np.asarray([1.5, -0.5], dtype=np.float32)
+
+    def logit_writes(src, dst, edges):
+        del dst, edges
+        return src[:, :1] * 2.0 + 0.5
+
+    def logit_cites(src, dst, edges):
+        del dst, edges
+        return src[:, :1] - 1.0
+
+    got = han(
+        g,
+        [writes, cites],
+        {writes: _lin(W), cites: _lin(W)},
+        {writes: logit_writes, cites: logit_cites},
+        _lin(W),
+        q,
+        node_activation=lambda x: x,
+        semantic_activation=lambda x: x,
+    )
+
+    # Legacy node-level attention (hand-roll), then stack, then dense semantic.
+    def legacy_mailbox(etype, logit_fn):
+        src = g.nodes[etype[0]][g.senders[etype]]
+        dst = g.nodes[etype[2]][g.receivers[etype]]
+        messages = src @ W
+        logits = logit_fn(src, dst, g.edges.get(etype))
+        num_dst = g.nodes[etype[2]].shape[0]
+        return _legacy_segment_attention(
+            messages, logits, g.receivers[etype], num_dst
+        )
+
+    h_stack = np.stack(
+        [legacy_mailbox(writes, logit_writes), legacy_mailbox(cites, logit_cites)],
+        axis=1,
+    )
+    n, r, d = h_stack.shape
+    flat = h_stack.reshape(n * r, d)
+    proj = (flat @ W).reshape(n, r, -1)
+    score = np.sum(proj * q, axis=-1)
+    alpha = _legacy_dense_softmax_axis1(score)
+    expected = np.sum(h_stack * alpha[..., None], axis=1)
+
+    np.testing.assert_allclose(got.nodes["paper"], expected, rtol=1e-5, atol=1e-6)
 
 
 def test_han_defaults_and_empty_reject():
