@@ -74,9 +74,11 @@ typed attention.
 **Efficiency note:** neighborhood attention stays **per etype**
 (`segment_attention` on that relation’s ragged edge list). Relations are
 not interleaved into one `(n, R, E…)` edge tensor — different etypes have
-different edge counts and would force copies. HAN **semantic** attention
-is different: after `stack`, every node has the same schema-sized `R`
-path embeddings `(n, R, d)`, so mixing uses a **dense** softmax on axis
+different edge counts and would force copies. Source-only linears use
+`src_apply` on nodes **before** gather (`N` rows); maps that need edge or
+destination features stay in `message_fn` after gather. HAN **semantic**
+attention is different: after `stack`, every node has the same schema-sized
+`R` path embeddings `(n, R, d)`, so mixing uses a **dense** softmax on axis
 `R` (no `repeat` path-ids / segment scatter).
 
 ## Model zoo

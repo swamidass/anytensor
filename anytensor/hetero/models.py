@@ -40,7 +40,7 @@ from anytensor.core import (
 from anytensor.namespace import array_namespace
 
 from .graph import ArrayTree, CanonicalEtype, HeteroGraphsTuple, Ntype
-from .message import RelationSpec, multi_update_all
+from .message import RelationSpec, copy_u_message, multi_update_all
 
 LinearFn = Callable[[ArrayTree], ArrayTree]
 LogitFn = Callable[[ArrayTree, ArrayTree, Optional[ArrayTree]], ArrayTree]
@@ -74,12 +74,14 @@ def _identity(x):
     return x
 
 
-def _src_message(apply: LinearFn):
-    def msg(src, dst, edges):
-        del dst, edges
-        return apply(src)
-
-    return msg
+def _src_linear_spec(apply: LinearFn, reduce: str = "sum", **attn) -> RelationSpec:
+    """Source linear on nodes (``N``) then ``copy_u`` gather — not map-on-edges."""
+    return RelationSpec(
+        message_fn=copy_u_message,
+        reduce=reduce,  # type: ignore[arg-type]
+        src_apply=apply,
+        **attn,
+    )
 
 
 def relational_graph_convolution(
@@ -92,20 +94,21 @@ def relational_graph_convolution(
 ) -> HeteroGraphsTuple:
     """R-GCN (Relational Graph Convolutional Network) layer.
 
-    Schlichtkrull et al., ESWC 2018. For each relation ``r``, messages are
-    ``relation_apply[r](h_src)``, neighborhood-aggregated with ``reducer``
-    (``mean`` ≈ ``1/|N_r(i)|``), then cross-summed. Destinations update as
+    Schlichtkrull et al., ESWC 2018. For each relation ``r``,
+    ``relation_apply[r]`` runs on **source nodes** (size ``N_src``) before
+    gather, then neighborhood-aggregates with ``reducer``
+    (``mean`` ≈ ``1/|N_r(i)|``), then cross-sums. Destinations update as
     ``activation(self_apply[n](h) + mailbox)``.
 
     Args:
         graph: Input heterograph.
-        relation_apply: Per-etype ``h_src -> message`` (usually a linear).
+        relation_apply: Per-etype ``h_src ->`` message features (usually a linear).
         self_apply: Per-ntype self / root term (``W_0`` in the paper).
         activation: Pointwise nonlinearity (default ReLU).
         reducer: Per-relation segment reduce (``mean`` or ``sum``).
     """
     etype_dict = {
-        etype: RelationSpec(message_fn=_src_message(fn), reduce=reducer)  # type: ignore[arg-type]
+        etype: _src_linear_spec(fn, reduce=reducer)
         for etype, fn in relation_apply.items()
     }
     mail = multi_update_all(graph, etype_dict, cross_reducer="sum")
@@ -127,12 +130,12 @@ def hetero_sage(
 ) -> HeteroGraphsTuple:
     """Heterogeneous GraphSAGE mean layer (Hamilton et al., NeurIPS 2017).
 
-    GraphSAGE (SAmple and aggreGatE): per-relation map on sources, ``mean``
-    aggregate, cross ``sum``, then
+    GraphSAGE (SAmple and aggreGatE): per-relation map on **source nodes**,
+    ``mean`` aggregate, cross ``sum``, then
     ``activation(combine_apply[n](concat[h_self, mailbox]))``.
     """
     etype_dict = {
-        etype: RelationSpec(message_fn=_src_message(fn), reduce="mean")
+        etype: _src_linear_spec(fn, reduce="mean")
         for etype, fn in relation_apply.items()
     }
     mail = multi_update_all(graph, etype_dict, cross_reducer="sum")
@@ -164,7 +167,8 @@ def comp_gcn(
     * ``sum`` — ``relation_apply[r](h_src + e)``
 
     Then segment ``reducer``, cross ``sum``, and
-    ``activation(self_apply[n](h) + mailbox)``.
+    ``activation(self_apply[n](h) + mailbox)``. Composition needs edge
+    features, so the linear stays **after** gather (edge-sized).
     """
     if composition not in ("mult", "sum"):
         raise ValueError("composition must be 'mult' or 'sum'")
@@ -211,8 +215,8 @@ def han(
     canonical etype (precompute longer paths as their own etypes).
 
     1. **Node-level attention** — per meta-path etype,
-       ``node_message[e](h_src)`` + logits from
-       ``node_attention_logit[e]``, then
+       ``node_message[e]`` on **source nodes** (before gather), logits from
+       ``node_attention_logit[e]`` on gathered endpoints, then
        :func:`~anytensor.segment.segment_attention` over that relation’s
        neighbors (ragged degrees; etypes stay separate — no interleaved
        ``(n, R, E)`` edge tensor).
@@ -225,8 +229,8 @@ def han(
         raise ValueError("han requires at least one meta-path etype")
 
     etype_dict = {
-        etype: RelationSpec(
-            message_fn=_src_message(node_message[etype]),
+        etype: _src_linear_spec(
+            node_message[etype],
             reduce="sum",
             attention_logit_fn=node_attention_logit[etype],
         )
@@ -268,9 +272,10 @@ def hgt(
     typed query/key/value and edge-type matrices (often multi-head). Fold
     those into the callables you pass:
 
-    * ``message_apply[etype](h_src)`` — value / message projection.
-    * ``attention_logit[etype](src, dst, edges)`` — edge logits (include
-      ``1/sqrt(d)`` here, or set ``scale``).
+    * ``message_apply[etype]`` — value / message projection on **source nodes**
+      (before gather).
+    * ``attention_logit[etype](src, dst, edges)`` — edge logits on gathered
+      endpoints (include ``1/sqrt(d)`` here, or set ``scale``).
     * Softmax over neighbors, weighted sum, cross ``sum`` across etypes.
     * ``target_apply[ntype]`` — target-type output projection.
     """
@@ -286,8 +291,8 @@ def hgt(
         return scaled
 
     etype_dict = {
-        etype: RelationSpec(
-            message_fn=_src_message(message_apply[etype]),
+        etype: _src_linear_spec(
+            message_apply[etype],
             reduce="sum",
             attention_logit_fn=maybe_scale(attention_logit[etype]),
         )

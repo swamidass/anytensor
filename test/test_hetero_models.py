@@ -10,6 +10,7 @@ from anytensor.hetero import (
     RelationSpec,
     attention_weight_messages,
     comp_gcn,
+    copy_u_message,
     gat_attention_logit,
     han,
     hetero_sage,
@@ -78,6 +79,26 @@ def _legacy_dense_softmax_axis1(score):
     m = np.max(score, axis=1, keepdims=True)
     e = np.exp(score - m)
     return e / np.sum(e, axis=1, keepdims=True)
+
+
+def test_src_apply_before_gather_matches_edge_message_linear():
+    """``src_apply`` then gather ≡ gather then linear (row-wise maps)."""
+    g, writes, _ = _author_paper()
+    W = np.asarray([[1.0, 2.0], [0.0, 1.0]], dtype=np.float32)
+
+    def apply(x):
+        return x @ W
+
+    before = relation_mailbox(
+        g, writes, message_fn=copy_u_message, src_apply=apply, reduce="sum"
+    )
+
+    def msg_after(src, dst, edges):
+        del dst, edges
+        return apply(src)
+
+    after = relation_mailbox(g, writes, message_fn=msg_after, reduce="sum")
+    np.testing.assert_allclose(before, after, rtol=1e-5, atol=1e-6)
 
 
 def test_relation_mailbox_attention_matches_manual_softmax():
