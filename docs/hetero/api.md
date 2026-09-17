@@ -1,9 +1,12 @@
 # Hetero API
 
-Heterogeneous graphs, DGL-style `multi_update_all`, optional per-relation
-attention, and a small model zoo on NumPy / JAX / PyTorch / TF.
+Generated reference for heterogeneous graphs
+([`HeteroGraphsTuple`](index.md#data-model)), DGL-style
+`multi_update_all` with optional per-relation attention, and the model zoo
+(R-GCN, GraphSAGE, HAN, HGT, CompGCN — full names and papers in the
+[overview](index.md#model-zoo)).
 
-Narrative docs: [Overview](index.md). Recipes: [Examples](examples.md).
+Narrative: [Overview](index.md). Worked recipes: [Examples](examples.md).
 
 ::: anytensor.hetero
     options:

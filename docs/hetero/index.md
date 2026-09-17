@@ -1,8 +1,12 @@
 # Heterogeneous graphs
 
-`anytensor.hetero` is a small heterogeneous-graph stack on the caller’s
-tensors (NumPy / JAX / PyTorch / TensorFlow). It is **not** part of the
-jraph-mirroring API — import it explicitly:
+`anytensor.hetero` is a small **heterogeneous graph** stack on the caller’s
+tensors (NumPy / JAX / PyTorch / TensorFlow). A heterogeneous graph has more
+than one **node type** (ntype) and/or **edge type** (etype)—for example
+authors, papers, and “writes” / “cites” relations—unlike a
+**homogeneous** graph where every node and edge shares one type.
+
+It is **not** part of the jraph-mirroring API — import it explicitly:
 
 ```python
 from anytensor.hetero import HeteroGraphsTuple, multi_update_all
@@ -13,9 +17,9 @@ Runnable recipes: [Examples](examples.md). Generated API: [API](api.md).
 
 ## Why this package
 
-Homogeneous GNNs share one node/edge type. Many graphs that show up in
-practice do not: authors write papers, papers cite papers, users rate
-movies. DGL’s
+Homogeneous graph neural networks (GNNs) assume one node/edge type. Many
+graphs in practice do not: authors write papers, papers cite papers, users
+rate movies. [DGL](https://www.dgl.ai/)’s
 [`multi_update_all`](https://docs.dgl.ai/generated/dgl.DGLGraph.multi_update_all.html)
 pattern — **per-relation message + reduce**, then an explicit
 **cross-relation fuse** — is the portable core. This module follows that
@@ -31,51 +35,68 @@ schemas).
 
 | Type | Role |
 |---|---|
-| `HeteroGraphsTuple` | Nodes / edges keyed by ntype and canonical etype `(src, rel, dst)` |
-| `SendRecvTuple` | One directed incidence view (homo or bipartite) |
-| `RelationSpec` | Per-relation `message_fn`, `reduce`, optional attention |
+| `HeteroGraphsTuple` | Nodes / edges keyed by ntype and **canonical etype** `(src_ntype, relation, dst_ntype)` |
+| `SendRecvTuple` | One directed send→receive incidence (same ntype = homo view; two ntypes = bipartite) |
+| `RelationSpec` | Per-relation message function, reduce name, and optional edge attention |
 
-Canonical etypes are triples, e.g. `("author", "writes", "paper")`.
+A **canonical etype** is a triple such as `("author", "writes", "paper")`:
+source node type, relation name, destination node type.
 
 ## Message passing
 
-`relation_mailbox` runs one etype: gather along `senders`, optional
-attention (logit → `segment_softmax` on `receivers` → weight messages),
-then segment reduce (`sum` / `mean` / `max` / `min`; empty destinations
-`0`).
+`relation_mailbox` runs **one** etype:
 
-`multi_update_all` runs many etypes and fuses mailboxes that share a
+1. Gather source features along `senders` (and destination features along
+   `receivers` when needed).
+2. Optional **attention**: score each edge, normalize with
+   `segment_softmax` grouped by destination (`receivers`), weight messages.
+3. **Segment reduce** onto destinations (`sum` / `mean` / `max` / `min`).
+   Nodes with no incoming edges of that type get `0`.
+
+`multi_update_all` runs many etypes, then fuses mailboxes that share a
 destination ntype with a **cross-reducer** (`sum` / `mean` / `max` /
-`min` / `stack`). `stack` yields `(n_dst, n_relations, …)` in etype-dict
-order — the hook for HAN-style semantic attention.
+`min` / `stack`). Here a **mailbox** is the per-relation aggregated tensor
+at each destination node. `stack` yields shape
+`(n_dst, n_relations, …)` in etype-dict insertion order — used when a model
+needs to attend **across relations** (see HAN below).
 
-Per-relation attention mirrors homo
-[`GraphNetwork`](../jraph/index.md) attention and unlocks full HAN
-node-level attention and HGT-style typed attention.
+Per-relation attention matches the optional attention path on homo
+[`GraphNetwork`](../jraph/index.md) (same `segment_softmax` idea as
+[Graph Attention Networks](https://arxiv.org/abs/1710.10903) / GAT). That
+is what lets this stack express **Heterogeneous Graph Attention Network**
+(HAN) node-level attention and **Heterogeneous Graph Transformer** (HGT)
+typed attention.
 
 ## Model zoo
 
-Plain functions in `anytensor.hetero.models` (re-exported from
+Plain functions in `anytensor.hetero.models` (also re-exported from
 `anytensor.hetero`). Each takes a graph plus callables for the learnable
-pieces — your framework owns the weights.
+pieces — your framework owns the weights (`lambda x: x @ W`, module
+`__call__`, etc.).
 
-| Function | Paper | Idea |
+| Function | Full name / paper | What it does |
 |---|---|---|
-| `relational_graph_convolution` | [Schlichtkrull et al., ESWC 2018](https://arxiv.org/abs/1703.06103) | Per-relation linear + mean/sum + self term (R-GCN) |
-| `hetero_sage` | [Hamilton et al., NeurIPS 2017](https://arxiv.org/abs/1706.02216) | Mean neighbors, concat self, combine linear |
-| `han` | [Wang et al., WWW 2019](https://arxiv.org/abs/1903.07293) | Node-level attn per meta-path etype + semantic attn over `stack` |
-| `hgt` | [Hu et al., WWW 2020](https://arxiv.org/abs/2003.01332) | Typed attention logits + messages + target projection |
-| `comp_gcn` | [Vashishth et al., ICLR 2020](https://arxiv.org/abs/1911.03082) | Compose `h_src` with edge features (`mult` / `sum`) |
+| `relational_graph_convolution` | **R-GCN** (Relational Graph Convolutional Network) — [Schlichtkrull et al., ESWC 2018](https://arxiv.org/abs/1703.06103) | One linear per relation, mean/sum over neighbors, plus a self term |
+| `hetero_sage` | Heterogeneous **GraphSAGE** — [Hamilton et al., NeurIPS 2017](https://arxiv.org/abs/1706.02216) | Mean-aggregate neighbors, concat with self, one combine linear |
+| `han` | **HAN** (Heterogeneous Graph Attention Network) — [Wang et al., WWW 2019](https://arxiv.org/abs/1903.07293) | Attention over neighbors on each meta-path/etype, then attention over those path embeddings (`stack`) |
+| `hgt` | **HGT** (Heterogeneous Graph Transformer) — [Hu et al., WWW 2020](https://arxiv.org/abs/2003.01332) | Type-aware attention scores and messages, then a target-type output map |
+| `comp_gcn` | **CompGCN** (Composition-based Multi-Relational GCN) — [Vashishth et al., ICLR 2020](https://arxiv.org/abs/1911.03082) | Compose source features with edge features (`mult` or `sum`), then relation linear |
 
-Longer meta-paths for HAN are **precomputed as etypes** on the graph.
-HGT’s full multi-head Q/K/V and edge-type matrices fold into the callables
-you pass; the function supplies neighbor softmax and cross-sum.
+A **meta-path** is a typed walk pattern (e.g. author→paper→author). HAN
+expects each path you care about to already exist as an etype on the graph
+(precompute longer paths offline). For HGT, multi-head query/key/value and
+edge-type matrices live inside the callables you pass; `hgt` supplies
+neighbor softmax and cross-relation sum.
+
+Helper: `gat_attention_logit` builds a GAT-style edge score
+\(\mathrm{LeakyReLU}(a^\top[h_{\mathrm{src}}\|h_{\mathrm{dst}}])\) for use
+inside HAN (or any custom logit).
 
 ## Relation to DGL
 
 Value parity tests cover batch/unbatch and `multi_update_all` kernels
-(including float `u_mul_e` cases). Empty max/min destinations are `0`,
-matching DGL. Cross-reducers match when destinations receive every
-involved etype; with partial coverage, anytensor always zero-fills then
-fuses (equivalent to composing DGL per-etype `update_all` then the same
-cross reduce).
+(including float `u_mul_e` / “source feature times edge weight” cases).
+Empty max/min destinations are `0`, matching DGL. Cross-reducers match when
+every destination receives every involved etype; with partial coverage,
+anytensor always zero-fills then fuses (same as composing DGL per-etype
+`update_all` then the same cross reduce).

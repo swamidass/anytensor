@@ -28,7 +28,10 @@ Attention (GAT / HAN node-level / HGT)
 Optional ``attention_logit_fn`` + ``attention_reduce_fn`` on a relation mirror
 homo :func:`~anytensor.jraph.GraphNetwork` attention: logits →
 :func:`~anytensor.segment.segment_softmax` on ``receivers`` → weight messages →
-segment reduce (typically ``sum``). See :mod:`anytensor.hetero.models`.
+segment reduce (typically ``sum``). That is the same neighborhood-softmax idea
+as Graph Attention Networks (GAT; Veličković et al.), and is what Heterogeneous
+Graph Attention Network (HAN) node-level attention and Heterogeneous Graph
+Transformer (HGT) typed attention build on. See :mod:`anytensor.hetero.models`.
 """
 
 from __future__ import annotations
@@ -86,7 +89,12 @@ class RelationSpec(NamedTuple):
 
 
 def attention_weight_messages(messages: ArrayTree, weights: ArrayTree) -> ArrayTree:
-    """Default attention reduce: element-wise ``messages * weights`` (GAT-style)."""
+    """Default attention reduce: element-wise ``messages * weights``.
+
+    Same pattern as Graph Attention Networks (GAT): after
+    :func:`~anytensor.segment.segment_softmax`, multiply messages by the
+    per-edge weights.
+    """
     return tree.map(lambda m, w: m * w, messages, weights)
 
 

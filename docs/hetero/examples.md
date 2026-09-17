@@ -1,12 +1,19 @@
 # Hetero examples
 
-Graph `g` is assumed already built. Pass weights as callables
-(`lambda x: x @ W`, module `__call__`, etc.).
+These recipes assume a `HeteroGraphsTuple` graph `g` is already built.
+Pass learnable maps as callables (`lambda x: x @ W`, a module `__call__`,
+…); the library does not own parameters.
+
+Overview and term definitions: [Heterogeneous graphs](index.md).
+API: [Hetero API](api.md).
 
 ## Per-relation attention (kernel)
 
-GAT-style softmax over neighbors on one etype, then cross-sum — the hook
-HAN / HGT build on.
+Before the named models, the shared primitive: score each edge, softmax
+**within each destination node’s neighborhood** (same idea as
+[Graph Attention Networks](https://arxiv.org/abs/1710.10903) / **GAT**,
+Veličković et al., ICLR 2018), weight messages, sum. Heterogeneous models
+such as HAN and HGT (below) reuse this per edge type.
 
 ```python
 import numpy as np
@@ -48,8 +55,10 @@ out = multi_update_all(
 assert out.nodes["paper"].shape == (2, 2)
 ```
 
-## R-GCN — Schlichtkrull et al., ESWC 2018
+## Relational GCN (R-GCN) — Schlichtkrull et al., ESWC 2018
 
+**R-GCN** = Relational Graph Convolutional Network: one weight matrix per
+relation, aggregate neighbors (usually mean), add a self/root term.
 [arXiv:1703.06103](https://arxiv.org/abs/1703.06103)
 
 ```python
@@ -90,8 +99,11 @@ out = relational_graph_convolution(
 assert out.nodes["paper"].shape == (2, 4)
 ```
 
-## HeteroSAGE — Hamilton et al., NeurIPS 2017
+## Heterogeneous GraphSAGE — Hamilton et al., NeurIPS 2017
 
+**GraphSAGE** (SAmple and aggreGatE) mean-aggregates neighbor features,
+concatenates with the node’s own features, then applies a linear map. The
+hetero wrap runs that pattern per relation and sums relation mailboxes.
 [arXiv:1706.02216](https://arxiv.org/abs/1706.02216)
 
 ```python
@@ -124,9 +136,15 @@ out = hetero_sage(
 assert out.nodes["paper"].shape == (2, 2)
 ```
 
-## HAN — Wang et al., WWW 2019
+## Heterogeneous Graph Attention Network (HAN) — Wang et al., WWW 2019
 
-Node-level attention per meta-path etype, then semantic attention.
+**HAN** = Heterogeneous Graph Attention Network. Two levels:
+
+1. **Node-level attention** — GAT-style weights over neighbors on each
+   meta-path (here each canonical etype stands for one path hop).
+2. **Semantic attention** — soft weights over those path embeddings
+   (`cross_reducer="stack"` then a query vector).
+
 [arXiv:1903.07293](https://arxiv.org/abs/1903.07293)
 
 ```python
@@ -169,9 +187,13 @@ out = han(
 assert out.nodes["paper"].shape == (2, 2)
 ```
 
-## HGT — Hu et al., WWW 2020
+## Heterogeneous Graph Transformer (HGT) — Hu et al., WWW 2020
 
-Typed attention + target projection. Fold full HGT Q/K/V into the callables.
+**HGT** = Heterogeneous Graph Transformer: attention and messages depend on
+source type, edge type, and target type (often multi-head). Pass typed
+projections as callables; this function does neighbor softmax, cross-sum
+across etypes, then a target-type output map. Fold full query/key/value
+and edge-type matrices into those callables as needed.
 [arXiv:2003.01332](https://arxiv.org/abs/2003.01332)
 
 ```python
@@ -205,8 +227,11 @@ out = hgt(
 assert out.nodes["paper"].shape == (2, 2)
 ```
 
-## CompGCN — Vashishth et al., ICLR 2020
+## Composition-based multi-relational GCN (CompGCN) — Vashishth et al., ICLR 2020
 
+**CompGCN** composes each source feature with its edge representation
+(multiply or add), applies a relation-specific linear map, aggregates, and
+adds a self term. Edge features are required on every used etype.
 [arXiv:1911.03082](https://arxiv.org/abs/1911.03082)
 
 ```python

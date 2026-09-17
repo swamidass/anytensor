@@ -4,18 +4,22 @@ Each function takes a graph plus callables / arrays for the learnable pieces.
 Weight ownership stays in your framework (Flax, Haiku, ``torch.nn``, NumPy
 prototypes) — pass ``lambda x: x @ W`` or a module ``__call__`` as needed.
 
-Citations
----------
-* **R-GCN** — Schlichtkrull et al., “Modeling Relational Data with Graph
-  Convolutional Networks,” ESWC 2018. https://arxiv.org/abs/1703.06103
-* **GraphSAGE** (hetero wrap) — Hamilton et al., “Inductive Representation
-  Learning on Large Graphs,” NeurIPS 2017. https://arxiv.org/abs/1706.02216
-* **HAN** — Wang et al., “Heterogeneous Graph Attention Network,” WWW 2019.
+Citations (acronym → full name)
+-------------------------------
+* **R-GCN** (Relational Graph Convolutional Network) — Schlichtkrull et al.,
+  “Modeling Relational Data with Graph Convolutional Networks,” ESWC 2018.
+  https://arxiv.org/abs/1703.06103
+* **GraphSAGE** (SAmple and aggreGatE; hetero wrap) — Hamilton et al.,
+  “Inductive Representation Learning on Large Graphs,” NeurIPS 2017.
+  https://arxiv.org/abs/1706.02216
+* **HAN** (Heterogeneous Graph Attention Network) — Wang et al., WWW 2019.
   https://arxiv.org/abs/1903.07293
-* **HGT** — Hu et al., “Heterogeneous Graph Transformer,” WWW 2020.
+* **HGT** (Heterogeneous Graph Transformer) — Hu et al., WWW 2020.
   https://arxiv.org/abs/2003.01332
-* **CompGCN** — Vashishth et al., “Composition-based Multi-Relational Graph
-  Convolutional Networks,” ICLR 2020. https://arxiv.org/abs/1911.03082
+* **CompGCN** (Composition-based Multi-Relational GCN) — Vashishth et al.,
+  ICLR 2020. https://arxiv.org/abs/1911.03082
+* **GAT** (Graph Attention Network) edge scores — Veličković et al., ICLR 2018.
+  https://arxiv.org/abs/1710.10903 (used by :func:`gat_attention_logit` / HAN)
 """
 
 from __future__ import annotations
@@ -82,11 +86,11 @@ def relational_graph_convolution(
     activation: ActivationFn = _relu,
     reducer: str = "mean",
 ) -> HeteroGraphsTuple:
-    """R-GCN layer (Schlichtkrull et al., ESWC 2018).
+    """R-GCN (Relational Graph Convolutional Network) layer.
 
-    For each relation ``r``, messages are ``relation_apply[r](h_src)``,
-    neighborhood-aggregated with ``reducer`` (``mean`` ≈ ``1/|N_r(i)|``),
-    then cross-summed. Destinations update as
+    Schlichtkrull et al., ESWC 2018. For each relation ``r``, messages are
+    ``relation_apply[r](h_src)``, neighborhood-aggregated with ``reducer``
+    (``mean`` ≈ ``1/|N_r(i)|``), then cross-summed. Destinations update as
     ``activation(self_apply[n](h) + mailbox)``.
 
     Args:
@@ -119,7 +123,8 @@ def hetero_sage(
 ) -> HeteroGraphsTuple:
     """Heterogeneous GraphSAGE mean layer (Hamilton et al., NeurIPS 2017).
 
-    Per-relation map on sources, ``mean`` aggregate, cross ``sum``, then
+    GraphSAGE (SAmple and aggreGatE): per-relation map on sources, ``mean``
+    aggregate, cross ``sum``, then
     ``activation(combine_apply[n](concat[h_self, mailbox]))``.
     """
     etype_dict = {
@@ -147,9 +152,9 @@ def comp_gcn(
     activation: ActivationFn = _relu,
     reducer: str = "sum",
 ) -> HeteroGraphsTuple:
-    """CompGCN layer (Vashishth et al., ICLR 2020).
+    """CompGCN (Composition-based Multi-Relational GCN) layer.
 
-    Requires edge features on each used etype.
+    Vashishth et al., ICLR 2020. Requires edge features on each used etype.
 
     * ``mult`` — ``relation_apply[r](h_src * e)``
     * ``sum`` — ``relation_apply[r](h_src + e)``
@@ -195,13 +200,15 @@ def han(
     node_activation: ActivationFn = _relu,
     semantic_activation: ActivationFn = _tanh,
 ) -> HeteroGraphsTuple:
-    """HAN layer (Wang et al., WWW 2019): node-level + semantic attention.
+    """HAN (Heterogeneous Graph Attention Network) layer.
 
-    Each ``meta_path_etypes`` entry is a meta-path hop already stored as a
+    Wang et al., WWW 2019: node-level + semantic attention. Each
+    ``meta_path_etypes`` entry is a meta-path hop already stored as a
     canonical etype (precompute longer paths as their own etypes).
 
     1. **Node-level attention** — ``node_message[e](h_src)``, logits from
-       ``node_attention_logit[e](src, dst, edges)``, softmax over neighbors.
+       ``node_attention_logit[e](src, dst, edges)``, softmax over neighbors
+       (GAT-style).
     2. Mailboxes **stacked**; **semantic attention** mixes path embeddings
        with ``semantic_query`` after ``semantic_project``.
     """
@@ -246,9 +253,10 @@ def hgt(
     activation: ActivationFn = _identity,
     scale: Optional[float] = None,
 ) -> HeteroGraphsTuple:
-    """HGT-style layer (Hu et al., WWW 2020) — typed attention + target proj.
+    """HGT (Heterogeneous Graph Transformer) style layer.
 
-    Full HGT uses typed Q/K/V and edge-type matrices (often multi-head). Fold
+    Hu et al., WWW 2020 — typed attention + target projection. Full HGT uses
+    typed query/key/value and edge-type matrices (often multi-head). Fold
     those into the callables you pass:
 
     * ``message_apply[etype](h_src)`` — value / message projection.
@@ -296,8 +304,9 @@ def gat_attention_logit(
 ) -> ArrayTree:
     """GAT-style edge score: ``LeakyReLU(attn_vec_apply(concat(src, dst)))``.
 
-    ``attn_vec_apply`` maps concatenated features to shape ``(E, 1)`` or
-    ``(E,)``. Typical use inside a logit callable::
+    Graph Attention Network (GAT; Veličković et al., ICLR 2018) neighborhood
+    scoring. ``attn_vec_apply`` maps concatenated features to shape ``(E, 1)``
+    or ``(E,)``. Typical use inside a logit callable::
 
         lambda s, d, e: gat_attention_logit(s, d, my_linear)
     """
