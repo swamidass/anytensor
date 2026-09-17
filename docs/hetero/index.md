@@ -1,10 +1,7 @@
 # Heterogeneous graphs
 
 `anytensor.hetero` is a small **heterogeneous graph** stack on the caller’s
-tensors (NumPy / JAX / PyTorch / TensorFlow). A heterogeneous graph has more
-than one **node type** (ntype) and/or **edge type** (etype)—for example
-authors, papers, and “writes” / “cites” relations—unlike a
-**homogeneous** graph where every node and edge shares one type.
+tensors (NumPy / JAX / PyTorch / TensorFlow).
 
 It is **not** part of the jraph-mirroring API — import it explicitly:
 
@@ -15,11 +12,82 @@ from anytensor.hetero import relational_graph_convolution
 
 Runnable recipes: [Examples](examples.md). Generated API: [API](api.md).
 
+## What is a heterogeneous graph?
+
+A **homogeneous** graph has one kind of node and one kind of edge: every
+vertex is “a node,” every link is “an edge.” Citation networks treated as
+paper→paper, social graphs of users only, and most textbook GNN demos are
+homogeneous.
+
+A **heterogeneous graph** (also *heterograph*, *typed graph*, or
+*knowledge graph* when relations are labeled facts) has:
+
+- **Node types (ntypes)** — disjoint pools of entities, e.g. `author`,
+  `paper`, `venue`.
+- **Edge types / relations (etypes)** — typed, directed links between
+  those pools, e.g. “an author **writes** a paper,” “a paper **cites** a
+  paper,” “a paper is **published_in** a venue.”
+
+Features usually live *per type*: authors might have affiliation vectors,
+papers have bag-of-words or embeddings, and edges may carry weights or
+relation embeddings. Message passing must respect types — you do not
+blindly mix author rows with paper rows in one dense adjacency.
+
+```text
+  author ──writes──► paper ──cites──► paper
+     ▲                 │
+     └──── written_by ─┘   (reverse of writes; often added explicitly)
+```
+
+Homogeneous GNNs collapse this to one adjacency. Heterogeneous models keep
+the types and run a **separate** transform / aggregate **per relation**,
+then combine results at each destination type.
+
+## Direction: messages follow the arrow
+
+In this library (and in DGL / PyG heterographs), each etype is
+**directed**. For `("author", "writes", "paper")`:
+
+- Messages flow **author → paper** (along `senders` → `receivers`).
+- Papers are updated from their authors.
+- **Authors are not updated** by that relation alone.
+
+That matches how the data is stored: one incidence list per etype. There
+is no implicit reverse pass.
+
+### Do common architectures propagate both ways?
+
+**Not automatically.** Classic hetero layers — Relational GCN (R-GCN),
+heterogeneous GraphSAGE, HAN, HGT, CompGCN — treat each relation as a
+one-way channel. If you only register `writes`, information moves into
+papers; authors never see paper context through that etype.
+
+### How people get both directions
+
+Almost everyone who needs bidirectional flow **adds reverse relations**
+(or builds meta-paths that walk both ways):
+
+| Practice | What you store | Who updates |
+|---|---|---|
+| Forward only | `("author", "writes", "paper")` | papers ← authors |
+| + reverse | also `("paper", "written_by", "author")` | authors ← papers |
+| Meta-path (HAN) | e.g. author→paper→author as its own etype or two hops | authors via papers |
+
+Knowledge-graph R-GCNs often invent an inverse predicate for every
+relation (`born_in` / `born_in_inv`). Bipartite recommenders and academic
+graphs do the same with `writes` / `written_by`. Libraries expose helpers
+(DGL `add_reverse_edges`, PyG `ToUndirected` / `to_bidirected`) that
+materialize those reverses as **new etypes**, usually with their own
+weights — not as a silent undirected multiply.
+
+So: if both ends of a link should update, put **both** directions in the
+graph (or a meta-path that uses both). This stack will not invent reverses
+for you.
+
 ## Why this package
 
-Homogeneous graph neural networks (GNNs) assume one node/edge type. Many
-graphs in practice do not: authors write papers, papers cite papers, users
-rate movies. [DGL](https://www.dgl.ai/)’s
+Homogeneous GNNs assume one node/edge type. Many graphs in practice do
+not. [DGL](https://www.dgl.ai/)’s
 [`multi_update_all`](https://docs.dgl.ai/generated/dgl.DGLGraph.multi_update_all.html)
 pattern — **per-relation message + reduce**, then an explicit
 **cross-relation fuse** — is the portable core. This module follows that
@@ -35,30 +103,44 @@ schemas).
 
 | Type | Role |
 |---|---|
-| `HeteroGraphsTuple` | Nodes / edges keyed by ntype and **canonical etype** `(src_ntype, relation, dst_ntype)` |
-| `SendRecvTuple` | One directed send→receive incidence (same ntype = homo view; two ntypes = bipartite) |
-| `RelationSpec` | Per-relation message function, reduce name, and optional edge attention |
+| `HeteroGraphsTuple` | Nodes / edges keyed by ntype and **canonical etype** |
+| `SendRecvTuple` | One directed send→receive incidence (same ntype = homo view; two ntypes = bipartite relation) |
+| `RelationSpec` | Per-relation message function, reduce name, optional edge attention |
 
-A **canonical etype** is a triple such as `("author", "writes", "paper")`:
-source node type, relation name, destination node type.
+A **canonical etype** is a triple `(src_ntype, relation_name, dst_ntype)`,
+e.g. `("author", "writes", "paper")`. The same relation name with swapped
+endpoints is a *different* etype (`written_by` above). Node ids are
+**local to each ntype**: author `0` and paper `0` are unrelated indices.
+
+Fields on `HeteroGraphsTuple`:
+
+| Field | Meaning |
+|---|---|
+| `nodes[ntype]` | Feature nest for that type, leading axis = number of nodes |
+| `edges[etype]` | Optional edge features for that relation (`None` if unused) |
+| `senders[etype]` / `receivers[etype]` | Integer endpoints (into the src / dst ntype pools) |
+| `n_node[ntype]` / `n_edge[etype]` | Per-graph counts (length = batch size; `1` for a single graph) |
 
 ## Message passing
 
 `relation_mailbox` runs **one** etype:
 
 1. Gather source features along `senders` (and destination features along
-   `receivers` when needed).
+   `receivers` when needed for attention or edge-wise scores).
 2. Optional **attention**: score each edge, normalize with
    `segment_softmax` grouped by destination (`receivers`), weight messages.
 3. **Segment reduce** onto destinations (`sum` / `mean` / `max` / `min`).
-   Nodes with no incoming edges of that type get `0`.
+   Destinations with no incoming edges of that type get `0`.
+
+Only the **destination** ntype of that etype receives a mailbox. Source-only
+types are unchanged unless some other etype (often a reverse) targets them.
 
 `multi_update_all` runs many etypes, then fuses mailboxes that share a
 destination ntype with a **cross-reducer** (`sum` / `mean` / `max` /
-`min` / `stack`). Here a **mailbox** is the per-relation aggregated tensor
-at each destination node. `stack` yields shape
-`(n_dst, n_relations, …)` in etype-dict insertion order — used when a model
-needs to attend **across relations** (see HAN below).
+`min` / `stack`). A **mailbox** is the per-relation aggregated tensor at
+each destination node. `stack` yields shape `(n_dst, n_relations, …)` in
+etype-dict insertion order — used when a model attends **across
+relations** (HAN semantic attention).
 
 Per-relation attention matches the optional attention path on homo
 [`GraphNetwork`](../jraph/index.md) (same `segment_softmax` idea as
@@ -84,9 +166,9 @@ pieces — your framework owns the weights (`lambda x: x @ W`, module
 
 A **meta-path** is a typed walk pattern (e.g. author→paper→author). HAN
 expects each path you care about to already exist as an etype on the graph
-(precompute longer paths offline). For HGT, multi-head query/key/value and
-edge-type matrices live inside the callables you pass; `hgt` supplies
-neighbor softmax and cross-relation sum.
+(precompute longer paths offline, often using reverses). For HGT,
+multi-head query/key/value and edge-type matrices live inside the callables
+you pass; `hgt` supplies neighbor softmax and cross-relation sum.
 
 Helper: `gat_attention_logit` builds a GAT-style edge score
 \(\mathrm{LeakyReLU}(a^\top[h_{\mathrm{src}}\|h_{\mathrm{dst}}])\) for use

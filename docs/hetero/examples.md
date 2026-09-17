@@ -4,8 +4,52 @@ These recipes assume a `HeteroGraphsTuple` graph `g` is already built.
 Pass learnable maps as callables (`lambda x: x @ W`, a module `__call__`,
 …); the library does not own parameters.
 
-Overview and term definitions: [Heterogeneous graphs](index.md).
-API: [Hetero API](api.md).
+Overview and term definitions: [Heterogeneous graphs](index.md)
+(including **directed relations** and why reverse etypes are usually added
+by hand). API: [Hetero API](api.md).
+
+## Forward and reverse relations
+
+Each etype carries messages **only** toward its destination. To update both
+authors and papers from authorship links, register a reverse etype with
+swapped endpoints (own weights in a real model).
+
+```python
+import numpy as np
+from anytensor.hetero import HeteroGraphsTuple, multi_update_all
+
+writes = ("author", "writes", "paper")
+written_by = ("paper", "written_by", "author")
+# cites stays paper → paper (often you also add cited_by)
+g = HeteroGraphsTuple(
+    nodes={
+        "author": np.ones((3, 2), dtype=np.float32),
+        "paper": np.ones((2, 2), dtype=np.float32),
+    },
+    edges={writes: None, written_by: None},
+    senders={
+        writes: np.array([0, 1, 2]),       # authors
+        written_by: np.array([0, 0, 1]),  # papers (reverse endpoints)
+    },
+    receivers={
+        writes: np.array([0, 0, 1]),       # papers
+        written_by: np.array([0, 1, 2]),  # authors
+    },
+    n_node={"author": np.array([3]), "paper": np.array([2])},
+    n_edge={writes: np.array([3]), written_by: np.array([3])},
+)
+
+out = multi_update_all(
+    g,
+    {
+        writes: (lambda s, d, e: s, "sum"),
+        written_by: (lambda s, d, e: s, "sum"),
+    },
+    cross_reducer="sum",
+)
+assert out.nodes["paper"].shape == (2, 2)
+assert out.nodes["author"].shape == (3, 2)  # updated via written_by
+```
 
 ## Per-relation attention (kernel)
 
