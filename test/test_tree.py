@@ -522,6 +522,15 @@ def test_batch_unbatch_arrays_and_nests():
         tree.batch([{"a": np.array([1])}, {"a": np.array([1]), "b": np.array([2])}])
     empty = tree.batch([[], []])
     assert empty == []
+
+
+def test_flatten_up_to_and_unbatch_edges():
+    # flatten_up_to: None prefix and arity mismatch
+    _, none_def = tree.flatten(None)
+    assert none_def.flatten_up_to(None) == []
+    _, list_def = tree.flatten([1, 2])
+    with pytest.raises(ValueError, match="same structure"):
+        list_def.flatten_up_to([1])
     assert tree.unbatch(np.zeros((0, 2))) == []
     assert tree.unbatch({"a": None}) == []
     none_notes = tree.unbatch({"a": np.array([1, 2]), "b": None})

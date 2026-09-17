@@ -428,6 +428,22 @@ def fuzz_concatenate(x, y):
     return at.concatenate([x, y], axis=0)
 
 
+def sample_split(draw) -> tuple:
+    """Length 1..8 with NumPy-style cut indices (may produce empty chunks)."""
+    n = draw(st.integers(1, 8))
+    x = _f32_vec(draw, n, allow_nan=True, allow_infinity=True)
+    k = draw(st.integers(0, min(3, n)))
+    cuts = sorted(
+        draw(st.lists(st.integers(0, n), min_size=k, max_size=k, unique=True))
+    )
+    return (x, cuts)
+
+
+@fuzz_op(sample_split)
+def fuzz_split(x, indices):
+    return at.split(x, indices, axis=0)
+
+
 @fuzz_op(sample_stack_pair)
 def fuzz_stack(x, y):
     return at.stack([x, y], axis=0)
@@ -626,6 +642,7 @@ _NON_FUZZ_PUBLIC = frozenset(
         "backends",
         "tree",
         "jraph",
+        "hetero",
         "get_backend",
         "einsum",
         "pack",
@@ -688,7 +705,7 @@ def test_all_public_ops_have_fuzz_registration():
 
 def _to_numpy_result(backend_name: str, out):
     backend = loaded_backends[backend_name]
-    if isinstance(out, tuple):
+    if isinstance(out, (tuple, list)):
         return tuple(_to_numpy_result(backend_name, o) for o in out)
     if isinstance(out, np.ndarray) or np.isscalar(out):
         return np.asarray(out)
@@ -729,8 +746,12 @@ def _agree_arrays(name: str, y_np, y_other, args_np: tuple, fn: Callable):
 
 def _agree(fn: Callable, args_np: tuple, y_np, y_other):
     name = getattr(fn, "__name__", str(fn))
-    if isinstance(y_np, tuple):
-        assert isinstance(y_other, tuple) and len(y_np) == len(y_other), (name, y_np, y_other)
+    if isinstance(y_np, (tuple, list)):
+        assert isinstance(y_other, (tuple, list)) and len(y_np) == len(y_other), (
+            name,
+            y_np,
+            y_other,
+        )
         for a, b in zip(y_np, y_other):
             _agree_arrays(name, a, b, args_np, fn)
         return

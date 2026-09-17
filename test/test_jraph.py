@@ -82,6 +82,49 @@ def test_batch_unbatch_roundtrip():
     np.testing.assert_array_equal(_np(parts[1].senders), g2.senders)
 
 
+def test_batch_already_batched_graphs_matches_jraph_offsets():
+    """Offsets use per-GraphsTuple ``sum(n_node)``, not flattened segments."""
+    g = atj.GraphsTuple(
+        nodes=np.zeros((2, 3), dtype=np.float32),
+        edges=np.zeros((1, 3), dtype=np.float32),
+        receivers=np.array([1], dtype=np.int32),
+        senders=np.array([1], dtype=np.int32),
+        globals=np.zeros((2, 2), dtype=np.float32),
+        n_node=np.array([1, 1], dtype=np.int32),
+        n_edge=np.array([0, 1], dtype=np.int32),
+    )
+    batched = atj.batch([g, g])
+    np.testing.assert_array_equal(_np(batched.n_node), [1, 1, 1, 1])
+    np.testing.assert_array_equal(_np(batched.senders), [1, 3])
+    np.testing.assert_array_equal(_np(batched.receivers), [1, 3])
+    parts = atj.unbatch(batched)
+    assert len(parts) == 4
+    np.testing.assert_array_equal(_np(parts[1].senders), [0])
+    np.testing.assert_array_equal(_np(parts[3].senders), [0])
+
+
+
+@pytest.mark.parametrize("name", BACKENDS)
+def test_batch_unbatch_roundtrip_all_backends(name):
+    backend = loaded_backends[name]
+    g1, g2 = _toy_graphs()
+    bg1, bg2 = _to_backend(g1, backend), _to_backend(g2, backend)
+    batched = atj.batch([bg1, bg2])
+    assert backend.is_appropriate_type(batched.senders)
+    assert backend.is_appropriate_type(batched.n_node)
+    np.testing.assert_array_equal(backend.to_numpy(batched.n_node), [3, 5])
+    np.testing.assert_array_equal(
+        backend.to_numpy(batched.senders)[5:], g2.senders + 3
+    )
+    parts = atj.unbatch(batched)
+    assert len(parts) == 2
+    assert backend.is_appropriate_type(parts[0].nodes)
+    assert backend.is_appropriate_type(parts[1].senders)
+    np.testing.assert_allclose(backend.to_numpy(parts[0].nodes), g1.nodes)
+    np.testing.assert_allclose(backend.to_numpy(parts[1].nodes), g2.nodes)
+    np.testing.assert_array_equal(backend.to_numpy(parts[1].senders), g2.senders)
+
+
 def test_batch_nested_features():
     g1, g2 = _toy_graphs()
     g1 = g1._replace(nodes=_nest(g1.nodes), edges=_nest(g1.edges), globals=_nest(g1.globals))
@@ -558,6 +601,28 @@ def test_batch_unbatch_none_features_and_indices():
     assert parts[0].senders is None and parts[1].receivers is None
     host = atj.batch_np([g1, g2])
     assert host.senders is None
+
+
+def test_unbatch_zero_length_n_node_vector():
+    g = atj.GraphsTuple(
+        nodes=None,
+        edges=None,
+        senders=None,
+        receivers=None,
+        globals=None,
+        n_node=np.zeros((0,), dtype=np.int32),
+        n_edge=np.zeros((0,), dtype=np.int32),
+    )
+    assert atj.unbatch(g) == []
+
+
+def test_n_graphs_rejects_nonconcrete_batch_size(monkeypatch):
+    import anytensor.jraph.utils as ju
+
+    monkeypatch.setattr(ju, "_host_concrete_int", lambda _v: None)
+    g1, _ = _toy_graphs()
+    with pytest.raises(ValueError, match="concrete batch size"):
+        ju._n_graphs(g1)
 
 
 def test_pad_without_senders_and_zero_edge_padding():

@@ -43,6 +43,8 @@ dev = [
   "hypothesis>=6.100",
   "beartype>=0.18",
   "jraph",
+  # PyPI DGL has no cp313 / limited platform wheels; pin a Linux-friendly 2.1.x.
+  "dgl==2.1.0; python_version < '3.13'",
   "towncrier>=24",
   "hatch>=1.12",
   "ruff>=0.8",

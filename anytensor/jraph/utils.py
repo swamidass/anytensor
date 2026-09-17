@@ -23,11 +23,16 @@ from anytensor.core import (
     concatenate,
     full,
     maximum,
+    ones,
     reshape,
     rsqrt,
+    shape,
+    sum as at_sum,
     take,
     zeros,
 )
+from anytensor.core import _host_concrete_int
+from anytensor.lengths import batch_ids, split_by_lengths, unbatch_ids
 from anytensor.namespace import array_namespace
 from anytensor.segment import (
     partition_softmax as _partition_softmax,
@@ -217,7 +222,10 @@ def _np_vec(x) -> np.ndarray:
 
 
 def _n_graphs(graph: GraphsTuple) -> int:
-    return int(_np_vec(graph.n_node).shape[0])
+    n = _host_concrete_int(shape(graph.n_node)[0])
+    if n is None:
+        raise ValueError("n_graphs requires a concrete batch size")
+    return n
 
 
 def _sum_n_node(graph: GraphsTuple) -> int:
@@ -239,22 +247,36 @@ def _zeros_like_leading(leaf, leading: int):
     return zeros((leading,) + rest, dtype=leaf.dtype, like=leaf)
 
 
+def _batch_size_totals(size_vectors):
+    """Per-GraphsTuple totals: ``[sum(n_node_i), ...]`` (jraph batch offsets)."""
+    return concatenate([reshape(at_sum(s), (1,)) for s in size_vectors])
+
+
 def _batch_graphs(graphs: Sequence[GraphsTuple]) -> GraphsTuple:
-    """GraphsTuple ``__tree_batch__``: drop empties, offset senders/receivers."""
+    """Fieldwise concat, then offset senders/receivers per input GraphsTuple.
+
+    Offsets use ``sum(n_node)`` / ``sum(n_edge)`` of each input (jraph), not the
+    flattened per-component ``n_node`` vector — inputs may already be batched.
+    """
     graphs = [g for g in graphs if _n_graphs(g) > 0]
     if not graphs:
         raise ValueError("batch() requires at least one non-empty GraphsTuple")
-    offsets = np.cumsum([0] + [_sum_n_node(g) for g in graphs[:-1]]).tolist()
-    return GraphsTuple(
+    batched = GraphsTuple(
         n_node=batch([g.n_node for g in graphs], axis=0),
         n_edge=batch([g.n_edge for g in graphs], axis=0),
         nodes=batch([g.nodes for g in graphs], axis=0),
         edges=batch([g.edges for g in graphs], axis=0),
         globals=batch([g.globals for g in graphs], axis=0),
-        senders=_concat_maybe([_offset_index(g.senders, o) for g, o in zip(graphs, offsets)]),
-        receivers=_concat_maybe(
-            [_offset_index(g.receivers, o) for g, o in zip(graphs, offsets)]
-        ),
+        senders=_concat_maybe([g.senders for g in graphs]),
+        receivers=_concat_maybe([g.receivers for g in graphs]),
+    )
+    if batched.senders is None:
+        return batched
+    node_totals = _batch_size_totals([g.n_node for g in graphs])
+    edge_totals = _batch_size_totals([g.n_edge for g in graphs])
+    return batched._replace(
+        senders=batch_ids(batched.senders, node_totals, edge_totals),
+        receivers=batch_ids(batched.receivers, node_totals, edge_totals),
     )
 
 
@@ -281,13 +303,6 @@ def batch_np(graphs: Sequence[GraphsTuple]) -> GraphsTuple:
     return batch([_graph_to_numpy(g) for g in graphs])
 
 
-def _offset_index(index, offset: int):
-    if index is None:
-        return None
-    xp = array_namespace(index)
-    return index + xp.asarray(offset, dtype=index.dtype)
-
-
 def _concat_maybe(arrays):
     if all(a is None for a in arrays):
         return None
@@ -295,77 +310,36 @@ def _concat_maybe(arrays):
     return concatenate(present, axis=0)
 
 
-def _empty_leading(feat, units, axis: int = 0):
-    """Zero-length leading slice of ``feat`` (a 0-node / 0-edge graph)."""
-    if not units:
-        return feat
-    proto = units[0]
-
-    def zero(leaf):
-        ndim = int(leaf.ndim)
-        ax = axis if axis >= 0 else axis + ndim
-        sl = [slice(None)] * ndim
-        sl[ax] = slice(0, 0)
-        return leaf[tuple(sl)]
-
-    return tree.map(zero, proto)
-
-
-def _rebatch_groups(units, sizes, *, empty, axis: int = 0):
-    """Reassemble unit slices into chunks of ``sizes`` (GraphsTuple n_node / n_edge)."""
-    out = []
-    i = 0
-    for n in sizes:
-        chunk = units[i : i + n]
-        i += n
-        if n == 0:
-            out.append(empty)
-        elif n == 1:
-            out.append(chunk[0])
-        else:
-            out.append(batch(chunk, axis=axis))
-    return out
-
-
-def _partition_feature(feat, sizes, axis: int = 0):
-    """Split a batched feature nest into per-graph pieces via unbatch + batch."""
-    if feat is None:
-        return [None] * len(sizes)
-    units = unbatch(feat, axis=axis)
-    return _rebatch_groups(
-        units, sizes, empty=_empty_leading(feat, units, axis), axis=axis
-    )
-
-
 def _unbatch_graphs(graph: GraphsTuple) -> List[GraphsTuple]:
-    n_node_i = [int(v) for v in _np_vec(graph.n_node).tolist()]
-    n_edge_i = [int(v) for v in _np_vec(graph.n_edge).tolist()]
-    node_offsets = np.cumsum(n_node_i[:-1]).astype(int).tolist() if len(n_node_i) > 1 else []
+    """Split features by lengths, then zip into graphs."""
+    n_graphs = _host_concrete_int(shape(graph.n_node)[0])
+    if not n_graphs:
+        return []
 
-    all_nodes = _partition_feature(graph.nodes, n_node_i)
-    all_edges = _partition_feature(graph.edges, n_edge_i)
-    all_globals = _partition_feature(graph.globals, [1] * len(n_node_i))
-    all_senders = _partition_feature(graph.senders, n_edge_i)
-    all_receivers = _partition_feature(graph.receivers, n_edge_i)
-
-    for graph_index in range(1, len(n_node_i)):
-        off = int(node_offsets[graph_index - 1])
-        if all_senders[graph_index] is not None:
-            all_senders[graph_index] = all_senders[graph_index] - off
-        if all_receivers[graph_index] is not None:
-            all_receivers[graph_index] = all_receivers[graph_index] - off
+    ones_g = ones((n_graphs,), dtype=graph.n_node.dtype, like=graph.n_node)
+    nodes = split_by_lengths(graph.nodes, graph.n_node)
+    edges = split_by_lengths(graph.edges, graph.n_edge)
+    if graph.senders is None:
+        senders = [None] * n_graphs
+        receivers = [None] * n_graphs
+    else:
+        senders = unbatch_ids(graph.senders, graph.n_node, graph.n_edge)
+        receivers = unbatch_ids(graph.receivers, graph.n_node, graph.n_edge)
+    globals_ = split_by_lengths(graph.globals, ones_g)
+    n_node = split_by_lengths(graph.n_node, ones_g)
+    n_edge = split_by_lengths(graph.n_edge, ones_g)
 
     out = []
-    for i in range(len(n_node_i)):
+    for i in range(n_graphs):
         out.append(
             GraphsTuple(
-                nodes=all_nodes[i],
-                edges=all_edges[i],
-                receivers=all_receivers[i],
-                senders=all_senders[i],
-                globals=all_globals[i],
-                n_node=graph.n_node[i : i + 1],
-                n_edge=graph.n_edge[i : i + 1],
+                nodes=nodes[i],
+                edges=edges[i],
+                receivers=receivers[i],
+                senders=senders[i],
+                globals=globals_[i],
+                n_node=n_node[i],
+                n_edge=n_edge[i],
             )
         )
     return out
