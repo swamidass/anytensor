@@ -1,10 +1,19 @@
 """Heterogeneous message passing (DGL-style multi-relation updates).
 
-Per relation: gather source node features along ``senders`` (``copy_u``), then
-segment-reduce onto ``receivers``. Optional per-edge attention (same pattern as
-:func:`anytensor.jraph.GraphNetwork`) weights messages before the reduce.
-Across relations that share a destination ntype: fuse with an explicit
-cross-reducer (order-independent).
+Per relation: optionally map **source nodes** (``src_apply``, size ``N_src``),
+gather along ``senders``, then segment-reduce onto ``receivers``. Optional
+per-edge attention (same pattern as :func:`anytensor.jraph.GraphNetwork`)
+weights messages before the reduce. Across relations that share a destination
+ntype: fuse with an explicit cross-reducer (order-independent).
+
+Efficiency
+----------
+Prefer ``src_apply`` + :func:`copy_u_message` for source-only linears so the
+map runs on ``N_src`` before gather. Applying inside ``message_fn`` after
+gather costs ``E`` rows — usually worse when ``E > N``, sometimes better on
+extremely sparse graphs or when the map needs edge/destination features
+(CompGCN). Keep etypes separate (different edge counts; no interleaved
+multi-relation edge tensor).
 
 DGL ``multi_update_all`` alignment
 ---------------------------------
@@ -25,13 +34,12 @@ With ``copy_u_message`` (DGL ``fn.copy_u``) or ``u_mul_e``-style messages:
 
 Attention (GAT / HAN node-level / HGT)
 --------------------------------------
-Optional ``attention_logit_fn`` + ``attention_reduce_fn`` on a relation mirror
-homo :func:`~anytensor.jraph.GraphNetwork` attention: logits →
-:func:`~anytensor.segment.segment_softmax` on ``receivers`` → weight messages →
-segment reduce (typically ``sum``). That is the same neighborhood-softmax idea
-as Graph Attention Networks (GAT; Veličković et al.), and is what Heterogeneous
-Graph Attention Network (HAN) node-level attention and Heterogeneous Graph
-Transformer (HGT) typed attention build on. See :mod:`anytensor.hetero.models`.
+Optional ``attention_logit_fn`` + ``attention_reduce_fn`` on a relation use
+:func:`~anytensor.segment.segment_attention` (or the same pieces:
+:func:`~anytensor.segment.segment_softmax` on ``receivers``, weight messages,
+segment reduce). That is **vectorized** over edges — no Python loop over
+messages. Schema-sized Python loops over etypes only (typically a handful of
+relations) are unrolled at compile time. See :mod:`anytensor.hgraph.models`.
 """
 
 from __future__ import annotations
@@ -42,6 +50,7 @@ from anytensor import tree
 from anytensor.core import maximum, minimum, shape, stack, take
 from anytensor.core import _host_concrete_int
 from anytensor.segment import (
+    segment_attention,
     segment_max_or_constant,
     segment_mean,
     segment_min_or_constant,
@@ -63,29 +72,63 @@ _SEGMENT_REDUCE = {
 }
 
 ArrayTree = Any
+# message_fn(src, dst, edges) -> messages  (all leading axis = E edges; see RelationSpec)
 MessageFn = Callable[[ArrayTree, ArrayTree, Optional[ArrayTree]], ArrayTree]
-# (src, dst, edges) -> per-edge logits (broadcastable against messages).
+# Same gathered (src, dst, edges) layout as message_fn; returns per-edge logits.
 AttentionLogitFn = Callable[[ArrayTree, ArrayTree, Optional[ArrayTree]], ArrayTree]
 # (messages, softmax_weights) -> weighted messages.
 AttentionReduceFn = Callable[[ArrayTree, ArrayTree], ArrayTree]
+# src_apply(nodes[src]) -> transformed source pool (leading axis = N_src).
+SrcApplyFn = Callable[[ArrayTree], ArrayTree]
 
 
 class RelationSpec(NamedTuple):
     """Per-relation update for :func:`multi_update_all`.
 
     Attributes:
-        message_fn: ``(src, dst, edges) -> messages``.
+        message_fn: Callable ``(src, dst, edges) -> messages``.
+
+            All three arguments are **edge-aligned** (leading size ``E`` for
+            this etype), after gather:
+
+            * ``src`` — source node features indexed by ``senders``
+              (``take(nodes[src_ntype], senders)``). If :attr:`src_apply` is
+              set, this is ``take(src_apply(nodes[src_ntype]), senders)``
+              instead.
+            * ``dst`` — destination node features indexed by ``receivers``.
+            * ``edges`` — ``graph.edges[etype]``, or ``None`` if that slot is
+              empty. When present, leading size should match ``E``.
+
+            Return value is the per-edge message tensor (or pytree of
+            tensors), leading size ``E``, later segment-reduced onto
+            destinations. Default helper: :func:`copy_u_message` (returns
+            ``src``, ignores ``dst`` / ``edges``).
+
+            Prefer :attr:`src_apply` + :func:`copy_u_message` for
+            source-only linears (map on ``N_src`` before gather). Use
+            ``message_fn`` when the map needs ``dst`` or ``edges``, or when
+            you deliberately want an edge-sized map (e.g. ``E ≪ N``).
+
         reduce: Segment reduce after optional attention (``sum`` with attention).
-        attention_logit_fn: Optional ``(src, dst, edges) -> logits``.
+        attention_logit_fn: Optional ``(src, dst, edges) -> logits`` with the
+            **same gathered layout** as ``message_fn``. Logits use the **raw**
+            source pool (not ``src_apply`` output) so scoring stays on
+            pre-message features. Broadcastable against messages (often
+            ``(E,)`` or ``(E, 1)``).
         attention_reduce_fn: Optional ``(messages, weights) -> messages``.
             Defaults to element-wise multiply when only ``attention_logit_fn``
             is set.
+        src_apply: Optional ``(nodes[src_ntype]) -> …`` on the **node** pool
+            (leading size ``N_src``) **before** gather. Only affects the
+            ``src`` argument passed into ``message_fn`` / ``copy_u``; does not
+            change ``attention_logit_fn``'s ``src``.
     """
 
     message_fn: MessageFn
     reduce: ReduceName = "sum"
     attention_logit_fn: Optional[AttentionLogitFn] = None
     attention_reduce_fn: Optional[AttentionReduceFn] = None
+    src_apply: Optional[SrcApplyFn] = None
 
 
 def attention_weight_messages(messages: ArrayTree, weights: ArrayTree) -> ArrayTree:
@@ -115,7 +158,12 @@ def _take_nodes(nodes, index):
 
 
 def copy_u_message(src_nodes, dst_nodes, edges):
-    """DGL ``fn.copy_u``: message is the source node feature (ignore dst/edge)."""
+    """DGL ``fn.copy_u``: message is the gathered source feature.
+
+    Signature matches :data:`MessageFn`: ``(src, dst, edges) -> messages``.
+    Returns ``src``; ``dst`` and ``edges`` are ignored. Pair with
+    :attr:`RelationSpec.src_apply` for source linears on nodes.
+    """
     del dst_nodes, edges
     return src_nodes
 
@@ -198,6 +246,7 @@ def relation_mailbox(
     reduce: ReduceName = "sum",
     attention_logit_fn: Optional[AttentionLogitFn] = None,
     attention_reduce_fn: Optional[AttentionReduceFn] = None,
+    src_apply: Optional[SrcApplyFn] = None,
 ):
     """Per-relation messages reduced onto destination nodes (DGL type-wise step).
 
@@ -205,12 +254,31 @@ def relation_mailbox(
     ``fn.sum``/``fn.mean``/``fn.max``/``fn.min``. Empty destinations are ``0``
     (including max/min via ``segment_*_or_constant``).
 
-    When ``attention_logit_fn`` is set, logits are softmax-normalized per
-    destination (``receivers``) and ``attention_reduce_fn`` weights messages
-    before the segment reduce — same flow as
-    :func:`anytensor.jraph.GraphNetwork` attention. Omit
-    ``attention_reduce_fn`` to default to :func:`attention_weight_messages`.
-    With attention, prefer ``reduce="sum"``.
+    ``message_fn`` signature
+        ``message_fn(src, dst, edges) -> messages`` where every argument is
+        **edge-aligned** (leading size ``E``):
+
+        * ``src`` — ``take`` of the source node pool along ``senders``
+          (after :attr:`~RelationSpec.src_apply` when that is set).
+        * ``dst`` — ``take`` of the destination node pool along ``receivers``.
+        * ``edges`` — ``graph.edges[etype]`` or ``None``.
+
+        Return per-edge messages (leading ``E``) for the segment reduce /
+        attention path. See :class:`RelationSpec` for the full contract.
+
+    When ``attention_logit_fn`` is set, neighborhood attention is applied with
+    :func:`~anytensor.segment.segment_attention` when using the default
+    weight-and-sum path (``attention_reduce_fn`` omitted or
+    :func:`attention_weight_messages` with ``reduce="sum"``). Custom
+    ``attention_reduce_fn`` still gets ``segment_softmax`` weights then your
+    reduce. Edge ops are vectorized (``take`` / ``segment_*``); there is no
+    Python loop over messages.
+
+    ``src_apply``, if set, transforms ``graph.nodes[src]`` **before** gather.
+    Use that for source-only linears (``src_apply=W`` + ``copy_u_message``)
+    so the matmul runs on ``N_src`` rather than ``E``. ``attention_logit_fn``
+    still receives gathered **raw** source features (``src_apply`` affects
+    messages only).
     """
     if etype not in graph.n_edge:
         raise KeyError(f"etype {etype!r} not in graph")
@@ -218,19 +286,37 @@ def relation_mailbox(
         raise ValueError(f"unknown reduce {reduce!r}")
     if attention_reduce_fn is not None and attention_logit_fn is None:
         raise ValueError("attention_logit_fn is required when attention_reduce_fn is set")
+    use_default_attn = attention_logit_fn is not None and (
+        attention_reduce_fn is None or attention_reduce_fn is attention_weight_messages
+    )
     if attention_logit_fn is not None and attention_reduce_fn is None:
         attention_reduce_fn = attention_weight_messages
 
     src, _rel, dst = etype
     receivers = graph.receivers[etype]
-    src_nodes = _take_nodes(graph.nodes[src], graph.senders[etype])
+    senders = graph.senders[etype]
+    src_pool = graph.nodes[src]
+    # Optional node-side map before gather (cheap when E > N for src linears).
+    msg_pool = src_apply(src_pool) if src_apply is not None else src_pool
+    src_for_msg = _take_nodes(msg_pool, senders)
+    # Attention scores stay on the raw source pool when src_apply is set.
+    src_for_logit = (
+        _take_nodes(src_pool, senders) if src_apply is not None else src_for_msg
+    )
     dst_nodes = _take_nodes(graph.nodes[dst], receivers)
     edges = graph.edges.get(etype)
-    messages = message_fn(src_nodes, dst_nodes, edges)
+    messages = message_fn(src_for_msg, dst_nodes, edges)
     num_dst = _leading(graph.nodes[dst])
 
     if attention_logit_fn is not None:
-        logits = attention_logit_fn(src_nodes, dst_nodes, edges)
+        logits = attention_logit_fn(src_for_logit, dst_nodes, edges)
+        if use_default_attn and reduce == "sum":
+            # Preferred path: one vectorized segment_attention per leaf.
+            return tree.map(
+                lambda m, logit: segment_attention(m, logit, receivers, num_dst),
+                messages,
+                logits,
+            )
         weights = tree.map(
             lambda logit: segment_softmax(logit, receivers, num_dst),
             logits,
@@ -252,17 +338,20 @@ def multi_update_all(
 ) -> HeteroGraphsTuple:
     """Multi-relation update aligned with DGL ``multi_update_all``.
 
-    Per etype: message + optional attention + segment-reduce onto destination
-    nodes. Then fuse mailboxes that share a destination ntype with
-    ``cross_reducer``.
+    Per etype: optional ``src_apply``, gather, ``message_fn(src, dst, edges)``,
+    optional attention, segment-reduce onto destinations. Then fuse mailboxes
+    that share a destination ntype with ``cross_reducer``.
 
     Args:
         graph: Heterogeneous graph(s).
         etype_dict: Optional map ``etype ->`` :class:`RelationSpec`,
             ``message_fn``, ``(message_fn, reduce)``, or
             ``(message_fn, reduce, attention_logit_fn, attention_reduce_fn)``.
-            Default: ``copy_u`` + ``reduce`` for every etype in ``etypes`` /
-            ``canonical_etypes()``.
+            A bare ``message_fn`` is ``(src, dst, edges) -> messages`` on
+            **gathered** edge-sized tensors (see :class:`RelationSpec`).
+            Prefer ``RelationSpec(message_fn=copy_u_message, src_apply=…)``
+            for source-only linears. Default: ``copy_u`` + ``reduce`` for
+            every etype in ``etypes`` / ``canonical_etypes()``.
         cross_reducer: Fuse per-relation mailboxes for the same destination
             ntype. ``sum`` / ``mean`` / ``max`` / ``min`` / ``stack`` match DGL
             when per-relation mailboxes match (see module docstring). ``stack``
@@ -294,6 +383,7 @@ def multi_update_all(
             reduce=spec.reduce,
             attention_logit_fn=spec.attention_logit_fn,
             attention_reduce_fn=spec.attention_reduce_fn,
+            src_apply=spec.src_apply,
         )
 
     new_nodes = dict(graph.nodes)

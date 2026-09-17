@@ -7,9 +7,9 @@
 - Graph batch: fieldwise concat, then offset send/recv ids from length
   vectors. Unbatch: ``split_by_lengths`` / ``unbatch_ids``, then zip into
   graphs.
-- ``anytensor.hetero`` MVP with ``HeteroGraphsTuple`` / ``SendRecvTuple``;
+- ``anytensor.hgraph`` MVP with ``HeteroGraphsTuple`` / ``SendRecvTuple``;
   batching requires matching keys (empty arrays, not ``None``).
-- ``anytensor.hetero.multi_update_all``: DGL-style per-relation ``copy_u`` +
+- ``anytensor.hgraph.multi_update_all``: DGL-style per-relation ``copy_u`` +
   segment reduce, optional attention (``segment_softmax``), then explicit
   cross-relation fuse (order-independent).
 - Hetero model zoo (``relational_graph_convolution``, ``hetero_sage``,

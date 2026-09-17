@@ -1,5 +1,5 @@
 from . import backends
-from . import hetero
+from . import hgraph
 from . import jraph
 from . import tree
 from .backends import get_backend
@@ -17,6 +17,7 @@ from .segment import (
     segment_variance,
     segment_normalize,
     segment_softmax,
+    segment_attention,
     segment_min_or_constant,
     segment_max_or_constant,
     partition_softmax,
@@ -114,7 +115,7 @@ except ImportError:  # pragma: no cover
 
 __all__ = [
     "backends",
-    "hetero",
+    "hgraph",
     "jraph",
     "tree",
     "get_backend",
@@ -152,6 +153,7 @@ __all__ = [
     "segment_variance",
     "segment_normalize",
     "segment_softmax",
+    "segment_attention",
     "segment_min_or_constant",
     "segment_max_or_constant",
     "partition_softmax",

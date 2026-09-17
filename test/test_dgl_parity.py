@@ -18,7 +18,7 @@ torch = pytest.importorskip("torch")
 
 from anytensor import jraph as atj
 from anytensor import tree
-from anytensor.hetero import HeteroGraphsTuple, copy_u_message, multi_update_all
+from anytensor.hgraph import HeteroGraphsTuple, copy_u_message, multi_update_all
 
 
 def _require_dgl():
@@ -280,7 +280,7 @@ def test_dgl_hetero_multi_update_all_cross_reducer_parity(cross_reducer):
 def test_dgl_hetero_per_relation_reduce_parity_dense(reduce):
     """Per-relation copy_u + reduce matches DGL when every dst has ≥1 edge."""
     import dgl.function as fn
-    from anytensor.hetero import relation_mailbox
+    from anytensor.hgraph import relation_mailbox
 
     et = ("a", "r", "b")
     # Both b nodes receive at least one message → max/min empties irrelevant.
@@ -318,7 +318,7 @@ def test_dgl_hetero_per_relation_reduce_parity_dense(reduce):
 def test_dgl_hetero_per_relation_reduce_parity_with_empties(reduce):
     """Per-relation copy_u + reduce matches DGL, including empty dst = 0."""
     import dgl.function as fn
-    from anytensor.hetero import relation_mailbox
+    from anytensor.hgraph import relation_mailbox
 
     et = ("a", "r", "b")
     g = HeteroGraphsTuple(

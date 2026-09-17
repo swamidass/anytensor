@@ -1,6 +1,6 @@
-# Hetero API
+# HGraph API
 
-Generated reference for heterogeneous graphs
+Generated reference for ``anytensor.hgraph`` — heterogeneous graphs
 ([`HeteroGraphsTuple`](index.md#data-model)), DGL-style
 `multi_update_all` with optional per-relation attention, and the model zoo
 (R-GCN, GraphSAGE, HAN, HGT, CompGCN — full names and papers in the
@@ -8,13 +8,13 @@ Generated reference for heterogeneous graphs
 
 Narrative: [Overview](index.md). Worked recipes: [Examples](examples.md).
 
-::: anytensor.hetero
+::: anytensor.hgraph
     options:
       members_order: source
       filters:
         - "!^_"
 
-::: anytensor.hetero.models
+::: anytensor.hgraph.models
     options:
       members_order: source
       filters:

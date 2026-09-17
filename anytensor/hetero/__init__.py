@@ -1,61 +1,19 @@
-"""Heterogeneous graph types and tree batch/unbatch hooks.
+"""Deprecated alias for :mod:`anytensor.hgraph`.
 
-Not part of the jraph-mirroring API. Import from here::
-
-    from anytensor.hetero import HeteroGraphsTuple, multi_update_all
-    from anytensor.hetero import relational_graph_convolution
+Import from ``anytensor.hgraph`` instead. This module re-exports the same
+public API and emits :class:`DeprecationWarning` on import.
 """
 
-from .graph import (
-    ArrayTree,
-    CanonicalEtype,
-    HeteroGraphsTuple,
-    Ntype,
-    SendRecvTuple,
-    graphs_tuple_as_send_recv,
-    key_schema,
-    schemas_equal,
-)
-from .message import (
-    AttentionLogitFn,
-    AttentionReduceFn,
-    MessageFn,
-    RelationSpec,
-    attention_weight_messages,
-    copy_u_message,
-    multi_update_all,
-    relation_mailbox,
-)
-from .models import (
-    comp_gcn,
-    gat_attention_logit,
-    han,
-    hetero_sage,
-    hgt,
-    relational_graph_convolution,
+from __future__ import annotations
+
+import warnings
+
+warnings.warn(
+    "anytensor.hetero is renamed to anytensor.hgraph; "
+    "import from anytensor.hgraph instead",
+    DeprecationWarning,
+    stacklevel=2,
 )
 
-__all__ = [
-    "ArrayTree",
-    "AttentionLogitFn",
-    "AttentionReduceFn",
-    "CanonicalEtype",
-    "HeteroGraphsTuple",
-    "MessageFn",
-    "Ntype",
-    "RelationSpec",
-    "SendRecvTuple",
-    "attention_weight_messages",
-    "comp_gcn",
-    "copy_u_message",
-    "gat_attention_logit",
-    "graphs_tuple_as_send_recv",
-    "han",
-    "hetero_sage",
-    "hgt",
-    "key_schema",
-    "multi_update_all",
-    "relation_mailbox",
-    "relational_graph_convolution",
-    "schemas_equal",
-]
+from anytensor.hgraph import *  # noqa: F403
+from anytensor.hgraph import __all__  # noqa: F401

@@ -1,4 +1,4 @@
-# Hetero examples
+# HGraph examples
 
 These recipes assume a `HeteroGraphsTuple` graph `g` is already built.
 Pass learnable maps as callables (`lambda x: x @ W`, a module `__call__`,
@@ -7,19 +7,64 @@ Pass learnable maps as callables (`lambda x: x @ W`, a module `__call__`,
 Overview and term definitions: [Heterogeneous graphs](index.md).
 API: [Hetero API](api.md).
 
-## Per-relation attention (kernel)
+## Reverse edges (materialize both directions)
 
-Before the named models, the shared primitive: score each edge, softmax
-**within each destination node’s neighborhood** (same idea as
-[Graph Attention Networks](https://arxiv.org/abs/1710.10903) / **GAT**,
-Veličković et al., ICLR 2018), weight messages, sum. Heterogeneous models
-such as HAN and HGT (below) reuse this per edge type.
+Stored etypes are directed. For message passing in both directions (or
+HAN-style meta-paths), add reverse relations with
+[`add_reverse_edges`](index.md#reverse-edges):
 
 ```python
 import numpy as np
-from anytensor.hetero import (
+from anytensor.hgraph import HeteroGraphsTuple, add_reverse_edges, multi_update_all
+
+writes = ("author", "writes", "paper")
+g = HeteroGraphsTuple(
+    nodes={
+        "author": np.ones((3, 2), dtype=np.float32),
+        "paper": np.ones((2, 2), dtype=np.float32),
+    },
+    edges={writes: None},
+    senders={writes: np.array([0, 1, 2])},
+    receivers={writes: np.array([0, 0, 1])},
+    n_node={"author": np.array([3]), "paper": np.array([2])},
+    n_edge={writes: np.array([3])},
+)
+g = add_reverse_edges(g, [writes], rev_relation="written_by")
+written_by = ("paper", "written_by", "author")
+assert list(g.senders[written_by]) == [0, 0, 1]
+assert list(g.receivers[written_by]) == [0, 1, 2]
+# Both directions are first-class keys for multi_update_all / zoo models.
+out = multi_update_all(g, {writes: lambda s, d, e: s, written_by: lambda s, d, e: s})
+assert out.nodes["paper"].shape == (2, 2)
+assert out.nodes["author"].shape == (3, 2)
+```
+
+`relation_view(..., reverse=True)` only aliases send/recv for inspection —
+it does **not** register a reverse etype.
+
+## Per-relation attention (kernel)
+
+Before the named models, the shared neighborhood primitive is
+`segment_attention`: score each edge, softmax
+**within each destination node’s neighborhood**, weight messages, sum.
+Same idea as
+[Graph Attention Networks](https://arxiv.org/abs/1710.10903) / **GAT**
+(Veličković et al., ICLR 2018). Run it **per etype** (relations have
+different edge counts — do not interleave into one multi-relation edge
+tensor). HAN/HGT reuse this for node-level attention; HAN semantic mixing
+over stacked path embeddings stays a dense `(n, R)` softmax.
+
+For the source linear, prefer `src_apply` (nodes) + `copy_u_message` over
+`message_fn=lambda s, d, e: s @ W` (edges). Full
+`message_fn(src, dst, edges)` contract:
+[message_fn signature](index.md#message_fn-signature).
+
+```python
+import numpy as np
+from anytensor.hgraph import (
     HeteroGraphsTuple,
     RelationSpec,
+    copy_u_message,
     gat_attention_logit,
     multi_update_all,
 )
@@ -43,7 +88,8 @@ out = multi_update_all(
     g,
     {
         writes: RelationSpec(
-            message_fn=lambda s, d, e: s @ W,
+            message_fn=copy_u_message,
+            src_apply=lambda h: h @ W,
             reduce="sum",
             attention_logit_fn=lambda s, d, e: gat_attention_logit(
                 s, d, lambda x: x @ a
@@ -63,7 +109,7 @@ relation, aggregate neighbors (usually mean), add a self/root term.
 
 ```python
 import numpy as np
-from anytensor.hetero import HeteroGraphsTuple, relational_graph_convolution
+from anytensor.hgraph import HeteroGraphsTuple, relational_graph_convolution
 
 writes = ("author", "writes", "paper")
 cites = ("paper", "cites", "paper")
@@ -108,7 +154,7 @@ hetero wrap runs that pattern per relation and sums relation mailboxes.
 
 ```python
 import numpy as np
-from anytensor.hetero import HeteroGraphsTuple, hetero_sage
+from anytensor.hgraph import HeteroGraphsTuple, hetero_sage
 
 writes = ("author", "writes", "paper")
 g = HeteroGraphsTuple(
@@ -149,7 +195,7 @@ assert out.nodes["paper"].shape == (2, 2)
 
 ```python
 import numpy as np
-from anytensor.hetero import HeteroGraphsTuple, gat_attention_logit, han
+from anytensor.hgraph import HeteroGraphsTuple, gat_attention_logit, han
 
 writes = ("author", "writes", "paper")
 cites = ("paper", "cites", "paper")
@@ -198,7 +244,7 @@ and edge-type matrices into those callables as needed.
 
 ```python
 import numpy as np
-from anytensor.hetero import HeteroGraphsTuple, hgt
+from anytensor.hgraph import HeteroGraphsTuple, hgt
 
 writes = ("author", "writes", "paper")
 g = HeteroGraphsTuple(
@@ -236,7 +282,7 @@ adds a self term. Edge features are required on every used etype.
 
 ```python
 import numpy as np
-from anytensor.hetero import HeteroGraphsTuple, comp_gcn
+from anytensor.hgraph import HeteroGraphsTuple, comp_gcn
 
 writes = ("author", "writes", "paper")
 g = HeteroGraphsTuple(

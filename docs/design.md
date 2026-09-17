@@ -44,7 +44,7 @@ Non-goals (for now): a RaggedTensor API, ONNX Runtime as a backend, or
 papering over every XLA vs eager disagreement. GraphsTuple lives in
 [`anytensor.jraph`](jraph/index.md) (jraph-compatible, any backend);
 heterogeneous graphs and their model zoo live in
-[`anytensor.hetero`](hetero/index.md); nested features use
+[`anytensor.hgraph`](hgraph/index.md); nested features use
 [`anytensor.tree`](tree/index.md).
 
 ---

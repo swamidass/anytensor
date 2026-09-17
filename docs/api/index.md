@@ -13,9 +13,9 @@ Generated from package docstrings with
 | [Optional imports](optional.md) | `module_if_loaded()` — already-imported extras, with callbacks |
 
 Graphs and nests have their own sections: [Tree](../tree/index.md),
-[Jraph](../jraph/index.md), [Hetero](../hetero/index.md) (API pages
+[Jraph](../jraph/index.md), [HGraph](../hgraph/index.md) (API pages
 [tree/api](../tree/api.md), [jraph/api](../jraph/api.md),
-[hetero/api](../hetero/api.md)).
+[hgraph/api](../hgraph/api.md)).
 
 Backends (`anytensor.backends`) are internal; use public helpers instead of
 `get_backend` unless you are extending the library.

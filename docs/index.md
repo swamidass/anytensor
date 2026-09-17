@@ -97,12 +97,8 @@ def neighbor_attention(messages, scores, dst_index, num_nodes: int):
     dst_index:(E,)     — destination node id for each edge
     num_nodes: int     — number of nodes (required shape-size)
     """
-    # LeakyReLU(0.2) without pulling in a framework nn module
-    alpha = at.where(scores > 0, scores, scores * 0.2)
-    alpha = at.segment_softmax(alpha, dst_index, num_nodes)
-    # weight messages, then sum into destination nodes
-    weighted = messages * alpha[:, None]
-    return at.segment_sum(weighted, dst_index, num_nodes)
+    scores = at.where(scores > 0, scores, scores * 0.2)
+    return at.segment_attention(messages, scores, dst_index, num_nodes)
 ```
 
 ### Same function, four backends
@@ -225,7 +221,7 @@ constant, or 0-d integral tensor scalar.
 
 - [Worked examples](examples.md) — pytest-verified GAT helper + jit/compile/script
 - [Jraph](jraph/index.md) — portable GraphsTuple / GraphNetwork (follows [jraph](https://github.com/google-deepmind/jraph))
-- [Hetero](hetero/index.md) — heterogeneous graphs (multi-type nodes/edges), attention, model zoo
+- [HGraph](hgraph/index.md) — heterogeneous graphs (multi-type nodes/edges), attention, model zoo
 - [Tree](tree/index.md) — portable `jax.tree` nests, pure Python + NumPy (graphs, and any structured record)
 - [Usage](usage.md) — promotion, segment helpers, `torch.compile`, typing
 - [Design](design.md) — principles, decisions, and what to expect on edges

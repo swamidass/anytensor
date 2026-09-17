@@ -17,10 +17,8 @@ import numpy as np
 
 
 def neighbor_attention(messages, scores, dst_index, num_nodes: int):
-    alpha = at.where(scores > 0, scores, scores * 0.2)
-    alpha = at.segment_softmax(alpha, dst_index, num_nodes)
-    weighted = messages * alpha[:, None]
-    return at.segment_sum(weighted, dst_index, num_nodes)
+    scores = at.where(scores > 0, scores, scores * 0.2)
+    return at.segment_attention(messages, scores, dst_index, num_nodes)
 
 
 messages = np.array(

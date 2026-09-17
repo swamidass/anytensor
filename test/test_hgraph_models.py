@@ -5,11 +5,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from anytensor.hetero import (
+from anytensor.hgraph import (
     HeteroGraphsTuple,
     RelationSpec,
     attention_weight_messages,
     comp_gcn,
+    copy_u_message,
     gat_attention_logit,
     han,
     hetero_sage,
@@ -18,7 +19,7 @@ from anytensor.hetero import (
     relation_mailbox,
     relational_graph_convolution,
 )
-from anytensor.segment import segment_softmax, segment_sum
+from anytensor.segment import segment_attention, segment_softmax, segment_sum
 
 
 def _author_paper():
@@ -64,6 +65,42 @@ def _lin(w):
     return apply
 
 
+def _legacy_segment_attention(messages, logits, segment_ids, num_segments):
+    """Pre-refactor hand-roll: segment_softmax → multiply → segment_sum."""
+    weights = segment_softmax(logits, segment_ids, num_segments)
+    w = weights
+    while getattr(w, "ndim", 0) < getattr(messages, "ndim", 0):
+        w = np.expand_dims(w, axis=-1)
+    return segment_sum(messages * w, segment_ids, num_segments)
+
+
+def _legacy_dense_softmax_axis1(score):
+    """Pre-refactor HAN semantic softmax over dense axis 1."""
+    m = np.max(score, axis=1, keepdims=True)
+    e = np.exp(score - m)
+    return e / np.sum(e, axis=1, keepdims=True)
+
+
+def test_src_apply_before_gather_matches_edge_message_linear():
+    """``src_apply`` then gather ≡ gather then linear (row-wise maps)."""
+    g, writes, _ = _author_paper()
+    W = np.asarray([[1.0, 2.0], [0.0, 1.0]], dtype=np.float32)
+
+    def apply(x):
+        return x @ W
+
+    before = relation_mailbox(
+        g, writes, message_fn=copy_u_message, src_apply=apply, reduce="sum"
+    )
+
+    def msg_after(src, dst, edges):
+        del dst, edges
+        return apply(src)
+
+    after = relation_mailbox(g, writes, message_fn=msg_after, reduce="sum")
+    np.testing.assert_allclose(before, after, rtol=1e-5, atol=1e-6)
+
+
 def test_relation_mailbox_attention_matches_manual_softmax():
     g, writes, _ = _author_paper()
 
@@ -73,7 +110,8 @@ def test_relation_mailbox_attention_matches_manual_softmax():
 
     def logit(src, dst, edges):
         del dst, edges
-        return src[:, :1]
+        # Non-uniform logits so softmax is nontrivial.
+        return src[:, :1] * 2.0 - 0.25
 
     mail = relation_mailbox(
         g,
@@ -83,9 +121,12 @@ def test_relation_mailbox_attention_matches_manual_softmax():
         attention_logit_fn=logit,
     )
     src = g.nodes["author"][g.senders[writes]]
-    weights = segment_softmax(src[:, :1], g.receivers[writes], 2)
-    expected = segment_sum(src * weights, g.receivers[writes], 2)
-    np.testing.assert_allclose(mail, expected, rtol=1e-5, atol=1e-6)
+    logits = src[:, :1] * 2.0 - 0.25
+    expected_helper = segment_attention(src, logits, g.receivers[writes], 2)
+    expected_legacy = _legacy_segment_attention(src, logits, g.receivers[writes], 2)
+    np.testing.assert_allclose(mail, expected_helper, rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(mail, expected_legacy, rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(expected_helper, expected_legacy, rtol=1e-5, atol=1e-6)
 
 
 def test_multi_update_all_relation_spec_attention():
@@ -184,7 +225,7 @@ def test_rgcn_shapes_and_values():
     assert out.nodes["author"].shape == (3, 2)
 
 
-def test_heterosage_concat_combine():
+def test_hgraphsage_concat_combine():
     g, writes, cites = _author_paper()
     rel = {
         writes: _lin(np.eye(2, dtype=np.float32)),
@@ -252,6 +293,64 @@ def test_han_node_and_semantic_attention():
     )
     assert out.nodes["paper"].shape == (2, 2)
     assert np.all(np.isfinite(out.nodes["paper"]))
+
+
+def test_han_matches_legacy_dense_semantic_softmax():
+    """HAN semantic path stays dense and matches the frozen axis-1 softmax."""
+    g, writes, cites = _author_paper()
+    W = np.eye(2, dtype=np.float32)
+    q = np.asarray([1.5, -0.5], dtype=np.float32)
+
+    def logit_writes(src, dst, edges):
+        del dst, edges
+        return src[:, :1] * 2.0 + 0.5
+
+    def logit_cites(src, dst, edges):
+        del dst, edges
+        return src[:, :1] - 1.0
+
+    got = han(
+        g,
+        [writes, cites],
+        {writes: _lin(W), cites: _lin(W)},
+        {writes: logit_writes, cites: logit_cites},
+        _lin(W),
+        q,
+        node_activation=lambda x: x,
+        semantic_activation=lambda x: x,
+    )
+
+    # Oracle: per-etype segment attention (legacy hand-roll), stack, dense semantic.
+    def legacy_mailbox(etype, logit_fn):
+        src = g.nodes[etype[0]][g.senders[etype]]
+        dst = g.nodes[etype[2]][g.receivers[etype]]
+        messages = src @ W
+        logits = logit_fn(src, dst, g.edges.get(etype))
+        num_dst = g.nodes[etype[2]].shape[0]
+        return _legacy_segment_attention(
+            messages, logits, g.receivers[etype], num_dst
+        )
+
+    h_stack = np.stack(
+        [legacy_mailbox(writes, logit_writes), legacy_mailbox(cites, logit_cites)],
+        axis=1,
+    )
+    n, r, d = h_stack.shape
+    flat = h_stack.reshape(n * r, d)
+    proj = (flat @ W).reshape(n, r, -1)
+    score = np.sum(proj * q, axis=-1)
+    alpha = _legacy_dense_softmax_axis1(score)
+    expected = np.sum(h_stack * alpha[..., None], axis=1)
+
+    np.testing.assert_allclose(got.nodes["paper"], expected, rtol=1e-5, atol=1e-6)
+
+    # Math-only check: dense mix ≡ segment_attention on a flattened view,
+    # but the implementation must not take that copy-heavy route.
+    path_ids = np.repeat(np.arange(n, dtype=np.int32), r)
+    via_segment = segment_attention(
+        flat, score.reshape(n * r), path_ids, n
+    )
+    np.testing.assert_allclose(expected, via_segment, rtol=1e-5, atol=1e-6)
 
 
 def test_han_defaults_and_empty_reject():
