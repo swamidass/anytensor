@@ -23,8 +23,8 @@ rate movies. [DGL](https://www.dgl.ai/)’s
 [`multi_update_all`](https://docs.dgl.ai/generated/dgl.DGLGraph.multi_update_all.html)
 pattern — **per-relation message + reduce**, then an explicit
 **cross-relation fuse** — is the portable core. This module follows that
-shape on AnyTensor primitives (`take`, `segment_*`, optional
-`segment_softmax` attention).
+shape on AnyTensor primitives (`take`, `segment_*`, and
+`segment_attention` for neighborhood attention).
 
 Nested features use [`anytensor.tree`](../tree/index.md). Batching is
 `tree.batch` / `tree.unbatch` via `HeteroGraphsTuple.__tree_batch__`
@@ -48,10 +48,13 @@ source node type, relation name, destination node type.
 
 1. Gather source features along `senders` (and destination features along
    `receivers` when needed).
-2. Optional **attention**: score each edge, normalize with
-   `segment_softmax` grouped by destination (`receivers`), weight messages.
-3. **Segment reduce** onto destinations (`sum` / `mean` / `max` / `min`).
-   Nodes with no incoming edges of that type get `0`.
+2. Optional **attention**: score each edge, then
+   `segment_attention` (softmax within each destination’s
+   neighborhood + weighted `segment_sum`). Edge work is vectorized — there
+   is **no Python loop over messages**. Schema-sized loops over etypes only
+   (a handful of relations) are fine under `jax.jit` / `tf.function`.
+3. **Segment reduce** onto destinations (`sum` / `mean` / `max` / `min`)
+   when attention is off. Nodes with no incoming edges of that type get `0`.
 
 `multi_update_all` runs many etypes, then fuses mailboxes that share a
 destination ntype with a **cross-reducer** (`sum` / `mean` / `max` /
@@ -61,11 +64,15 @@ at each destination node. `stack` yields shape
 needs to attend **across relations** (see HAN below).
 
 Per-relation attention matches the optional attention path on homo
-[`GraphNetwork`](../jraph/index.md) (same `segment_softmax` idea as
+[`GraphNetwork`](../jraph/index.md) via the shared
+`segment_attention` helper (same idea as
 [Graph Attention Networks](https://arxiv.org/abs/1710.10903) / GAT). That
 is what lets this stack express **Heterogeneous Graph Attention Network**
 (HAN) node-level attention and **Heterogeneous Graph Transformer** (HGT)
-typed attention.
+typed attention. HAN **semantic** attention (mixing stacked path
+embeddings) also uses `segment_attention` — treating the `R` meta-path
+slots per node as a dense segment group — not a separate hand-rolled
+softmax.
 
 ## Model zoo
 
@@ -78,7 +85,7 @@ pieces — your framework owns the weights (`lambda x: x @ W`, module
 |---|---|---|
 | `relational_graph_convolution` | **R-GCN** (Relational Graph Convolutional Network) — [Schlichtkrull et al., ESWC 2018](https://arxiv.org/abs/1703.06103) | One linear per relation, mean/sum over neighbors, plus a self term |
 | `hetero_sage` | Heterogeneous **GraphSAGE** — [Hamilton et al., NeurIPS 2017](https://arxiv.org/abs/1706.02216) | Mean-aggregate neighbors, concat with self, one combine linear |
-| `han` | **HAN** (Heterogeneous Graph Attention Network) — [Wang et al., WWW 2019](https://arxiv.org/abs/1903.07293) | Attention over neighbors on each meta-path/etype, then attention over those path embeddings (`stack`) |
+| `han` | **HAN** (Heterogeneous Graph Attention Network) — [Wang et al., WWW 2019](https://arxiv.org/abs/1903.07293) | `segment_attention` over neighbors on each meta-path/etype, then `segment_attention` over stacked path embeddings (`stack`) |
 | `hgt` | **HGT** (Heterogeneous Graph Transformer) — [Hu et al., WWW 2020](https://arxiv.org/abs/2003.01332) | Type-aware attention scores and messages, then a target-type output map |
 | `comp_gcn` | **CompGCN** (Composition-based Multi-Relational GCN) — [Vashishth et al., ICLR 2020](https://arxiv.org/abs/1911.03082) | Compose source features with edge features (`mult` or `sum`), then relation linear |
 

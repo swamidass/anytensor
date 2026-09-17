@@ -368,6 +368,36 @@ def segment_softmax(logits: SegmentValues, segment_ids: SegmentIds, num_segments
     return exps / normalizers
 
 
+def segment_attention(
+    messages: SegmentValues,
+    logits: SegmentValues,
+    segment_ids: SegmentIds,
+    num_segments: ShapeSize,
+    sorted: bool = False,
+) -> SegmentOut:
+    """Neighborhood attention via :func:`segment_softmax` + :func:`segment_sum`.
+
+    Vectorized GAT-style step (no Python loop over edges):
+
+    1. ``weights = segment_softmax(logits, segment_ids, num_segments)``
+    2. Broadcast-multiply onto ``messages``
+    3. ``segment_sum`` back onto destinations
+
+    ``messages`` is typically ``(n_edges, ...)``; ``logits`` is ``(n_edges,)``
+    or ``(n_edges, 1)`` (or any shape that broadcasts with ``messages`` after
+    softmax). Used by :func:`anytensor.hetero.relation_mailbox` and the docs
+    neighbor-attention recipes.
+    """
+    num_segments = _normalize_shape_dim(num_segments)
+    weights = segment_softmax(logits, segment_ids, num_segments, sorted=sorted)
+    xp = array_namespace(messages, weights)
+    w = weights
+    # Expand trailing dims so (E,) or (E, 1) broadcasts with (E, d, ...)
+    while getattr(w, "ndim", 0) < getattr(messages, "ndim", 0):
+        w = xp.expand_dims(w, axis=-1)
+    return segment_sum(messages * w, segment_ids, num_segments, sorted=sorted)
+
+
 def _replace_empty_with_constant(aggregated, segment_ids, num_segments, constant, sorted: bool = False):
     counts = segment_count(segment_ids, num_segments, sorted=sorted)
     xp = array_namespace(aggregated, counts)

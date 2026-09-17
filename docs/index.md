@@ -97,12 +97,8 @@ def neighbor_attention(messages, scores, dst_index, num_nodes: int):
     dst_index:(E,)     — destination node id for each edge
     num_nodes: int     — number of nodes (required shape-size)
     """
-    # LeakyReLU(0.2) without pulling in a framework nn module
-    alpha = at.where(scores > 0, scores, scores * 0.2)
-    alpha = at.segment_softmax(alpha, dst_index, num_nodes)
-    # weight messages, then sum into destination nodes
-    weighted = messages * alpha[:, None]
-    return at.segment_sum(weighted, dst_index, num_nodes)
+    scores = at.where(scores > 0, scores, scores * 0.2)
+    return at.segment_attention(messages, scores, dst_index, num_nodes)
 ```
 
 ### Same function, four backends

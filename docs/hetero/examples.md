@@ -9,11 +9,13 @@ API: [Hetero API](api.md).
 
 ## Per-relation attention (kernel)
 
-Before the named models, the shared primitive: score each edge, softmax
-**within each destination node’s neighborhood** (same idea as
-[Graph Attention Networks](https://arxiv.org/abs/1710.10903) / **GAT**,
-Veličković et al., ICLR 2018), weight messages, sum. Heterogeneous models
-such as HAN and HGT (below) reuse this per edge type.
+Before the named models, the shared primitive is
+`segment_attention`: score each edge, softmax
+**within each destination node’s neighborhood**, weight messages, sum.
+Same idea as
+[Graph Attention Networks](https://arxiv.org/abs/1710.10903) / **GAT**
+(Veličković et al., ICLR 2018). Heterogeneous models such as HAN and HGT
+(below) reuse this per edge type — do not hand-roll a parallel softmax.
 
 ```python
 import numpy as np

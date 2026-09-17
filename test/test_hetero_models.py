@@ -18,7 +18,7 @@ from anytensor.hetero import (
     relation_mailbox,
     relational_graph_convolution,
 )
-from anytensor.segment import segment_softmax, segment_sum
+from anytensor.segment import segment_attention, segment_softmax, segment_sum
 
 
 def _author_paper():
@@ -83,9 +83,11 @@ def test_relation_mailbox_attention_matches_manual_softmax():
         attention_logit_fn=logit,
     )
     src = g.nodes["author"][g.senders[writes]]
+    expected = segment_attention(src, src[:, :1], g.receivers[writes], 2)
     weights = segment_softmax(src[:, :1], g.receivers[writes], 2)
-    expected = segment_sum(src * weights, g.receivers[writes], 2)
+    expected_manual = segment_sum(src * weights, g.receivers[writes], 2)
     np.testing.assert_allclose(mail, expected, rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(mail, expected_manual, rtol=1e-5, atol=1e-6)
 
 
 def test_multi_update_all_relation_spec_attention():

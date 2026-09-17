@@ -25,13 +25,12 @@ With ``copy_u_message`` (DGL ``fn.copy_u``) or ``u_mul_e``-style messages:
 
 Attention (GAT / HAN node-level / HGT)
 --------------------------------------
-Optional ``attention_logit_fn`` + ``attention_reduce_fn`` on a relation mirror
-homo :func:`~anytensor.jraph.GraphNetwork` attention: logits →
-:func:`~anytensor.segment.segment_softmax` on ``receivers`` → weight messages →
-segment reduce (typically ``sum``). That is the same neighborhood-softmax idea
-as Graph Attention Networks (GAT; Veličković et al.), and is what Heterogeneous
-Graph Attention Network (HAN) node-level attention and Heterogeneous Graph
-Transformer (HGT) typed attention build on. See :mod:`anytensor.hetero.models`.
+Optional ``attention_logit_fn`` + ``attention_reduce_fn`` on a relation use
+:func:`~anytensor.segment.segment_attention` (or the same pieces:
+:func:`~anytensor.segment.segment_softmax` on ``receivers``, weight messages,
+segment reduce). That is **vectorized** over edges — no Python loop over
+messages. Schema-sized Python loops over etypes only (typically a handful of
+relations) are unrolled at compile time. See :mod:`anytensor.hetero.models`.
 """
 
 from __future__ import annotations
@@ -42,6 +41,7 @@ from anytensor import tree
 from anytensor.core import maximum, minimum, shape, stack, take
 from anytensor.core import _host_concrete_int
 from anytensor.segment import (
+    segment_attention,
     segment_max_or_constant,
     segment_mean,
     segment_min_or_constant,
@@ -205,12 +205,13 @@ def relation_mailbox(
     ``fn.sum``/``fn.mean``/``fn.max``/``fn.min``. Empty destinations are ``0``
     (including max/min via ``segment_*_or_constant``).
 
-    When ``attention_logit_fn`` is set, logits are softmax-normalized per
-    destination (``receivers``) and ``attention_reduce_fn`` weights messages
-    before the segment reduce — same flow as
-    :func:`anytensor.jraph.GraphNetwork` attention. Omit
-    ``attention_reduce_fn`` to default to :func:`attention_weight_messages`.
-    With attention, prefer ``reduce="sum"``.
+    When ``attention_logit_fn`` is set, neighborhood attention is applied with
+    :func:`~anytensor.segment.segment_attention` when using the default
+    weight-and-sum path (``attention_reduce_fn`` omitted or
+    :func:`attention_weight_messages` with ``reduce="sum"``). Custom
+    ``attention_reduce_fn`` still gets ``segment_softmax`` weights then your
+    reduce. Edge ops are vectorized (``take`` / ``segment_*``); there is no
+    Python loop over messages.
     """
     if etype not in graph.n_edge:
         raise KeyError(f"etype {etype!r} not in graph")
@@ -218,6 +219,9 @@ def relation_mailbox(
         raise ValueError(f"unknown reduce {reduce!r}")
     if attention_reduce_fn is not None and attention_logit_fn is None:
         raise ValueError("attention_logit_fn is required when attention_reduce_fn is set")
+    use_default_attn = attention_logit_fn is not None and (
+        attention_reduce_fn is None or attention_reduce_fn is attention_weight_messages
+    )
     if attention_logit_fn is not None and attention_reduce_fn is None:
         attention_reduce_fn = attention_weight_messages
 
@@ -231,6 +235,13 @@ def relation_mailbox(
 
     if attention_logit_fn is not None:
         logits = attention_logit_fn(src_nodes, dst_nodes, edges)
+        if use_default_attn and reduce == "sum":
+            # Preferred path: one vectorized segment_attention per leaf.
+            return tree.map(
+                lambda m, logit: segment_attention(m, logit, receivers, num_dst),
+                messages,
+                logits,
+            )
         weights = tree.map(
             lambda logit: segment_softmax(logit, receivers, num_dst),
             logits,
