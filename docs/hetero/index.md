@@ -49,8 +49,8 @@ source node type, relation name, destination node type.
 1. Optional **`src_apply`** on `graph.nodes[src]` (size `N_src`).
 2. Gather source features along `senders` (and destination features along
    `receivers` when needed).
-3. Optional **`message_fn(src, dst, edges)`** on those **edge-sized** tensors
-   (default `copy_u` = return gathered source).
+3. **`message_fn(src, dst, edges) -> messages`** on those **edge-sized**
+   tensors (default `copy_u_message` returns `src`).
 4. Optional **attention**: score each edge, then
    `segment_attention` (softmax within each destination’s
    neighborhood + weighted `segment_sum`). Edge work is vectorized — there
@@ -58,6 +58,29 @@ source node type, relation name, destination node type.
    (a handful of relations) are fine under `jax.jit` / `tf.function`.
 5. **Segment reduce** onto destinations (`sum` / `mean` / `max` / `min`)
    when attention is off. Nodes with no incoming edges of that type get `0`.
+
+### `message_fn` signature
+
+```text
+message_fn(src, dst, edges) -> messages
+```
+
+Every argument is **edge-aligned** for that etype (leading size `E`):
+
+| Arg | Meaning |
+|---|---|
+| `src` | Source node features gathered with `senders`. If `src_apply` is set, this is `take(src_apply(nodes[src]), senders)`; otherwise `take(nodes[src], senders)`. |
+| `dst` | Destination node features gathered with `receivers` (`take(nodes[dst], receivers)`). |
+| `edges` | `graph.edges[etype]`, or `None` if unset. When present, leading size should be `E`. |
+
+Return per-edge `messages` (leading `E`, or a pytree of such tensors). Those
+are what get attention-weighted and/or segment-reduced onto destinations.
+
+Built-in: `copy_u_message(src, dst, edges)` → `src` (DGL `fn.copy_u`).
+
+`attention_logit_fn` uses the **same** `(src, dst, edges)` layout, except its
+`src` is always gathered from the **raw** source pool (not `src_apply`
+output), so scores stay on pre-message features.
 
 `multi_update_all` runs many etypes, then fuses mailboxes that share a
 destination ntype with a **cross-reducer** (`sum` / `mean` / `max` /

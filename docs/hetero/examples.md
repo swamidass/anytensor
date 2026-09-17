@@ -20,8 +20,9 @@ tensor). HAN/HGT reuse this for node-level attention; HAN semantic mixing
 over stacked path embeddings stays a dense `(n, R)` softmax.
 
 For the source linear, prefer `src_apply` (nodes) + `copy_u_message` over
-`message_fn=lambda s, d, e: s @ W` (edges). See
-[Before gather vs after gather](index.md#before-gather-vs-after-gather).
+`message_fn=lambda s, d, e: s @ W` (edges). Full
+`message_fn(src, dst, edges)` contract:
+[message_fn signature](index.md#message_fn-signature).
 
 ```python
 import numpy as np
