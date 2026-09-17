@@ -14,8 +14,10 @@ Before the named models, the shared primitive is
 **within each destination node’s neighborhood**, weight messages, sum.
 Same idea as
 [Graph Attention Networks](https://arxiv.org/abs/1710.10903) / **GAT**
-(Veličković et al., ICLR 2018). Heterogeneous models such as HAN and HGT
-(below) reuse this per edge type — do not hand-roll a parallel softmax.
+(Veličković et al., ICLR 2018). Run it **per etype** (relations have
+different edge counts — do not interleave into one multi-relation edge
+tensor). HAN/HGT reuse this for node-level attention; HAN semantic mixing
+over stacked path embeddings stays a dense `(n, R)` softmax.
 
 ```python
 import numpy as np

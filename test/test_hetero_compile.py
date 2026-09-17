@@ -71,17 +71,17 @@ def _to_backend(g: HeteroGraphsTuple, xp_asarray):
 
 
 def test_default_attention_uses_segment_attention_helper():
-    """Mailbox + HAN must call segment_attention — no hand-rolled softmax."""
+    """Neighborhood mailbox uses segment_attention; no edge-index Python loops."""
     mail_src = inspect.getsource(hetero_message.relation_mailbox)
     assert "segment_attention" in mail_src
-    # No Python for-loop over edge indices in the mailbox body.
     assert "for i in range" not in mail_src
     assert "for _ in range" not in mail_src
 
+    # HAN semantic stays dense on (n, R) — do not flatten/repeat into segments.
     han_src = inspect.getsource(hetero_models.han)
-    assert "segment_attention" in han_src
-    assert "_dense_softmax" not in han_src
-    assert "_softmax_axis1" not in inspect.getsource(hetero_models)
+    assert "segment_attention(" not in han_src
+    assert "_dense_softmax_axis1" in han_src
+    assert "repeat(" not in han_src
 
 
 def _legacy_segment_attention(messages, logits, segment_ids, num_segments):

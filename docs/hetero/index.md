@@ -69,10 +69,15 @@ Per-relation attention matches the optional attention path on homo
 [Graph Attention Networks](https://arxiv.org/abs/1710.10903) / GAT). That
 is what lets this stack express **Heterogeneous Graph Attention Network**
 (HAN) node-level attention and **Heterogeneous Graph Transformer** (HGT)
-typed attention. HAN **semantic** attention (mixing stacked path
-embeddings) also uses `segment_attention` — treating the `R` meta-path
-slots per node as a dense segment group — not a separate hand-rolled
-softmax.
+typed attention.
+
+**Efficiency note:** neighborhood attention stays **per etype**
+(`segment_attention` on that relation’s ragged edge list). Relations are
+not interleaved into one `(n, R, E…)` edge tensor — different etypes have
+different edge counts and would force copies. HAN **semantic** attention
+is different: after `stack`, every node has the same schema-sized `R`
+path embeddings `(n, R, d)`, so mixing uses a **dense** softmax on axis
+`R` (no `repeat` path-ids / segment scatter).
 
 ## Model zoo
 
@@ -85,7 +90,7 @@ pieces — your framework owns the weights (`lambda x: x @ W`, module
 |---|---|---|
 | `relational_graph_convolution` | **R-GCN** (Relational Graph Convolutional Network) — [Schlichtkrull et al., ESWC 2018](https://arxiv.org/abs/1703.06103) | One linear per relation, mean/sum over neighbors, plus a self term |
 | `hetero_sage` | Heterogeneous **GraphSAGE** — [Hamilton et al., NeurIPS 2017](https://arxiv.org/abs/1706.02216) | Mean-aggregate neighbors, concat with self, one combine linear |
-| `han` | **HAN** (Heterogeneous Graph Attention Network) — [Wang et al., WWW 2019](https://arxiv.org/abs/1903.07293) | `segment_attention` over neighbors on each meta-path/etype, then `segment_attention` over stacked path embeddings (`stack`) |
+| `han` | **HAN** (Heterogeneous Graph Attention Network) — [Wang et al., WWW 2019](https://arxiv.org/abs/1903.07293) | Per-etype `segment_attention` on neighbors, then dense softmax over stacked path embeddings (`stack`) |
 | `hgt` | **HGT** (Heterogeneous Graph Transformer) — [Hu et al., WWW 2020](https://arxiv.org/abs/2003.01332) | Type-aware attention scores and messages, then a target-type output map |
 | `comp_gcn` | **CompGCN** (Composition-based Multi-Relational GCN) — [Vashishth et al., ICLR 2020](https://arxiv.org/abs/1911.03082) | Compose source features with edge features (`mult` or `sum`), then relation linear |
 

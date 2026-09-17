@@ -28,17 +28,16 @@ import math
 from typing import Callable, Mapping, Optional, Sequence
 
 from anytensor.core import (
-    arange,
     concatenate,
+    exp,
+    max as at_max,
     maximum,
-    repeat,
     reshape,
     shape,
     sum as at_sum,
     where,
 )
 from anytensor.namespace import array_namespace
-from anytensor.segment import segment_attention
 
 from .graph import ArrayTree, CanonicalEtype, HeteroGraphsTuple, Ntype
 from .message import RelationSpec, multi_update_all
@@ -54,6 +53,21 @@ def _relu(x):
 
 def _tanh(x):
     return array_namespace(x).tanh(x)
+
+
+def _dense_softmax_axis1(x):
+    """Stable softmax over dense axis 1 (HAN semantic scores ``(n, R)``).
+
+    Kept dense on purpose: after ``cross_reducer="stack"`` every node has the
+    same schema-sized ``R`` path slots. Routing that through
+    :func:`~anytensor.segment.segment_attention` would flatten to ``(n*R,)``,
+    materialize ``repeat`` path ids, and scatter — a copy-heavy detour when
+    relations already differ in edge count and are handled **per etype** at
+    the neighborhood stage.
+    """
+    m = reshape(at_max(x, axes=1), (shape(x)[0], 1))
+    e = exp(x - m)
+    return e / reshape(at_sum(e, axes=1), (shape(e)[0], 1))
 
 
 def _identity(x):
@@ -196,14 +210,16 @@ def han(
     ``meta_path_etypes`` entry is a meta-path hop already stored as a
     canonical etype (precompute longer paths as their own etypes).
 
-    1. **Node-level attention** — ``node_message[e](h_src)``, logits from
-       ``node_attention_logit[e](src, dst, edges)``, then
-       :func:`~anytensor.segment.segment_attention` over neighbors
-       (GAT-style; vectorized, no edge unroll).
-    2. Mailboxes **stacked**; **semantic attention** mixes path embeddings
-       with ``semantic_query`` after ``semantic_project``, again via
-       :func:`~anytensor.segment.segment_attention` (``R`` paths per node as
-       a dense segment group — not a separate hand-rolled softmax).
+    1. **Node-level attention** — per meta-path etype,
+       ``node_message[e](h_src)`` + logits from
+       ``node_attention_logit[e]``, then
+       :func:`~anytensor.segment.segment_attention` over that relation’s
+       neighbors (ragged degrees; etypes stay separate — no interleaved
+       ``(n, R, E)`` edge tensor).
+    2. Mailboxes **stacked** to ``(n, R, d)``; **semantic attention** mixes
+       path embeddings with ``semantic_query`` after ``semantic_project``
+       using a **dense** softmax over the ``R`` axis (fixed schema size,
+       equal for every node — not ``segment_attention``).
     """
     if not meta_path_etypes:
         raise ValueError("han requires at least one meta-path etype")
@@ -224,6 +240,7 @@ def han(
         n = int(shape(h_act)[0])
         r = int(shape(h_act)[1])
         d = int(shape(h_act)[2])
+        # Project keeps a (n*R, d) view for the callable; stay dense after.
         flat = reshape(h_act, (n * r, d))
         proj = semantic_project(flat)
         d_s = int(shape(proj)[-1])
@@ -231,15 +248,8 @@ def han(
         proj = semantic_activation(proj)
         q_vec = reshape(semantic_query, (d_s,))
         score = at_sum(proj * q_vec, axes=-1)  # (n, R)
-        # Dense (n, R) mix via segment_attention: R paths per node, segment
-        # id = node index (same primitive as neighborhood attention).
-        flat_logits = reshape(score, (n * r,))
-        path_ids = repeat(
-            arange(n, dtype="int32", like=score),
-            r,
-            total_repeat_length=n * r,
-        )
-        nodes[ntype] = segment_attention(flat, flat_logits, path_ids, n)
+        alpha = reshape(_dense_softmax_axis1(score), (n, r, 1))
+        nodes[ntype] = at_sum(h_act * alpha, axes=1)
     return graph.update(nodes=nodes)
 
 

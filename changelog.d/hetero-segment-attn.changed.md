@@ -1,7 +1,8 @@
 ### Changed
 
-- Hetero neighborhood attention now goes through
-  ``segment_attention`` (not a hand-rolled ``segment_softmax`` + multiply +
-  ``segment_sum``). HAN semantic attention uses the same helper over stacked
-  meta-path embeddings. Compile tests cover ``jax.jit`` / ``tf.function`` on
-  the vectorized message path (no edge unroll).
+- Hetero neighborhood attention goes through ``segment_attention`` (vectorized
+  per etype; no edge unroll, no interleaved multi-relation edge tensor).
+- HAN **semantic** attention stays a dense softmax on stacked ``(n, R, d)``
+  path embeddings — forcing that through ``segment_attention`` would
+  ``repeat`` path ids and scatter, which is a copy-heavy detour for fixed
+  schema-sized ``R``. Compile tests cover ``jax.jit`` on the mailbox path.

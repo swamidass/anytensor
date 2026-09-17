@@ -275,7 +275,7 @@ def test_han_node_and_semantic_attention():
 
 
 def test_han_matches_legacy_dense_semantic_softmax():
-    """HAN after segment_attention refactor ≡ prior hand-rolled dense softmax."""
+    """HAN semantic path stays dense and matches the frozen axis-1 softmax."""
     g, writes, cites = _author_paper()
     W = np.eye(2, dtype=np.float32)
     q = np.asarray([1.5, -0.5], dtype=np.float32)
@@ -299,7 +299,7 @@ def test_han_matches_legacy_dense_semantic_softmax():
         semantic_activation=lambda x: x,
     )
 
-    # Legacy node-level attention (hand-roll), then stack, then dense semantic.
+    # Oracle: per-etype segment attention (legacy hand-roll), stack, dense semantic.
     def legacy_mailbox(etype, logit_fn):
         src = g.nodes[etype[0]][g.senders[etype]]
         dst = g.nodes[etype[2]][g.receivers[etype]]
@@ -322,6 +322,14 @@ def test_han_matches_legacy_dense_semantic_softmax():
     expected = np.sum(h_stack * alpha[..., None], axis=1)
 
     np.testing.assert_allclose(got.nodes["paper"], expected, rtol=1e-5, atol=1e-6)
+
+    # Math-only check: dense mix ≡ segment_attention on a flattened view,
+    # but the implementation must not take that copy-heavy route.
+    path_ids = np.repeat(np.arange(n, dtype=np.int32), r)
+    via_segment = segment_attention(
+        flat, score.reshape(n * r), path_ids, n
+    )
+    np.testing.assert_allclose(expected, via_segment, rtol=1e-5, atol=1e-6)
 
 
 def test_han_defaults_and_empty_reject():
