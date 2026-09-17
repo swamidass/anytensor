@@ -3,6 +3,51 @@
 Graph `g` is assumed already built. Pass weights as callables
 (`lambda x: x @ W`, module `__call__`, etc.).
 
+## Per-relation attention (kernel)
+
+GAT-style softmax over neighbors on one etype, then cross-sum — the hook
+HAN / HGT build on.
+
+```python
+import numpy as np
+from anytensor.hetero import (
+    HeteroGraphsTuple,
+    RelationSpec,
+    gat_attention_logit,
+    multi_update_all,
+)
+
+writes = ("author", "writes", "paper")
+g = HeteroGraphsTuple(
+    nodes={
+        "author": np.ones((3, 2), dtype=np.float32),
+        "paper": np.ones((2, 2), dtype=np.float32),
+    },
+    edges={writes: None},
+    senders={writes: np.array([0, 1, 2])},
+    receivers={writes: np.array([0, 0, 1])},
+    n_node={"author": np.array([3]), "paper": np.array([2])},
+    n_edge={writes: np.array([3])},
+)
+
+W = np.eye(2, dtype=np.float32)
+a = np.ones((4, 1), dtype=np.float32)
+out = multi_update_all(
+    g,
+    {
+        writes: RelationSpec(
+            message_fn=lambda s, d, e: s @ W,
+            reduce="sum",
+            attention_logit_fn=lambda s, d, e: gat_attention_logit(
+                s, d, lambda x: x @ a
+            ),
+        ),
+    },
+    cross_reducer="sum",
+)
+assert out.nodes["paper"].shape == (2, 2)
+```
+
 ## R-GCN — Schlichtkrull et al., ESWC 2018
 
 [arXiv:1703.06103](https://arxiv.org/abs/1703.06103)
