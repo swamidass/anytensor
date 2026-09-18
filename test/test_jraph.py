@@ -202,6 +202,37 @@ def test_graph_network_cache_carries_across_applies(monkeypatch):
     assert repeats["n"] == 2 * n_first
 
 
+def test_graph_convolution_cache_reuses_self_edges(monkeypatch):
+    from anytensor.jraph import models as jmodels
+
+    counts = {"n": 0}
+    real = jmodels.at_arange
+
+    def counting(*args, **kwargs):
+        counts["n"] += 1
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(jmodels, "at_arange", counting)
+    g1, _ = _toy_graphs()
+    layer = atj.GraphConvolution(update_node_fn=lambda n: n, add_self_edges=True)
+    layer(g1)
+    assert counts["n"] == 1
+    layer(g1)
+    assert counts["n"] == 1
+    at.cache.disable()
+    layer(g1)
+    assert counts["n"] == 2
+    at.cache.disable()
+
+    g_none = g1._replace(n_node=None)
+    atj.GraphConvolution(update_node_fn=lambda n: n, add_self_edges=True)(g_none)
+    plain = atj.GraphConvolution(
+        update_node_fn=lambda n: n, add_self_edges=False, symmetric_normalization=False
+    )
+    out = plain(g1)
+    assert out.nodes.shape == g1.nodes.shape
+
+
 def test_graph_network_none_globals_and_disabled_updates():
     g1, _ = _toy_graphs()
     graph = g1._replace(globals=None)

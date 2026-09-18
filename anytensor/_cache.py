@@ -70,9 +70,14 @@ def _namespace(name: str):
     return root.namespace(name)
 
 
-def _cache_lookup(ns, obj):
-    """One cached value per ``obj`` (partition totals are ``shape(ids)[0]``)."""
-    key = (id(obj),)
+def _cache_lookup(ns, obj, extra=()):
+    """One cached value per ``obj`` (and optional ``extra`` key parts).
+
+    Partition totals are ``shape(ids)[0]`` of the cached ids. GraphConvolution
+    passes ``(add_self_edges, symmetric_normalization)`` so stacked layers
+    with different flags do not share structure.
+    """
+    key = (id(obj),) + tuple(extra)
     hit = ns.get(key)
     if hit is not None:
         held_ref, value = hit

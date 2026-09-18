@@ -12,6 +12,7 @@ from anytensor.core import concatenate, maximum, reshape, rsqrt, shape, take, wh
 from anytensor.core import arange as at_arange
 from anytensor.core import ones as at_ones
 from anytensor.segment import cache, partition_ids
+from anytensor._cache import _cache_lookup, _cache_store, _namespace
 
 from . import utils
 from .graph import GraphsTuple
@@ -361,32 +362,29 @@ def GraphConvolution(
     add_self_edges: bool = False,
     symmetric_normalization: bool = True,
 ):
-    """GCN layer (Kipf & Welling). No activation after aggregation."""
+    """GCN layer (Kipf & Welling). No activation after aggregation.
 
+    Apply is decorated with :data:`~anytensor.cache` (sticky): stacked calls
+    reuse self-edges, node count, and degree vectors so ONNX does not
+    duplicate ``Shape`` / ``Range`` / ``Concat`` for the same ``n_node``.
+    """
+
+    @cache
     def _ApplyGCN(graph: GraphsTuple) -> GraphsTuple:
-        nodes, _, receivers, senders, _, _, _ = graph
+        nodes, _, receivers, senders, _, n_node, _ = graph
         nodes = update_node_fn(nodes)
-        total_num_nodes = shape(tree.leaves(nodes)[0])[0]
-        if add_self_edges:
-            self_idx = at_arange(total_num_nodes, like=senders)
-            conv_receivers = concatenate((receivers, self_idx), axis=0)
-            conv_senders = concatenate((senders, self_idx), axis=0)
-        else:
-            conv_senders = senders
-            conv_receivers = receivers
-
+        conv_senders, conv_receivers, total_num_nodes, sender_degree, receiver_degree = (
+            _gcn_structure(
+                nodes,
+                senders,
+                receivers,
+                n_node,
+                add_self_edges=add_self_edges,
+                symmetric_normalization=symmetric_normalization,
+            )
+        )
         if symmetric_normalization:
-            feat_dtype = tree.leaves(nodes)[0].dtype
-            one = at_ones((), dtype=feat_dtype, like=tree.leaves(nodes)[0])
-
-            def count_edges(x):
-                ones = at_ones(
-                    shape(conv_senders), dtype=feat_dtype, like=conv_senders
-                )
-                return utils.segment_sum(ones, x, total_num_nodes)
-
-            sender_degree = count_edges(conv_senders)
-            receiver_degree = count_edges(conv_receivers)
+            one = at_ones((), dtype=tree.leaves(nodes)[0].dtype, like=tree.leaves(nodes)[0])
             nodes = tree.map(
                 lambda x: x
                 * reshape(
@@ -419,3 +417,52 @@ def GraphConvolution(
         return graph._replace(nodes=nodes)
 
     return _ApplyGCN
+
+
+def _gcn_structure(
+    nodes,
+    senders,
+    receivers,
+    n_node,
+    *,
+    add_self_edges: bool,
+    symmetric_normalization: bool,
+):
+    """Self-edges, ``N``, and degrees — one cache entry per ``senders`` + flags."""
+    ns = _namespace("gcn")
+    extra = (add_self_edges, symmetric_normalization)
+    key, cached = _cache_lookup(ns, senders, extra)
+    if cached is not None:
+        return cached
+    total_num_nodes = shape(tree.leaves(nodes)[0])[0]
+    # Prefer the cached partition-ids length when ``n_node`` was expanded
+    # elsewhere in this block (same symbol on export).
+    if n_node is not None:
+        total_num_nodes = shape(partition_ids(n_node, total_num_nodes))[0]
+    if add_self_edges:
+        self_idx = at_arange(total_num_nodes, like=senders)
+        conv_receivers = concatenate((receivers, self_idx), axis=0)
+        conv_senders = concatenate((senders, self_idx), axis=0)
+    else:
+        conv_senders = senders
+        conv_receivers = receivers
+    sender_degree = receiver_degree = None
+    if symmetric_normalization:
+        feat_dtype = tree.leaves(nodes)[0].dtype
+        like = tree.leaves(nodes)[0]
+
+        def count_edges(x):
+            ones = at_ones(shape(conv_senders), dtype=feat_dtype, like=like)
+            return utils.segment_sum(ones, x, total_num_nodes)
+
+        sender_degree = count_edges(conv_senders)
+        receiver_degree = count_edges(conv_receivers)
+    packed = (
+        conv_senders,
+        conv_receivers,
+        total_num_nodes,
+        sender_degree,
+        receiver_degree,
+    )
+    _cache_store(ns, key, senders, packed)
+    return packed

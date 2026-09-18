@@ -34,7 +34,9 @@
   Host size checks (`_host_concrete_int`) keep only Python `int`s so TF
   Autograph cannot treat `int(tf.shape(x)[0])` as concrete and bake the
   partition total in the eager `repeat` loop. The partition cache is one
-  entry per vector; `shape(ids)[0]` *is* the flattened total.
+  entry per vector; `shape(ids)[0]` *is* the flattened total. Stacked
+  `GraphConvolution` caches self-edges / `N` / degrees at `cache["gcn"]`
+  so ONNX does not duplicate `Shape` / `Range` / `Concat` per layer.
 
 ## 2026-09-16
 

@@ -1096,6 +1096,20 @@ def _onnx_op_inputs(proto, op_type):
     ]
 
 
+def _onnx_op_count(proto, op_type):
+    return sum(
+        1 for node in _graph._model_proto(proto).graph.node if node.op_type == op_type
+    )
+
+
+def _onnx_nodes_taking(proto, op_type, name):
+    return [
+        node
+        for node in _graph._model_proto(proto).graph.node
+        if node.op_type == op_type and name in node.input
+    ]
+
+
 def _size1(x):
     """Turn a leading length into a length-1 int vector (one graph in the batch).
 
@@ -1471,4 +1485,113 @@ def test_jraph_single_graph_n_node_from_shape():
     nodes4 = tf.concat([nodes, tf.constant([[0.0, 0.0]])], axis=0)
     y4 = _ort(proto, (nodes4, edges, senders, receivers, globals_))
     assert y4.shape[0] == 4
+
+
+_JRAPH_STACK_WEIGHTS = {
+    "W1": np.eye(2, dtype=np.float32) * 1.2,
+    "W2": np.eye(2, dtype=np.float32) * 0.8,
+}
+
+
+def _jraph_gcn_layers(nodes, edges, senders, receivers, n_node, n_edge, globals_, *, params, n_layers):
+    from anytensor import jraph as atj
+
+    g = _jraph_pack(nodes, edges, senders, receivers, n_node, n_edge, globals_)
+    g = atj.GraphConvolution(lambda x: x @ params["W1"], add_self_edges=True)(g)
+    if n_layers > 1:
+        g = atj.GraphConvolution(lambda x: x @ params["W2"], add_self_edges=True)(g)
+    return g.nodes
+
+
+def _jraph_gcn_one(nodes, edges, senders, receivers, n_node, n_edge, globals_, *, params):
+    return _jraph_gcn_layers(
+        nodes, edges, senders, receivers, n_node, n_edge, globals_, params=params, n_layers=1
+    )
+
+
+def _jraph_gcn_two(nodes, edges, senders, receivers, n_node, n_edge, globals_, *, params):
+    return _jraph_gcn_layers(
+        nodes, edges, senders, receivers, n_node, n_edge, globals_, params=params, n_layers=2
+    )
+
+
+def _jraph_gn_layers(nodes, edges, senders, receivers, n_node, n_edge, globals_, *, params, n_layers):
+    from anytensor import jraph as atj
+
+    g = _jraph_pack(nodes, edges, senders, receivers, n_node, n_edge, globals_)
+    net = atj.GraphNetwork(
+        lambda e, s, r, gl: e,
+        lambda n, s, r, gl: n @ params["W1"] + gl,
+        lambda n, e, gl: gl,
+    )
+    g = net(g)
+    if n_layers > 1:
+        g = net(g)
+    return g.nodes
+
+
+def _jraph_gn_one(nodes, edges, senders, receivers, n_node, n_edge, globals_, *, params):
+    return _jraph_gn_layers(
+        nodes, edges, senders, receivers, n_node, n_edge, globals_, params=params, n_layers=1
+    )
+
+
+def _jraph_gn_two(nodes, edges, senders, receivers, n_node, n_edge, globals_, *, params):
+    return _jraph_gn_layers(
+        nodes, edges, senders, receivers, n_node, n_edge, globals_, params=params, n_layers=2
+    )
+
+
+def test_stacked_graphconvolution_onnx_does_not_duplicate_structure():
+    """Two GCN layers share self-edges / ``N``; only MatMul (weights) doubles."""
+    tf = pytest.importorskip("tensorflow")
+    pytest.importorskip("tf2onnx")
+    sig = _jraph_signature(tf)
+    args = _jraph_args(tf)
+    one = export.to_onnx_tensorflow(
+        _jraph_gcn_one, sig, params={"W1": _JRAPH_STACK_WEIGHTS["W1"]}
+    )
+    two = export.to_onnx_tensorflow(_jraph_gcn_two, sig, params=_JRAPH_STACK_WEIGHTS)
+    export.assert_symbolic_lengths(two, inputs={"nodes": (0,)})
+    assert _onnx_op_count(two, "MatMul") == 2
+    assert _onnx_op_count(one, "MatMul") == 1
+    # Self-edge concat of the graph-input senders: once, not once per layer.
+    assert len(_onnx_nodes_taking(one, "Concat", "senders")) == len(
+        _onnx_nodes_taking(two, "Concat", "senders")
+    )
+    # Node-count Shape is not taken again on the second layer's MatMul.
+    one_n_shapes = [n for n in _onnx_nodes_taking(one, "Shape", "matmul:0")]
+    two_matmul_shapes = [
+        n
+        for n in _graph._model_proto(two).graph.node
+        if n.op_type == "Shape" and any(i.startswith("matmul") for i in n.input)
+    ]
+    assert len(two_matmul_shapes) == len(one_n_shapes)
+    y = _ort(two, args)
+    eager = np.asarray(_jraph_gcn_two(*args, params=_JRAPH_STACK_WEIGHTS))
+    np.testing.assert_allclose(y, eager, equal_nan=True, atol=1e-4)
+
+
+def test_stacked_graphnetwork_onnx_does_not_duplicate_partition_expand():
+    """Stacked GraphNetwork keeps one ``n_node`` expansion and one ``Shape(nodes)``."""
+    tf = pytest.importorskip("tensorflow")
+    pytest.importorskip("tf2onnx")
+    sig = _jraph_signature(tf)
+    args = _jraph_args(tf)
+    w = {"W1": _JRAPH_STACK_WEIGHTS["W1"]}
+    one = export.to_onnx_tensorflow(_jraph_gn_one, sig, params=w)
+    two = export.to_onnx_tensorflow(_jraph_gn_two, sig, params=w)
+    export.assert_symbolic_lengths(two, inputs={"nodes": (0,)})
+    assert _onnx_op_count(two, "MatMul") == 2
+    assert _onnx_op_count(one, "Tile") == _onnx_op_count(two, "Tile")
+    assert _onnx_op_count(one, "Pad") == _onnx_op_count(two, "Pad")
+    assert len(_onnx_nodes_taking(one, "Shape", "nodes")) == len(
+        _onnx_nodes_taking(two, "Shape", "nodes")
+    )
+    assert len(_onnx_nodes_taking(one, "Shape", "n_node")) == len(
+        _onnx_nodes_taking(two, "Shape", "n_node")
+    )
+    y = _ort(two, args)
+    eager = np.asarray(_jraph_gn_two(*args, params=w))
+    np.testing.assert_allclose(y, eager, equal_nan=True, atol=1e-4)
 

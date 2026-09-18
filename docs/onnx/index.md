@@ -88,4 +88,6 @@ GraphNetGAT, GAT, GraphConvolution). Those layers take destination sizes from
 GraphNetwork apply is `@cache` (sticky), so `partition_ids` reuses the same `n_node` /
 `n_edge` expansion across stacked applies and during the TF trace. Partition
 flattened length is `shape(nodes)[0]` / `shape(logits)[0]`, never a data
-`sum(n_node)`.
+`sum(n_node)`. Stacked `GraphConvolution` reuses self-edges, `N`, and degrees
+(`cache["gcn"]`) so the ONNX graph does not duplicate `Shape` / `Range` /
+`Concat` per layer.

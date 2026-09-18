@@ -75,6 +75,9 @@ optional softmax attention). Thin wrappers match jraph:
 `@cache` so `partition_ids` expands the same `n_node` /
 `n_edge` vector once (sticky across stacked applies; weakrefs;
 `cache["partition"]`; other partition helpers call `partition_ids`).
+`GraphConvolution` also caches self-edges / node count / degrees at
+`cache["gcn"]` so a stacked GCN does not duplicate those ops on ONNX
+export (the node-count `Shape` is shared, not copied per layer).
 
 Segment helpers on this module still require `num_segments` (AnyTensor
 contract). `unique_indices` is accepted and ignored.
