@@ -23,6 +23,7 @@ dependencies = [
 jax = ["jax>=0.4.32"]
 torch = ["torch>=2.1"]
 tensorflow = ["tensorflow>=2.13"]
+onnx = ["onnx>=1.16", "onnxruntime>=1.18", "tf2onnx>=1.16"]
 typecheck = ["beartype>=0.18"]
 all = [
   "jax>=0.4.32",
@@ -49,6 +50,9 @@ dev = [
   "hatch>=1.12",
   "ruff>=0.8",
   "sybil>=9.3.0",
+  "onnx>=1.16",
+  "onnxruntime>=1.18",
+  "tf2onnx>=1.16",
 ]
 docs = [
   "mkdocs-material>=9.5",

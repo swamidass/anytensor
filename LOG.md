@@ -1,5 +1,14 @@
 # Lab log
 
+## 2026-09-18
+
+- ONNX export with symbolic lengths: `anytensor.export` (`to_onnx_torch` /
+  `to_onnx_tensorflow` / `numpy_leaves`). Lightning is an `nn.Module`; Keras
+  uses `tf.function` + tf2onnx (not `model.export`); Flax rebinds numpy params
+  onto TF/Torch — jax2tf is a dead end (`XlaCallModule`). Torch
+  `segment_reduce` no longer `int()`s `num_segments`. Public-op coverage via
+  TF tf2onnx in CI; Torch dynamo ONNX skipped on CI.
+
 ## 2026-09-16
 
 - Folded `anytensor.jraph` into the 100% coverage gate (None connectivity,

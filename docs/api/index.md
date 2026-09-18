@@ -11,6 +11,7 @@ Generated from package docstrings with
 | [Semantics](semantics_api.md) | `empty_segment_identity` |
 | [Namespace](namespace.md) | TF Array-API shim (`array_namespace`) |
 | [Optional imports](optional.md) | `module_if_loaded()` — already-imported extras, with callbacks |
+| [ONNX export](export.md) | `to_onnx` / `to_onnx_torch` / `to_onnx_tensorflow` — dynamic lengths |
 
 Graphs and nests have their own sections: [Tree](../tree/index.md),
 [Jraph](../jraph/index.md), [Hetero](../hetero/index.md) (API pages

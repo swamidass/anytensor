@@ -202,6 +202,7 @@ np.testing.assert_allclose(np.asarray(out_xla), out_np)
 | `tf.function` | Pass Python `int` for `num_segments` / `num_nodes`; prefer `shape(x)` over raw `.shape` under polymorphic graphs |
 | `torch.compile` | Prefer this over deprecated `torch.jit.script` / `trace`. Portable helpers need `fullgraph=False`; docs use `backend="aot_eager"` for suite stability |
 | `torch.export` | Wrap the helper in `nn.Module.forward` (bare functions are rejected) |
+| ONNX | `at.shape(x)[0]` for lengths; Lightning/Torch dynamo export; Keras `tf.function`+tf2onnx; Flax rebind — [ONNX](onnx/index.md) |
 
 See also [Usage](usage.md) and [Surprising differences](semantics.md).
 GraphsTuple / GraphNetwork recipes: [Jraph examples](jraph/examples.md).

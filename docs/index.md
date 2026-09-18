@@ -189,6 +189,7 @@ live in [Worked examples](examples.md):
 - `torch.compile(neighbor_attention, fullgraph=False)` (portable); `fullgraph=True` needs a Torch-only body
 - `torch.export` via an `nn.Module` whose `forward` calls the helper
 - `tf.function` / `jit_compile=True`
+- ONNX with symbolic lengths: [ONNX export](onnx/index.md) (Lightning / Keras / Flax recipes)
 
 Prefer `torch.compile` / `torch.export` over deprecated `torch.jit.script` /
 `trace`. Those fences are executed in CI via Sybil so they do not rot.
@@ -200,6 +201,7 @@ Prefer `torch.compile` / `torch.export` over deprecated `torch.jit.script` /
 ```bash
 pip install "anytensor @ git+https://github.com/swamidass/anytensor.git"
 pip install "anytensor[jax]" "anytensor[torch]" "anytensor[tensorflow]"
+pip install "anytensor[onnx]"   # plus tf2onnx for the TensorFlow export path
 # or
 pip install "anytensor[all]"
 ```

@@ -1,4 +1,5 @@
 from . import backends
+from . import export
 from . import hetero
 from . import jraph
 from . import tree
@@ -114,6 +115,7 @@ except ImportError:  # pragma: no cover
 
 __all__ = [
     "backends",
+    "export",
     "hetero",
     "jraph",
     "tree",

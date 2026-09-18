@@ -108,6 +108,20 @@ path. It does not import Torch and does not care about import order: a helper
 registered with `module_if_loaded("torch", …)` enables the divert as soon as
 Torch is imported.
 
+## ONNX (dynamic shapes)
+
+ONNX Runtime is not a backend. Export the **same** AnyTensor function after it
+is running on Torch or TensorFlow tensors. Derive `num_segments` from
+`at.shape(nodes)[0]` so `N` stays symbolic.
+
+| Start | Recipe |
+|---|---|
+| Lightning | `LightningModule.forward` + `anytensor.export.to_onnx_torch(..., dynamic_shapes=)` |
+| Keras | `tf.function` + `TensorSpec((None, …))` + `to_onnx_tensorflow` (not `model.export`) |
+| Flax | `export.numpy_leaves(params)`, rebind onto TF/Torch, then the row above — not `jax2tf` |
+
+Helpers and coverage: [ONNX export](onnx/index.md).
+
 ## Typing
 
 Public APIs use [jaxtyping](https://docs.kidger.site/jaxtyping/) annotations

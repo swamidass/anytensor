@@ -440,14 +440,15 @@ class TorchBackend(AbstractBackend):
         del sorted
         from . import torchscript
 
-        # Torch scatter needs a host int length; symbolic sizes belong under compile.
-        n = int(num_segments)
+        # Do not ``int()`` the length: that specialises ``torch.export`` SymInts
+        # and bakes ``N`` into ONNX. Python ints (already normalised) stay ints;
+        # ``at.shape(x)[0]`` stays a symbolic size.
         if reduction == "sum":
-            return torchscript.segment_sum(x, seg_ids, n)
+            return torchscript.segment_sum(x, seg_ids, num_segments)
         if reduction == "min":
-            return torchscript.segment_min(x, seg_ids, n)
+            return torchscript.segment_min(x, seg_ids, num_segments)
         if reduction == "max":
-            return torchscript.segment_max(x, seg_ids, n)
+            return torchscript.segment_max(x, seg_ids, num_segments)
         raise ValueError(f"reduction type {reduction} not supported")
 
     def from_numpy(self, x):

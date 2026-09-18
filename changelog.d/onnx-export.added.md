@@ -1,0 +1,1 @@
+Add ``anytensor.export`` helpers to serialize AnyTensor callables to ONNX with dynamic / symbolic lengths (Lightning / Torch dynamo, Keras ``tf.function`` + tf2onnx, Flax param rebind). Torch segment ops no longer ``int()`` ``num_segments``, so ``at.shape(x)[0]`` stays a symbolic size.

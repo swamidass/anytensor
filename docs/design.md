@@ -40,8 +40,9 @@ else.
    discipline). Prefer `torch.compile` over deprecated TorchScript; portable
    helpers expect graph breaks (`fullgraph=False`).
 
-Non-goals (for now): a RaggedTensor API, ONNX Runtime as a backend, or
-papering over every XLA vs eager disagreement. GraphsTuple lives in
+Non-goals (for now): a RaggedTensor API, ONNX Runtime as a **compute** backend, or
+papering over every XLA vs eager disagreement. Exporting an AnyTensor function
+*to* an ONNX graph is supported — see [ONNX export](onnx/index.md). GraphsTuple lives in
 [`anytensor.jraph`](jraph/index.md) (jraph-compatible, any backend);
 heterogeneous graphs and their model zoo live in
 [`anytensor.hetero`](hetero/index.md); nested features use
@@ -199,9 +200,10 @@ rely on NaN under XLA for portability.
 |---|---|
 | Eager (all backends) | Full public surface |
 | `jax.jit` | Mark shape-sizes static; `repeat` / `partition_softmax` may need `total_repeat_length` / `sum_partitions` |
-| `tf.function` | Prefer Python ints for sizes; use `at.shape(x)` under polymorphic shapes |
+| `tf.function` | Prefer Python ints for sizes **or** `at.shape(x)` under polymorphic / ONNX graphs |
 | `torch.compile` | Prefer over deprecated `torch.jit.*`. `fullgraph=False` for portable helpers; `fullgraph=True` needs a Torch-only body — see [Worked examples](examples.md) |
 | `torch.jit.script` / `trace` | **Deprecated by PyTorch.** Legacy `enable_torchscript()` still covers `segment_sum` / `min` / `max` only |
+| ONNX | Rebind onto Torch or TF tensors; `at.shape(x)[0]` for symbolic lengths. Lightning → `to_onnx_torch`. Keras → `tf.function` + `to_onnx_tensorflow`. Flax → `numpy_leaves` then TF/Torch — not jax2tf. See [ONNX export](onnx/index.md) |
 
 ### 9. Legacy TorchScript divert (not recommended)
 
