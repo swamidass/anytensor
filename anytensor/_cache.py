@@ -155,8 +155,10 @@ class _Cache:
     after the block and cannot form a callback→map→entry cycle that would
     pin cached values. :func:`~anytensor.partition_ids` is the only
     partition helper that consults ``"partition"``; other partition
-    functions call ``partition_ids`` so a cache hit is shared. Callers
-    do not thread ids through the stack.
+    functions call ``partition_ids`` so a cache hit is shared. If a
+    cached expansion's length does not match ``total_length``, that
+    entry is purged, a warning is issued, and ids are recomputed.
+    Callers do not thread ids through the stack.
     :func:`~anytensor.jraph.GraphNetwork` is decorated so each apply hits it.
 
     Tensor-keyed namespaces use ``key[0] == id(obj)`` so :meth:`purge` can

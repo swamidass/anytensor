@@ -167,7 +167,9 @@ dict of dicts (`cache["partition"]` holds the ids map) so later helpers can
 add other namespaces the same way. `partition_ids` reuses
 the same tensor's expansion via weakrefs — the cache does not pin, GC drops
 the ids, and callbacks hold only a weakref to the namespace map — that avoids a
-callback→map→entry loop that would pin ids for the life of the tensor. Call
+callback→map→entry loop that would pin ids for the life of the tensor. If a
+cached expansion's length does not match `total_length`, that entry is purged,
+a warning is issued, and ids are recomputed. Call
 `partition_ids` once yourself if you are outside that block. Do not add
 `partition_sum` / `partition_min` / `partition_max`. There is no
 process-wide cache: tensors are unhashable, in-place edits would stale the

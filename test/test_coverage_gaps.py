@@ -400,6 +400,36 @@ def test_cache_is_dict_of_dicts():
     assert "partition" not in at.cache
 
 
+def test_cache_purges_wrong_size_ids(monkeypatch):
+    from anytensor import segment
+
+    parts = np.array([2, 1], dtype=np.int64)
+    with at.cache():
+        at.partition_ids(parts, 3)
+        ns = at.cache["partition"]
+        key = (id(parts), ("i", 3))
+        wrong = np.array([0, 0], dtype=np.int64)
+        ns[key] = (weakref.ref(parts), wrong)
+        with pytest.warns(UserWarning, match="length 2 != total_length 3"):
+            fresh = at.partition_ids(parts, 3)
+        assert list(np.asarray(fresh)) == [0, 0, 1]
+        assert fresh is not wrong
+        assert at.partition_ids(parts, 3) is fresh
+
+        nsum = np.array(3)
+        held = at.partition_ids(parts, nsum)
+        nsum.fill(2)
+        with pytest.warns(UserWarning, match="length 3 != total_length 2"):
+            resized = at.partition_ids(parts, nsum)
+        assert resized is not held
+        assert int(np.asarray(resized).shape[0]) == 2
+
+        monkeypatch.setattr(segment, "_host_concrete_int", lambda _v: None)
+        stale = np.array([0], dtype=np.int64)
+        ns[(id(parts), ("i", 3))] = (weakref.ref(parts), stale)
+        assert at.partition_ids(parts, 3) is stale
+
+
 def test_normalize_shape_dim_and_promote_shape_roles():
     from anytensor.backends import UnknownSize
     from anytensor.core import _asarray, _normalize_shape_dim, _xp

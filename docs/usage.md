@@ -97,7 +97,9 @@ silent `sum(partitions)`. It calls `partition_ids` then `segment_softmax`.
 `partition_ids` is the only partition helper that talks to the cache:
 wrap the block in `cache()` (or `@cache` on a library
 apply, or `cache.enable()` / `disable()`) and every partition helper
-shares `cache["partition"]`, so graph code does not thread ids through the stack. A compiler
+shares `cache["partition"]`, so graph code does not thread ids through the stack.
+If a cached expansion's length does not match `total_length`, that entry is
+purged, a warning is issued, and ids are recomputed. A compiler
 may CSE the rebuild; eager will not. Entries are weak (GC drops them; the
 context does not pin). Callbacks hold only a weakref to the namespace map so a
 long-lived tensor cannot keep the block alive. Use `segment_softmax` if you

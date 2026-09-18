@@ -10,7 +10,7 @@ tensor scalar — never inferred from ``segment_ids`` (that would be
 ``num_segments``: it is ``shape(partitions)[0]``, a shape read. They do
 require ``total_length`` (``shape(logits)[0]``, not a data
 ``sum(partitions)``). Partition helpers call :func:`partition_ids`,
-which consults :data:`cache` ``["partition"]`` when a decorator /
+which consults ``cache["partition"]`` when a decorator /
 context / :meth:`cache.enable` is active. :meth:`cache.purge` drops
 one tensor from one namespace. There is no ``partition_sum`` /
 ``partition_min`` family.
@@ -24,6 +24,8 @@ matter: a :func:`module_if_loaded` helper enables the divert as soon as
 """
 
 from __future__ import annotations
+
+import warnings
 
 from .backends import get_backend
 from .optional import module_if_loaded
@@ -40,6 +42,7 @@ from .core import (
     _xp,
     _asarray,
     _apply_dtype_roles,
+    _host_concrete_int,
     _normalize_shape_dim,
 )
 from .namespace import array_namespace
@@ -469,7 +472,10 @@ def partition_ids(
     cache, every call rebuilds ids. Inside, the same ``partitions``
     tensor (and ``total_length``) returns the previous ids from
     ``cache["partition"]`` until the tensor is collected or the block
-    exits. Passing ``None`` for ``total_length`` is a ``TypeError``.
+    exits. If a cached expansion's length does not match
+    ``total_length`` (in-place edit of a 0-d size, or a stale entry),
+    that entry is purged, a warning is issued, and ids are recomputed.
+    Passing ``None`` for ``total_length`` is a ``TypeError``.
     """
     n_part = shape(partitions)[0]
     total = _require_shape_size("total_length", total_length)
@@ -478,11 +484,29 @@ def partition_ids(
     if ns is not None:
         key, cached = _cache_lookup(ns, partitions, _size_cache_key(total))
         if cached is not None:
-            return cached
+            stale = _stale_cached_ids(cached, total)
+            if stale is None:
+                return cached
+            ns.pop(key, None)
+            got, want = stale
+            warnings.warn(
+                f"cached partition ids length {got} != total_length {want}; "
+                "purging and recomputing",
+                stacklevel=2,
+            )
     ids = repeat(arange(n_part, like=partitions), partitions, total_repeat_length=total)
     if ns is not None:
         _cache_store(ns, key, partitions, ids)
     return ids
+
+
+def _stale_cached_ids(cached, total):
+    """``(got, want)`` when both lengths are concrete and differ; else ``None``."""
+    got = _host_concrete_int(shape(cached)[0])
+    want = _host_concrete_int(total)
+    if None in (got, want) or got == want:
+        return None
+    return got, want
 
 
 def partition_softmax(
