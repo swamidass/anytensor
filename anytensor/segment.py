@@ -489,7 +489,8 @@ def partition_cache():
     Entries are weak: when the partition tensor is collected, the cached ids
     drop; the map is also cleared on exit so it does not pin. GC callbacks
     hold only a weakref to this map, so a long-lived ``n_node`` cannot keep
-    an empty cache alive after the block. Partition helpers
+    an empty cache alive after the block and cannot form a
+    callback→cache→entry cycle that would pin the cached ids. Partition helpers
     (:func:`partition_ids`, :func:`partition_softmax`) consult it
     automatically — callers do not thread ids through the stack.
     :func:`~anytensor.jraph.GraphNetwork` enters one per apply.
