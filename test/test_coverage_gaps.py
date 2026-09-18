@@ -206,6 +206,10 @@ def test_mean_empty_and_repeat_guards():
 
     empty = at.mean(np.array([], dtype=np.float64))
     assert np.isnan(float(np.asarray(empty)))
+    # Axis reduce of a length-0 leading dim is also 0/0 → NaN (not zeros).
+    empty_ax = at.mean(np.zeros((0, 3), dtype=np.float64), axes=0)
+    assert np.asarray(empty_ax).shape == (3,)
+    assert np.isnan(np.asarray(empty_ax)).all()
 
     with pytest.raises(TypeError, match="integral"):
         at.repeat(np.array([1.0]), np.array([1.5]))
@@ -225,6 +229,9 @@ def test_mean_empty_and_repeat_guards():
 
     torch = pytest.importorskip("torch")
     from anytensor.namespace import array_namespace
+
+    t_empty = at.mean(torch.tensor([], dtype=torch.float32))
+    assert bool(torch.isnan(t_empty))
 
     tx = torch.tensor([1.0, 2.0, 3.0])
     xp = array_namespace(tx)

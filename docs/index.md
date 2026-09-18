@@ -186,7 +186,7 @@ Eager four-backend use is the easy part. Compilers need extra care (static
 live in [Worked examples](examples.md):
 
 - `jax.jit(..., static_argnames=("num_nodes",))`
-- `torch.compile(neighbor_attention, fullgraph=False)` (portable); `fullgraph=True` needs a Torch-only body
+- `torch.compile(neighbor_attention)` — `fullgraph=False` always; `fullgraph=True` on recent PyTorch
 - `torch.export` via an `nn.Module` whose `forward` calls the helper
 - `tf.function` / `jit_compile=True`
 

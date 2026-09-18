@@ -102,6 +102,6 @@ Until registration stabilizes, prefer:
 2. **Built-in containers** — dicts, lists, tuples, namedtuples.
 3. **Beta flatten hooks** — `__tree_flatten__` / `__tree_unflatten__` (JAX
    child/aux convention), or a type already registered with JAX / Torch /
-   optree. Those modules are consulted **only if already imported**; this
-   library never imports them as a side effect, and does not ship a local
-   registry.
+   optree. Those modules are consulted with `module_if_loaded` **only if
+   already imported**; this library never imports them as a side effect, and
+   does not ship a local registry.

@@ -1,0 +1,1 @@
+Lock `torch.compile` coverage of the public API (`fullgraph=False` always; `fullgraph=True` except `partition_softmax`). Implement `mean` as `sum / count` so empty reductions are `0/0` → NaN without a Python `x.size` check.

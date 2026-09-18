@@ -14,7 +14,7 @@ compile recipes, see [Worked examples](examples.md).
 3. Always pass shape-sizes (`num_segments`, …) as static-friendly values.
 4. Trust empty-segment identities and TF NaN OR-in for segment min/max.
 5. Treat index width, XLA NaN, and GPU ties as non-portable.
-6. Prefer `torch.compile` over deprecated TorchScript; portable helpers need `fullgraph=False`.
+6. Prefer `torch.compile` over deprecated TorchScript; `fullgraph=False` is the portable default (`partition_softmax` still needs it).
 
 That is the design: a small set of hard contracts, and clear warnings everywhere
 else.
@@ -37,8 +37,9 @@ else.
    identities and TF NaN-in-scatter are portable. Index width, XLA-vs-eager
    NaN, and GPU atomics are not — we tell you so.
 5. **Keep compile paths honest.** `num_segments` is a shape-size (JAX
-   discipline). Prefer `torch.compile` over deprecated TorchScript; portable
-   helpers expect graph breaks (`fullgraph=False`).
+   discipline). Prefer `torch.compile` over deprecated TorchScript.
+   `fullgraph=False` is always valid; `fullgraph=True` works for most ops on
+   recent PyTorch (`partition_softmax` still needs breaks).
 
 Non-goals (for now): a RaggedTensor API, ONNX Runtime as a backend, or
 papering over every XLA vs eager disagreement. GraphsTuple lives in
@@ -200,7 +201,7 @@ rely on NaN under XLA for portability.
 | Eager (all backends) | Full public surface |
 | `jax.jit` | Mark shape-sizes static; `repeat` / `partition_softmax` may need `total_repeat_length` / `sum_partitions` |
 | `tf.function` | Prefer Python ints for sizes; use `at.shape(x)` under polymorphic shapes |
-| `torch.compile` | Prefer over deprecated `torch.jit.*`. `fullgraph=False` for portable helpers; `fullgraph=True` needs a Torch-only body — see [Worked examples](examples.md) |
+| `torch.compile` | Prefer over deprecated `torch.jit.*`. `fullgraph=False` is the portable default. On recent PyTorch most public ops also compile with `fullgraph=True`; `partition_softmax` still needs breaks (data-dependent `repeat`). Locked by `test/test_torch_compile.py`. See [Worked examples](examples.md) |
 | `torch.jit.script` / `trace` | **Deprecated by PyTorch.** Legacy `enable_torchscript()` still covers `segment_sum` / `min` / `max` only |
 
 ### 9. Legacy TorchScript divert (not recommended)
@@ -265,6 +266,7 @@ part of the product:
 | **100% coverage gate** | Non-fuzz suite must cover the portable surface (`fail_under=100`; `backends.py` / `torchscript.py` omitted as framework shims; `jraph` is in the gate) |
 | **Cross-backend fuzz** | Hypothesis draws random ops and inputs; **NumPy is the reference**, a random other backend must agree (NaN-aware) |
 | **Symbolic fuzz** | Eager vs `jax.jit` / `torch.compile` / `tf.function` (+ XLA) on the same registry — compilers are not an afterthought |
+| **`torch.compile` public API** | Deterministic `test/test_torch_compile.py`: every public tensor op vs eager (`fullgraph=False`; `fullgraph=True` except `partition_softmax`) |
 | **Minimal-NumPy CI** | Install **without** Hypothesis / JAX / Torch / TF and still import + run segment ops — deploy surface stays thin |
 | **Docs as tests** | Fenced examples in [`examples.md`](examples.md) run under pytest (Sybil), including jit / compile recipes |
 | **Runtime typecheck in tests** | jaxtyping + beartype on public annotations during the suite (off in normal installs) |

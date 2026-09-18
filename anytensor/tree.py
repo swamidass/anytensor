@@ -40,9 +40,9 @@ extension). Walking rules follow `jax.tree` / `jax.tree_util`:
    without magic unbatch along the leading axis into unit slices.
 
 3. Already-imported pytree registries (**beta**), looked up by **type**
-   (never imported as a side effect): ``jax.tree_util``,
-   ``torch.utils._pytree``, and ``optree``. Built-in containers stay on this
-   module's path.
+   via :func:`anytensor.module_if_loaded` (never imported as a side
+   effect): ``jax.tree_util``, ``torch.utils._pytree``, and ``optree``.
+   Built-in containers stay on this module's path.
 
 Public ``map`` / ``flatten`` / ``batch`` / ``unbatch`` and built-in walking
 rules are **stable**. Flatten-style registration (item 1 and item 3) may
@@ -56,11 +56,12 @@ import collections
 from collections import abc as collections_abc
 from functools import partial, reduce as _f_reduce
 import inspect
-import sys
 import warnings
 from typing import Any, Iterable, NamedTuple
 
 import numpy as np
+
+from .optional import module_if_loaded
 
 __all__ = [
     "DictKey",
@@ -279,7 +280,7 @@ def _is_leaf_treedef(flat_leaves, obj) -> bool:
 
 
 def _jax_one_level(obj):
-    jtu = sys.modules.get("jax.tree_util")
+    jtu = module_if_loaded("jax.tree_util")
     tree_flatten = getattr(jtu, "tree_flatten", None) if jtu is not None else None
     tree_unflatten = getattr(jtu, "tree_unflatten", None) if jtu is not None else None
     if tree_flatten is None or tree_unflatten is None:
@@ -309,7 +310,7 @@ def _torch_node_entry(pytree, cls):
 
 
 def _torch_one_level(obj):
-    pytree = sys.modules.get("torch.utils._pytree")
+    pytree = module_if_loaded("torch.utils._pytree")
     if pytree is None:
         return None
     spec = _torch_node_entry(pytree, type(obj))
@@ -324,7 +325,7 @@ def _torch_one_level(obj):
 
 
 def _optree_one_level(obj):
-    optree = sys.modules.get("optree")
+    optree = module_if_loaded("optree")
     tree_flatten = getattr(optree, "tree_flatten", None) if optree is not None else None
     tree_unflatten = getattr(optree, "tree_unflatten", None) if optree is not None else None
     if tree_flatten is None or tree_unflatten is None:

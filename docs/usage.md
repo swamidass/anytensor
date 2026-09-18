@@ -96,9 +96,10 @@ Prefer **`torch.compile`** (training / runtime) or **`torch.export`** (AOT /
 serialization). PyTorch has deprecated `torch.jit.script` / `torch.jit.trace`;
 do not use them in new code.
 
-- **`torch.compile`:** portable helpers typically need `fullgraph=False`
-  (Dynamo graph-breaks on `@promote` / array-api-compat). A single fused graph
-  needs a Torch-only body.
+- **`torch.compile`:** `fullgraph=False` is the portable default. On recent
+  PyTorch most public ops also fuse with `fullgraph=True` (see
+  `test/test_torch_compile.py`). `partition_softmax` still needs graph breaks
+  (data-dependent `repeat` of tensor partition lengths).
 - **`torch.export`:** pass an **`nn.Module`** whose `forward` calls the portable
   helper — bare functions are rejected. See [Worked examples](examples.md).
 
