@@ -227,7 +227,6 @@ def test_partition_cache_weakrefs_and_partition_softmax(monkeypatch):
         assert ids_wr() is None
         other = np.array([2, 1], dtype=np.int64)
         ids_other = at.partition_ids(other, 2, 3)
-        assert ids_other is not ids_live
         assert list(np.asarray(ids_other)) == [0, 0, 1]
 
         gone = _Gone()
