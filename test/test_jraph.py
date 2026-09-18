@@ -271,6 +271,8 @@ def test_concatenated_args_and_segment_wrappers():
     np.testing.assert_allclose(sm[:2].sum(), 1.0, atol=1e-5)
     part = atj.partition_softmax(data, np.array([2, 1]), 3)
     np.testing.assert_allclose(part[:2].sum(), 1.0, atol=1e-5)
+    part2 = atj.partition_softmax(data, np.array([2, 1]), 3, num_segments=2)
+    np.testing.assert_allclose(part2, part)
     atj.segment_min(data, ids, 2)
     atj.segment_variance(data, ids, 2)
     atj.segment_normalize(data, ids, 2)
