@@ -217,8 +217,14 @@ def test_partition_cache_weakrefs_and_partition_softmax(monkeypatch):
 
     with at.partition_cache():
         wr, ids_live = _partition_ids_then_drop()
+        ids_wr = weakref.ref(ids_live)
         gc.collect()
         assert wr() is None
+        cache = segment._PARTITION_IDS_CACHE.get()
+        assert cache == {}
+        del ids_live
+        gc.collect()
+        assert ids_wr() is None
         other = np.array([2, 1], dtype=np.int64)
         ids_other = at.partition_ids(other, 2, 3)
         assert ids_other is not ids_live
