@@ -14,7 +14,9 @@
   tf2onnx (not `model.export`); Flax rebinds numpy params — jax2tf is a dead
   end (`XlaCallModule`). Torch `segment_reduce` no longer `int()`s
   `num_segments`. Public-op coverage via TF tf2onnx in CI; Torch dynamo ONNX
-  skipped on CI.
+  skipped on CI. Constructor ops (`zeros` / `ones` / `full` / `arange` /
+  `split`) take sizes from `at.shape`; `partition_softmax` uses
+  `sum_partitions=at.shape(logits)[0]`.
 
 ## 2026-09-16
 

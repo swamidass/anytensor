@@ -472,6 +472,7 @@ def test_tensorflow_neighbor_attention_symbolic_lengths():
 
 
 _ONNX_OP_NAMES = (
+    "arange",
     "astype",
     "clip",
     "concatenate",
@@ -481,6 +482,7 @@ _ONNX_OP_NAMES = (
     "exp",
     "fill_nan",
     "fill_nan_mask",
+    "full",
     "full_like",
     "is_finite",
     "is_inf",
@@ -493,7 +495,9 @@ _ONNX_OP_NAMES = (
     "min",
     "minimum",
     "nan_to_num",
+    "ones",
     "ones_like",
+    "partition_softmax",
     "prod",
     "rearrange",
     "reduce",
@@ -510,12 +514,14 @@ _ONNX_OP_NAMES = (
     "segment_softmax",
     "segment_sum",
     "segment_variance",
+    "split",
     "sqrt",
     "stack",
     "sum",
     "take",
     "transpose",
     "where",
+    "zeros",
     "zeros_like",
 )
 _ONNX_SKIP = frozenset(
@@ -554,12 +560,6 @@ _ONNX_SKIP = frozenset(
         "ShapeSize",
         "Shaped",
         "ShapedArray",
-        # Python-sized constructors bake ranks / lengths.
-        "zeros",
-        "ones",
-        "full",
-        "arange",
-        "split",
         # Metadata / host specials, not a tensor graph.
         "inf",
         "ninf",
@@ -570,8 +570,6 @@ _ONNX_SKIP = frozenset(
         "finfo",
         "iinfo",
         "shape",
-        # Data-dependent partition lengths (same class as compile fullgraph skip).
-        "partition_softmax",
         # Aliases covered by the primary name.
         "cast",
         "isnan",
@@ -628,6 +626,26 @@ def _tf_cases() -> dict[str, tuple[Callable, list, tuple]]:
         "zeros_like": (lambda a: at.zeros_like(a), [vec], (x,)),
         "ones_like": (lambda a: at.ones_like(a), [vec], (x,)),
         "full_like": (lambda a: at.full_like(a, 3.0), [vec], (x,)),
+        # Sizes from at.shape so the constructor introduces a graph symbol
+        # (equated with the operand's dim by where it sits in the graph).
+        "zeros": (lambda a: at.zeros(at.shape(a), dtype=tf.float32, like=a), [vec], (x,)),
+        "ones": (lambda a: at.ones(at.shape(a), dtype=tf.float32, like=a), [vec], (x,)),
+        "full": (lambda a: at.full(at.shape(a), 3.0, dtype=tf.float32, like=a), [vec], (x,)),
+        "arange": (
+            lambda a: at.arange(at.shape(a)[0], dtype=tf.int64, like=a),
+            [vec],
+            (x,),
+        ),
+        "split": (
+            lambda a: at.concatenate(at.split(a, 3, axis=1), axis=1),
+            [mat],
+            (x23,),
+        ),
+        "partition_softmax": (
+            lambda a, p: at.partition_softmax(a, p, sum_partitions=at.shape(a)[0]),
+            [vec, vec_i],
+            (x, tf.constant([2, 1], tf.int64)),
+        ),
         "matmul": (
             lambda a: at.matmul(a, tf.constant([[1.0, 0.0], [0.5, 1.0], [0.0, 0.5]], tf.float32)),
             [mat],

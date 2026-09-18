@@ -56,5 +56,7 @@ instead of an initializer.
 `test/test_onnx_export.py` exports the public tensor surface through the TF
 `tf2onnx` path (runs in CI) and the GAT-style neighbor helper through Torch
 dynamo ONNX (skipped on CI, same Triton SIGSEGV as `torch.compile`).
-`partition_softmax` is skipped (data-dependent partition lengths). Python-sized
-constructors (`zeros((3,))`, `arange(3)`, …) bake ranks by API.
+Constructors (`zeros` / `ones` / `full` / `arange` / `split`) take sizes from
+`at.shape` so the new length is a graph symbol. `partition_softmax` passes
+`sum_partitions=at.shape(logits)[0]` so the flattened length is not a data
+sum.
