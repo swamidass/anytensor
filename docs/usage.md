@@ -110,9 +110,15 @@ Torch is imported.
 
 ## ONNX (dynamic shapes)
 
-ONNX Runtime is not a backend. Export the **same** AnyTensor function after it
-is running on Torch or TensorFlow tensors. Derive `num_segments` from
-`at.shape(nodes)[0]` so `N` stays symbolic.
+ONNX Runtime is not a backend. The recipes live in the opt-in
+`anytensor.onnx` subpackage (not in `anytensor.__all__`, not a stable
+library API). Export the **same** AnyTensor function after it is running on
+Torch or TensorFlow tensors. Derive `num_segments` from `at.shape(nodes)[0]`
+so `N` stays symbolic.
+
+```python
+from anytensor import onnx
+```
 
 | Start | Recipe |
 |---|---|
@@ -120,7 +126,7 @@ is running on Torch or TensorFlow tensors. Derive `num_segments` from
 | Keras | `as_tensorflow_fn` / `to_onnx_tensorflow(..., params=)` so constants are created inside the trace |
 | Flax | `numpy_leaves(params)` then `as_torch_module(fn, params)` (preferred) or the Keras row — not `jax2tf`, not extra inputs |
 
-Helpers and coverage: [ONNX export](onnx/index.md).
+Helpers (`from anytensor import onnx`): [ONNX](onnx/index.md).
 
 ## Typing
 

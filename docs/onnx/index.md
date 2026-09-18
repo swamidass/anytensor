@@ -1,12 +1,21 @@
 # ONNX export
 
+!!! warning "Unstable guide"
+    [`anytensor.onnx`](api.md) is an opt-in subpackage for downstream *model*
+    builders. It is **not** in `anytensor.__all__`, **not** a stable library
+    contract, and **not** an ONNX Runtime backend. Names may change.
+
 AnyTensor is **not** an ONNX Runtime backend. Export means: run the same
 portable function on **Torch** or **TensorFlow** tensors, then serialize that
 graph. Symbolic lengths come from tensor shapes (`at.shape(x)[0]`), not from
 Python ints. Learned weights must land in `graph.initializer`, not as extra
-feeds — use `export.as_torch_module(fn, params)` / `export.as_tensorflow_fn`.
+feeds — use `onnx.as_torch_module(fn, params)` / `onnx.as_tensorflow_fn`.
 
-Runnable recipes: [Examples](examples.md). Helpers: [Export API](../api/export.md).
+```python
+from anytensor import onnx
+```
+
+Runnable recipes: [Examples](examples.md). Helpers: [API](api.md).
 
 ## Best pathway
 
@@ -30,12 +39,12 @@ at.segment_sum(messages, dst_index, num_nodes)
 
 Then tell the exporter those axes are dynamic:
 
-- Torch: `torch.export.Dim("E")` / `Dim("N")` via `export.torch_dim`, shared
-  across inputs that must match.
+- Torch: `torch.export.Dim("E")` / `Dim("N")`, shared across inputs that must
+  match.
 - TF / Keras: `tf.TensorSpec((None, feat), …)` — `None` is the symbolic length.
 
-`export.assert_symbolic_lengths` fails the test if those axes baked to ints.
-`export.assert_embedded_weights(model, params)` fails if a weight is a feed
+`onnx.assert_symbolic_lengths` fails the test if those axes baked to ints.
+`onnx.assert_embedded_weights(model, params)` fails if a weight is a feed
 instead of an initializer.
 
 ## Coverage

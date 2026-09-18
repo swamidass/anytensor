@@ -11,12 +11,13 @@ Generated from package docstrings with
 | [Semantics](semantics_api.md) | `empty_segment_identity` |
 | [Namespace](namespace.md) | TF Array-API shim (`array_namespace`) |
 | [Optional imports](optional.md) | `module_if_loaded()` — already-imported extras, with callbacks |
-| [ONNX export](export.md) | `to_onnx` / `as_torch_module(..., params=)` — symbolic lengths and embedded weights |
 
 Graphs and nests have their own sections: [Tree](../tree/index.md),
 [Jraph](../jraph/index.md), [Hetero](../hetero/index.md) (API pages
 [tree/api](../tree/api.md), [jraph/api](../jraph/api.md),
-[hetero/api](../hetero/api.md)).
+[hetero/api](../hetero/api.md)). ONNX serialization is an opt-in
+subpackage (`anytensor.onnx`), not part of the core API:
+[ONNX](../onnx/index.md) ([helpers](../onnx/api.md)).
 
 Backends (`anytensor.backends`) are internal; use public helpers instead of
 `get_backend` unless you are extending the library.

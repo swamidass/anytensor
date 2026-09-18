@@ -1,7 +1,7 @@
 # ONNX examples
 
 These fenced blocks are executed by pytest (Sybil). Overview:
-[ONNX export](index.md). Helpers: [Export API](../api/export.md).
+[ONNX export](index.md). Helpers: [API](api.md).
 
 The portable body uses **`at.shape(nodes)[0]`** so node count `N` is a
 symbolic length, not a Python int.
@@ -38,7 +38,7 @@ import os
 
 tf = pytest.importorskip("tensorflow")
 pytest.importorskip("tf2onnx")
-from anytensor import export
+from anytensor import onnx
 
 signature = [
     tf.TensorSpec((None, 2), tf.float32, name="messages"),
@@ -46,8 +46,8 @@ signature = [
     tf.TensorSpec((None,), tf.int64, name="dst"),
     tf.TensorSpec((None, 2), tf.float32, name="nodes"),
 ]
-proto = export.to_onnx_tensorflow(neighbor_from_nodes, signature)
-dims = export.assert_symbolic_lengths(
+proto = onnx.to_onnx_tensorflow(neighbor_from_nodes, signature)
+dims = onnx.assert_symbolic_lengths(
     proto, inputs={"messages": (0,), "nodes": (0,)}
 )
 assert isinstance(dims["messages"][0], str)
@@ -61,10 +61,10 @@ import os
 pytest.importorskip("torch")
 if os.environ.get("CI"):
     pytest.skip("torch.onnx dynamo disabled on CI runners (dynamo/triton)")
-from anytensor import export
+from anytensor import onnx
 
-E, N = export.torch_dim("E"), export.torch_dim("N")
-prog = export.to_onnx_torch(
+E, N = torch.export.Dim("E"), torch.export.Dim("N")
+prog = onnx.to_onnx_torch(
     neighbor_from_nodes,
     (
         torch.as_tensor(messages),
@@ -81,7 +81,7 @@ prog = export.to_onnx_torch(
     input_names=["messages", "scores", "dst_index", "nodes"],
     output_names=["out"],
 )
-dims = export.assert_symbolic_lengths(
+dims = onnx.assert_symbolic_lengths(
     prog,
     inputs={"messages": (0,), "nodes": (0,)},
     outputs={"out": (0,)},
@@ -104,7 +104,7 @@ flax = pytest.importorskip("flax")
 tf = pytest.importorskip("tensorflow")
 pytest.importorskip("tf2onnx")
 from flax import linen as nn
-from anytensor import export
+from anytensor import onnx
 
 
 class FlaxNeighbor(nn.Module):
@@ -123,14 +123,14 @@ variables = mod.init(
     jax.numpy.asarray(dst),
     jax.numpy.asarray(nodes),
 )
-params = export.numpy_leaves(variables["params"])
+params = onnx.numpy_leaves(variables["params"])
 
 
 def apply(messages, scores, dst_index, nodes, *, params):
     return neighbor_from_nodes(messages @ params["W"], scores, dst_index, nodes)
 
 
-proto = export.to_onnx_tensorflow(
+proto = onnx.to_onnx_tensorflow(
     apply,
     [
         tf.TensorSpec((None, 2), tf.float32, name="messages"),
@@ -140,6 +140,7 @@ proto = export.to_onnx_tensorflow(
     ],
     params=params,
 )
-assert isinstance(export.symbolic_dims(proto)["messages"][0], str)
-assert export.assert_embedded_weights(proto, params)["W"].startswith("W")
+dims = onnx.assert_symbolic_lengths(proto, inputs={"messages": (0,)})
+assert isinstance(dims["messages"][0], str)
+assert onnx.assert_embedded_weights(proto, params)["W"].startswith("W")
 ```
