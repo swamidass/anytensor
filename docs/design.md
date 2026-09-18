@@ -138,7 +138,7 @@ float; don’t assume the raw return is already one.
 | `data` | Numeric payload | Share Array API `result_type` (ints widen beside floats) |
 | `index` | Segment ids, `take` indices | **Stay integral** — never widened to float by a float peer |
 | `mask` | `where` condition | Cast to bool if needed |
-| `shape` | `num_segments`, `total_repeat_length`, … | Python `int` / symbolic / 0-d integral tensor; **not** promoted to a 0-d array |
+| `shape` | `num_segments`, `total_repeat_length`, `total_length`, … | Python `int` / symbolic / 0-d integral tensor; **not** promoted to a 0-d array |
 
 **Edge implication:** passing float segment ids fails fast (kind `index` or
 jaxtyping `Integer[...]` under test-time typecheck). Passing `num_segments` as
@@ -157,12 +157,13 @@ is `shape(partitions)[0]`, a shape read, not data-dependent.
 on every call (`partition_ids` = `arange` + `repeat`). A compiler may CSE
 that; eager will not. JAX keeps `total_length` required so dropping an
 optional cannot silently become data-dependent (`sum(partitions)`);
-passing `None` is a `TypeError`, not that fallback. Inside `partition_cache()`
-(reentrant; GraphNetwork enters one per apply), `partition_softmax` and
-`partition_ids` reuse the same tensor's expansion via weakrefs — the cache
-does not pin, GC drops the ids, and callbacks hold only a weakref to the
-cache map — that avoids a callback→cache→entry loop that would pin ids for
-the life of the tensor. Call
+passing `None` is a `TypeError`, not that fallback. `@partition_cache` on a
+library apply (GraphNetwork), `with partition_cache():`, or
+`partition_cache.enable()` / `disable()` turns the cache on;
+`partition_cache.purge(partitions)` drops one tensor. Partition helpers reuse
+the same tensor's expansion via weakrefs — the cache does not pin, GC drops
+the ids, and callbacks hold only a weakref to the cache map — that avoids a
+callback→cache→entry loop that would pin ids for the life of the tensor. Call
 `partition_ids` once yourself if you are outside that block. Do not add
 `partition_sum` / `partition_min` / `partition_max`. There is no
 process-wide cache: tensors are unhashable, in-place edits would stale the

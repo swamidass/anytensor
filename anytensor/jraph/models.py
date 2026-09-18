@@ -74,11 +74,8 @@ def GraphNetwork(
             "attention_logit_fn and attention_reduce_fn must both be supplied."
         )
 
+    @partition_cache
     def _ApplyGraphNet(graph: GraphsTuple) -> GraphsTuple:
-        with partition_cache():
-            return _ApplyGraphNetInner(graph)
-
-    def _ApplyGraphNetInner(graph: GraphsTuple) -> GraphsTuple:
         nodes, edges, receivers, senders, globals_, n_node, n_edge = graph
         node_leaves = tree.leaves(nodes)
         if node_leaves:

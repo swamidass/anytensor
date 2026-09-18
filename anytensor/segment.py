@@ -9,9 +9,11 @@ tensor scalar — never inferred from ``segment_ids`` (that would be
 ``max(ids)+1``, data-dependent). Partition helpers do **not** take
 ``num_segments``: it is ``shape(partitions)[0]``, a shape read. They do
 require ``total_length`` (``shape(logits)[0]``, not a data
-``sum(partitions)``). Wrap a block in :func:`partition_cache` and
-:func:`partition_softmax` / :func:`partition_ids` reuse the same expansion.
-There is no ``partition_sum`` / ``partition_min`` family.
+``sum(partitions)``). :class:`partition_cache` as a decorator (preferred on
+library apply functions), a context, or :meth:`partition_cache.enable` /
+:meth:`~partition_cache.disable` makes :func:`partition_softmax` /
+:func:`partition_ids` reuse expansions. :meth:`partition_cache.purge` drops
+one tensor. There is no ``partition_sum`` / ``partition_min`` family.
 
 TorchScript: :func:`enable_torchscript` wraps ``segment_sum`` / ``min`` /
 ``max`` with a ``torch.jit.is_scripting()`` divert. Import order does not
@@ -24,8 +26,8 @@ matter: a :func:`module_if_loaded` helper enables the divert as soon as
 from __future__ import annotations
 
 import weakref
-from contextlib import contextmanager
 from contextvars import ContextVar
+from functools import wraps
 
 from .backends import get_backend
 from .optional import module_if_loaded
@@ -52,10 +54,41 @@ _TORCHSCRIPT_ENABLED = False
 class _PartitionIdsMap(dict):
     """Weakref-able cache map (builtin ``dict`` cannot take a weakref)."""
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.depth = 0
+        self.sticky = False
+        self.token = None
+
 
 _PARTITION_IDS_CACHE: ContextVar[_PartitionIdsMap | None] = ContextVar(
     "anytensor_partition_ids_cache", default=None
 )
+
+
+def _activate_partition_cache(*, sticky: bool = False) -> _PartitionIdsMap:
+    cache = _PARTITION_IDS_CACHE.get()
+    if cache is not None:
+        if sticky:
+            cache.sticky = True
+        return cache
+    cache = _PartitionIdsMap()
+    cache.sticky = sticky
+    cache.token = _PARTITION_IDS_CACHE.set(cache)
+    return cache
+
+
+def _drop_partition_cache(cache: _PartitionIdsMap) -> None:
+    cache.clear()
+    cache.sticky = False
+    cache.depth = 0
+    token = cache.token
+    cache.token = None
+    if token is not None:
+        try:
+            _PARTITION_IDS_CACHE.reset(token)
+        except ValueError:
+            pass
 
 
 def _align_segment_args(x, segment_ids):
@@ -480,32 +513,87 @@ class _StrongRef:
         return self._obj
 
 
-@contextmanager
-def partition_cache():
-    """Reuse partition→segment-id expansions for the same tensors in this block.
+class _PartitionCache:
+    """Reuse partition→segment-id expansions for the same tensors.
 
     Graph helpers often expand the same ``n_node`` / ``n_edge`` vector more
     than once in a call. A process-wide ``id()`` cache is wrong (unhashable
-    tensors, in-place edits, tracers). This context is opt-in and reentrant.
+    tensors, in-place edits, tracers). This object is opt-in:
+
+    * **Decorator** (preferred on library apply functions)::
+
+          @partition_cache
+          def apply(graph):
+              ...
+
+    * **Context** (reentrant)::
+
+          with partition_cache():
+              ...
+
+    * :meth:`enable` / :meth:`disable` for a ContextVar-scoped cache outside
+      a block (``disable`` clears and turns it off).
+    * :meth:`purge` drops cached ids for one partition tensor.
+
     Entries are weak: when the partition tensor is collected, the cached ids
-    drop; the map is also cleared on exit so it does not pin. GC callbacks
-    hold only a weakref to this map, so a long-lived ``n_node`` cannot keep
-    an empty cache alive after the block and cannot form a
-    callback→cache→entry cycle that would pin the cached ids. Partition helpers
-    (:func:`partition_ids`, :func:`partition_softmax`) consult it
+    drop; a context that owns the map also clears on exit so it does not pin.
+    GC callbacks hold only a weakref to this map, so a long-lived ``n_node``
+    cannot keep an empty cache alive after the block and cannot form a
+    callback→cache→entry cycle that would pin the cached ids. Partition
+    helpers (:func:`partition_ids`, :func:`partition_softmax`) consult it
     automatically — callers do not thread ids through the stack.
-    :func:`~anytensor.jraph.GraphNetwork` enters one per apply.
+    :func:`~anytensor.jraph.GraphNetwork` is decorated so each apply hits it.
     """
-    if _PARTITION_IDS_CACHE.get() is not None:
-        yield
-        return
-    cache = _PartitionIdsMap()
-    token = _PARTITION_IDS_CACHE.set(cache)
-    try:
-        yield
-    finally:
-        cache.clear()
-        _PARTITION_IDS_CACHE.reset(token)
+
+    def __call__(self, fn=None):
+        if fn is None:
+            return self
+
+        @wraps(fn)
+        def wrapped(*args, **kwargs):
+            with self:
+                return fn(*args, **kwargs)
+
+        return wrapped
+
+    def __enter__(self):
+        cache = _activate_partition_cache()
+        cache.depth += 1
+        return self
+
+    def __exit__(self, *exc):
+        cache = _PARTITION_IDS_CACHE.get()
+        if cache is None:
+            return False
+        cache.depth = max(0, cache.depth - 1)
+        if cache.depth == 0 and not cache.sticky:
+            _drop_partition_cache(cache)
+        return False
+
+    def enable(self):
+        """Turn the cache on until :meth:`disable` (no surrounding block)."""
+        _activate_partition_cache(sticky=True)
+
+    def disable(self):
+        """Clear the cache and turn it off."""
+        cache = _PARTITION_IDS_CACHE.get()
+        if cache is None:
+            return
+        _drop_partition_cache(cache)
+
+    def purge(self, partitions):
+        """Drop cached segment ids for ``partitions`` (no-op if cache is off)."""
+        cache = _PARTITION_IDS_CACHE.get()
+        if not cache:
+            return
+        pid = id(partitions)
+        for key in [k for k in cache if k[0] == pid]:
+            cache.pop(key, None)
+
+    purge_cache = purge
+
+
+partition_cache = _PartitionCache()
 
 
 def _cache_lookup(cache, partitions, total):

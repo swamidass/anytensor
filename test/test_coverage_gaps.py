@@ -309,6 +309,55 @@ def test_partition_cache_strongref_when_weakref_fails(monkeypatch):
         assert list(np.asarray(ids_a)) == [0, 0, 1]
 
 
+def test_partition_cache_decorator_enable_disable_purge():
+    parts = np.array([2, 1], dtype=np.int64)
+    other = np.array([1, 2], dtype=np.int64)
+
+    @at.partition_cache
+    def twice(p):
+        a = at.partition_ids(p, 3)
+        b = at.partition_ids(p, 3)
+        return a, b
+
+    a, b = twice(parts)
+    assert a is b
+    assert at.partition_ids(parts, 3) is not a
+
+    @at.partition_cache()
+    def twice_paren(p):
+        a = at.partition_ids(p, 3)
+        return a, at.partition_ids(p, 3)
+
+    c, d = twice_paren(parts)
+    assert c is d
+
+    at.partition_cache.enable()
+    at.partition_cache.enable()
+    try:
+        e = at.partition_ids(parts, 3)
+        assert at.partition_ids(parts, 3) is e
+        with at.partition_cache():
+            assert at.partition_ids(parts, 3) is e
+        assert at.partition_ids(parts, 3) is e
+        f = at.partition_ids(other, 3)
+        at.partition_cache.purge(parts)
+        assert at.partition_ids(parts, 3) is not e
+        assert at.partition_ids(other, 3) is f
+        at.partition_cache.purge_cache(other)
+        assert at.partition_ids(other, 3) is not f
+    finally:
+        at.partition_cache.disable()
+    g = at.partition_ids(parts, 3)
+    assert g is not e
+    at.partition_cache.disable()
+    at.partition_cache.purge(parts)
+
+    with at.partition_cache():
+        h = at.partition_ids(parts, 3)
+        at.partition_cache.disable()
+        assert at.partition_ids(parts, 3) is not h
+
+
 def test_normalize_shape_dim_and_promote_shape_roles():
     from anytensor.backends import UnknownSize
     from anytensor.core import _asarray, _normalize_shape_dim, _xp
