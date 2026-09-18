@@ -84,8 +84,7 @@ def _drop_partition_cache(cache: _PartitionIdsMap) -> None:
     cache.depth = 0
     token = cache.token
     cache.token = None
-    if token is not None:
-        _PARTITION_IDS_CACHE.reset(token)
+    _PARTITION_IDS_CACHE.reset(token)
 
 
 def _align_segment_args(x, segment_ids):
