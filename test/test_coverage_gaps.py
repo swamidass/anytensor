@@ -264,6 +264,21 @@ def test_partition_cache_callback_does_not_pin_cache():
     assert wr() is None
 
 
+def test_purge_cache_entry_noop_when_cache_is_dead():
+    from anytensor import segment
+
+    cache = segment._PartitionIdsMap()
+    key = (id(cache), ("i", 1), ("i", 1))
+    cache[key] = "held"
+    cache_ref = weakref.ref(cache)
+    segment._purge_cache_entry(cache_ref, key)
+    assert key not in cache
+    del cache
+    gc.collect()
+    assert cache_ref() is None
+    segment._purge_cache_entry(cache_ref, key)
+
+
 class _Gone:
     pass
 

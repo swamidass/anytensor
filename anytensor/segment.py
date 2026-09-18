@@ -517,12 +517,16 @@ def _cache_lookup(cache, partitions, n_part, total):
     return key, None
 
 
+def _purge_cache_entry(cache_ref, key):
+    held = cache_ref()
+    if held is None:
+        return
+    held.pop(key, None)
+
+
 def _cache_store(cache, key, partitions, ids):
     def _drop(_ref, cache_ref=weakref.ref(cache), key=key):
-        held = cache_ref()
-        if held is None:
-            return
-        held.pop(key, None)
+        _purge_cache_entry(cache_ref, key)
 
     held_ref = _ref_partitions(partitions, _drop)
     cache[key] = (held_ref, ids)
