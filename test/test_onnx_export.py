@@ -1026,8 +1026,8 @@ def _lin(w):
 
 
 def _size1(x):
-    """Turn a leading length into a length-1 vector (one graph in the batch)."""
-    return at.reshape(at.shape(x)[0:1], (1,))
+    """Turn a leading length into a length-1 int vector (one graph in the batch)."""
+    return at.full((1,), at.shape(x)[0], dtype="int32", like=x)
 
 
 def _dot_logit(a, b):

@@ -9,7 +9,6 @@ import numpy as np
 
 from anytensor import tree
 from anytensor.core import concatenate, maximum, reshape, rsqrt, shape, take, where
-from anytensor.core import _host_concrete_int
 from anytensor.core import arange as at_arange
 from anytensor.core import ones as at_ones
 from anytensor.core import repeat as at_repeat
@@ -85,12 +84,14 @@ def GraphNetwork(
         else:
             sum_n_node = int(np_sum_n_node(n_node))
         sum_n_edge = 0 if senders is None else shape(senders)[0]
-        concrete_n = _host_concrete_int(sum_n_node)
+        # ``int(size)`` is rewritten by TF Autograph into a graph op, so a
+        # symbolic leading dim looks "concrete". Only compare nest lengths
+        # when the size is already a Python int (eager NumPy / JAX / TF).
         if (
             node_leaves
-            and concrete_n is not None
+            and type(sum_n_node) is int
             and not utils._tree_all(  # noqa: SLF001
-                tree.map(lambda n: n.shape[0] == concrete_n, nodes)
+                tree.map(lambda n: n.shape[0] == sum_n_node, nodes)
             )
         ):
             raise ValueError(
@@ -362,9 +363,13 @@ def GraphConvolution(
             conv_receivers = receivers
 
         if symmetric_normalization:
+            feat_dtype = tree.leaves(nodes)[0].dtype
+            one = at_ones((), dtype=feat_dtype, like=tree.leaves(nodes)[0])
 
             def count_edges(x):
-                ones = at_ones(shape(conv_senders), dtype=conv_senders.dtype, like=conv_senders)
+                ones = at_ones(
+                    shape(conv_senders), dtype=feat_dtype, like=conv_senders
+                )
                 return utils.segment_sum(ones, x, total_num_nodes)
 
             sender_degree = count_edges(conv_senders)
@@ -372,7 +377,7 @@ def GraphConvolution(
             nodes = tree.map(
                 lambda x: x
                 * reshape(
-                    rsqrt(maximum(sender_degree, 1.0)),
+                    rsqrt(maximum(sender_degree, one)),
                     (shape(sender_degree)[0],) + (1,) * (x.ndim - 1),
                 ),
                 nodes,
@@ -386,7 +391,7 @@ def GraphConvolution(
             nodes = tree.map(
                 lambda x: x
                 * reshape(
-                    rsqrt(maximum(receiver_degree, 1.0)),
+                    rsqrt(maximum(receiver_degree, one)),
                     (shape(receiver_degree)[0],) + (1,) * (x.ndim - 1),
                 ),
                 nodes,
