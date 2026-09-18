@@ -485,15 +485,16 @@ def partition_ids(
         key, cached = _cache_lookup(ns, partitions, _size_cache_key(total))
         if cached is not None:
             stale = _stale_cached_ids(cached, total)
-            if stale is None:
+            if stale is not None:
+                ns.pop(key, None)
+                got, want = stale
+                warnings.warn(
+                    f"cached partition ids length {got} != total_length {want}; "
+                    "purging and recomputing",
+                    stacklevel=2,
+                )
+            else:
                 return cached
-            ns.pop(key, None)
-            got, want = stale
-            warnings.warn(
-                f"cached partition ids length {got} != total_length {want}; "
-                "purging and recomputing",
-                stacklevel=2,
-            )
     ids = repeat(arange(n_part, like=partitions), partitions, total_repeat_length=total)
     if ns is not None:
         _cache_store(ns, key, partitions, ids)
@@ -501,12 +502,16 @@ def partition_ids(
 
 
 def _stale_cached_ids(cached, total):
-    """``(got, want)`` when both lengths are concrete and differ; else ``None``."""
+    """``(got, want)`` when both lengths are Python ints and differ; else ``None``.
+
+    ``type(...) is int`` (not truthiness / ``==`` on tensors) so TF Autograph
+    does not turn this into ``tf.cond`` with mismatched branch structures.
+    """
     got = _host_concrete_int(shape(cached)[0])
     want = _host_concrete_int(total)
-    if None in (got, want) or got == want:
-        return None
-    return got, want
+    if type(got) is int and type(want) is int and got != want:
+        return got, want
+    return None
 
 
 def partition_softmax(

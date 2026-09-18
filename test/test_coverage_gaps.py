@@ -429,6 +429,15 @@ def test_cache_purges_wrong_size_ids(monkeypatch):
         ns[(id(parts), ("i", 3))] = (weakref.ref(parts), stale)
         assert at.partition_ids(parts, 3) is stale
 
+        calls = {"n": 0}
+
+        def once_int(_v):
+            calls["n"] += 1
+            return 3 if calls["n"] == 1 else None
+
+        monkeypatch.setattr(segment, "_host_concrete_int", once_int)
+        assert at.partition_ids(parts, 3) is stale
+
 
 def test_normalize_shape_dim_and_promote_shape_roles():
     from anytensor.backends import UnknownSize
