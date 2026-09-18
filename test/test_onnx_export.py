@@ -630,6 +630,8 @@ def _tf_cases() -> dict[str, tuple[Callable, list, tuple]]:
         "full_like": (lambda a: at.full_like(a, 3.0), [vec], (x,)),
         # Sizes from at.shape so the constructor introduces a graph symbol
         # (equated with the operand's dim by where it sits in the graph).
+        # partition_ids / partition_softmax: total_length is shape(a)[0], not
+        # sum(partitions) — the flattened length stays a dim_param.
         "zeros": (lambda a: at.zeros(at.shape(a), dtype=tf.float32, like=a), [vec], (x,)),
         "ones": (lambda a: at.ones(at.shape(a), dtype=tf.float32, like=a), [vec], (x,)),
         "full": (lambda a: at.full(at.shape(a), 3.0, dtype=tf.float32, like=a), [vec], (x,)),
@@ -729,6 +731,58 @@ def test_tensorflow_public_ops_export_and_match(onnx_op_name):
     if out_axes:
         assert any(isinstance(d, str) and d for d in out_axes), (onnx_op_name, out_axes)
     np.testing.assert_allclose(y, eager_np, equal_nan=True, atol=1e-4)
+
+
+def test_partition_ids_total_is_shape_not_data_sum():
+    """``total_length=shape(logits)[0]`` is a dim_param; partitions are not summed."""
+    tf = pytest.importorskip("tensorflow")
+    pytest.importorskip("tf2onnx")
+
+    def fn(partitions, logits):
+        return at.partition_ids(partitions, at.shape(logits)[0])
+
+    proto = export.to_onnx_tensorflow(
+        fn,
+        [
+            tf.TensorSpec((None,), tf.int64, name="partitions"),
+            tf.TensorSpec((None,), tf.float32, name="logits"),
+        ],
+    )
+    export.assert_symbolic_lengths(
+        proto, inputs={"partitions": (0,), "logits": (0,)}
+    )
+    shape_ins = set(_onnx_op_inputs(proto, "Shape"))
+    assert "logits" in shape_ins
+    assert "partitions" not in set(_onnx_op_inputs(proto, "ReduceSum"))
+    p = tf.constant([2, 1], tf.int64)
+    a = tf.constant([0.5, 1.5, 2.5], tf.float32)
+    np.testing.assert_array_equal(_ort(proto, (p, a)), np.asarray(fn(p, a)))
+    a4 = tf.constant([0.5, 1.5, 2.5, 3.5], tf.float32)
+    p4 = tf.constant([2, 2], tf.int64)
+    y4 = _ort(proto, (p4, a4))
+    assert y4.shape == (4,)
+    np.testing.assert_array_equal(y4, [0, 0, 1, 1])
+
+
+def test_length1_count_vector_value_is_symbolic_size():
+    """``full((1,), shape(x)[0])`` stores the shape symbol; output rank is 1."""
+    tf = pytest.importorskip("tensorflow")
+    pytest.importorskip("tf2onnx")
+
+    def count(x):
+        return at.full((1,), at.shape(x)[0], dtype=tf.int32, like=x)
+
+    proto = export.to_onnx_tensorflow(
+        count, [tf.TensorSpec((None, 2), tf.float32, name="x")]
+    )
+    out_name = _graph._model_proto(proto).graph.output[0].name
+    assert _graph._symbolic_dims(proto)[out_name] == (1,)
+    assert "x" in set(_onnx_op_inputs(proto, "Shape"))
+    assert "x" not in set(_onnx_op_inputs(proto, "ReduceSum"))
+    y3 = np.asarray(_ort(proto, [tf.ones((3, 2))])).reshape(-1)
+    y5 = np.asarray(_ort(proto, [tf.ones((5, 2))])).reshape(-1)
+    np.testing.assert_array_equal(y3, [3])
+    np.testing.assert_array_equal(y5, [5])
 
 
 @_SKIP_CI_TORCH
@@ -1032,8 +1086,22 @@ def _lin(w):
     return lambda x: x @ w
 
 
+def _onnx_op_inputs(proto, op_type):
+    """Flat list of input names for ONNX nodes of ``op_type``."""
+    return [
+        inp
+        for node in _graph._model_proto(proto).graph.node
+        if node.op_type == op_type
+        for inp in node.input
+    ]
+
+
 def _size1(x):
-    """Turn a leading length into a length-1 int vector (one graph in the batch)."""
+    """Turn a leading length into a length-1 int vector (one graph in the batch).
+
+    The vector length is 1; the fill is ``at.shape(x)[0]`` so the partition
+    total is a shape symbol (not ``sum`` of a count vector).
+    """
     return at.full((1,), at.shape(x)[0], dtype=np.int32, like=x)
 
 
@@ -1345,4 +1413,62 @@ def test_jraph_zoo_tensorflow_onnx(zoo_fn):
     y = _ort(proto, args)
     eager = np.asarray(zoo_fn(*args, params=params))
     np.testing.assert_allclose(y, eager, equal_nan=True, atol=1e-4)
+
+
+def _jraph_deepsets_from_shape(nodes, edges, senders, receivers, globals_, *, params):
+    from anytensor import jraph as atj
+
+    g = _jraph_pack(
+        nodes,
+        edges,
+        senders,
+        receivers,
+        _size1(nodes),
+        _size1(senders),
+        globals_,
+    )
+    return atj.DeepSets(lambda n, gl: n @ params["W"] + gl, lambda n: n)(g).nodes
+
+
+def test_jraph_partition_totals_are_shape_not_sum():
+    """GraphNetwork ``sum_n_node`` is ``Shape(nodes)``, not ``ReduceSum(n_node)``."""
+    tf = pytest.importorskip("tensorflow")
+    pytest.importorskip("tf2onnx")
+    params = dict(_JRAPH_WEIGHTS)
+    proto = export.to_onnx_tensorflow(
+        _jraph_deepsets, _jraph_signature(tf), params=params
+    )
+    export.assert_symbolic_lengths(proto, inputs={"nodes": (0,)})
+    assert "nodes" in set(_onnx_op_inputs(proto, "Shape"))
+    reduce_ins = set(_onnx_op_inputs(proto, "ReduceSum"))
+    assert "n_node" not in reduce_ins
+    assert "n_edge" not in reduce_ins
+
+
+def test_jraph_single_graph_n_node_from_shape():
+    """Single-graph ``n_node`` is ``full((1,), shape(nodes)[0])`` (export recipe)."""
+    tf = pytest.importorskip("tensorflow")
+    pytest.importorskip("tf2onnx")
+    params = dict(_JRAPH_WEIGHTS)
+    signature = [
+        tf.TensorSpec((None, 2), tf.float32, name="nodes"),
+        tf.TensorSpec((None, 2), tf.float32, name="edges"),
+        tf.TensorSpec((None,), tf.int32, name="senders"),
+        tf.TensorSpec((None,), tf.int32, name="receivers"),
+        tf.TensorSpec((None, 2), tf.float32, name="globals"),
+    ]
+    proto = export.to_onnx_tensorflow(
+        _jraph_deepsets_from_shape, signature, params=params
+    )
+    export.assert_symbolic_lengths(proto, inputs={"nodes": (0,), "edges": (0,)})
+    assert "nodes" in set(_onnx_op_inputs(proto, "Shape"))
+    nodes, edges, senders, receivers, _n_node, _n_edge, globals_ = _jraph_args(tf)
+    args3 = (nodes, edges, senders, receivers, globals_)
+    y3 = _ort(proto, args3)
+    eager = np.asarray(_jraph_deepsets_from_shape(*args3, params=params))
+    np.testing.assert_allclose(y3, eager, equal_nan=True, atol=1e-4)
+    assert y3.shape[0] == 3
+    nodes4 = tf.concat([nodes, tf.constant([[0.0, 0.0]])], axis=0)
+    y4 = _ort(proto, (nodes4, edges, senders, receivers, globals_))
+    assert y4.shape[0] == 4
 

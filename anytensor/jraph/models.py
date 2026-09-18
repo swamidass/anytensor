@@ -73,6 +73,10 @@ def GraphNetwork(
     signature as :func:`jraph.GraphNetwork`. Apply is decorated with
     :data:`~anytensor.cache` (sticky): stacked calls reuse ``n_node`` /
     ``n_edge`` expansions via :func:`~anytensor.partition_ids`.
+
+    Flattened totals (official ``sum_n_node`` / ``sum_n_edge``) are
+    :func:`~anytensor.shape` of the node / sender axis — not
+    ``sum(n_node)`` — so they stay symbolic sizes on ONNX export.
     """
     not_both_supplied = lambda x, y: (x != y) and ((x is None) or (y is None))
     if not_both_supplied(attention_reduce_fn, attention_logit_fn):
@@ -84,9 +88,15 @@ def GraphNetwork(
     def _ApplyGraphNet(graph: GraphsTuple) -> GraphsTuple:
         nodes, edges, receivers, senders, globals_, n_node, n_edge = graph
         node_leaves = tree.leaves(nodes)
+        # Official jraph uses ``sum(n_node)`` / ``sum(n_edge)``. That is a data
+        # reduction (``ReduceSum`` in ONNX) and ``int()`` of it bakes a host
+        # constant. ``shape(nodes)[0]`` is the same integer when the
+        # GraphsTuple invariant holds, and is a dim_param on export.
         if node_leaves:
             sum_n_node = shape(node_leaves[0])[0]
         else:
+            # No node tensor to read. Eager-only host int (cannot be a
+            # symbolic node axis).
             sum_n_node = int(np_sum_n_node(n_node))
         sum_n_edge = 0 if senders is None else shape(senders)[0]
         # ``int(size)`` is rewritten by TF Autograph into a graph op, so a

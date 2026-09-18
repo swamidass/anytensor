@@ -27,6 +27,15 @@ dst = np.array([0, 0, 1, 2], dtype=np.int64)
 nodes = np.zeros((3, 2), dtype=np.float32)
 out_np = neighbor_from_nodes(messages, scores, dst, nodes)
 assert out_np.shape == (3, 2)
+
+# Partition total is shape(logits)[0], not sum(partitions). A single-graph
+# count vector stores that same symbol as its fill value.
+partitions = np.array([2, 1], dtype=np.int64)
+logits = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+ids = at.partition_ids(partitions, at.shape(logits)[0])
+assert list(np.asarray(ids)) == [0, 0, 1]
+n_node = at.full((1,), at.shape(logits)[0], dtype=np.int32, like=logits)
+assert int(np.asarray(n_node)[0]) == 3
 ```
 
 ## Keras / TensorFlow — `tf.function` + tf2onnx

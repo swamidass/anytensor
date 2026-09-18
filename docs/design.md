@@ -150,8 +150,12 @@ by design (see below).
 `num_segments` is **always required** on segment ops (JAX convention). We
 do **not** infer `max(ids)+1`. `total_length` on partition helpers is
 the same kind of required shape-size (`shape(logits)[0]`, not a data
-`sum(partitions)`). Partition helpers do **not** take `num_segments` — that
-is `shape(partitions)[0]`, a shape read, not data-dependent.
+`sum(partitions)`). On ONNX export that size is a `dim_param` (`Shape` of
+the aligned tensor), not a `ReduceSum` of the partition vector. GraphNetwork
+uses `shape(nodes)[0]` / `shape(senders)[0]` for the official `sum_n_node` /
+`sum_n_edge` slots for the same reason. Partition helpers do **not** take
+`num_segments` — that is `shape(partitions)[0]`, a shape read, not
+data-dependent.
 
 `partition_softmax` is a convenience, not a family: it calls
 `partition_ids` (`arange` + `repeat`) then `segment_softmax`.
@@ -231,7 +235,7 @@ rely on NaN under XLA for portability.
 | `tf.function` | Prefer Python ints for sizes **or** `at.shape(x)` under polymorphic / ONNX graphs |
 | `torch.compile` | Prefer over deprecated `torch.jit.*`. `fullgraph=False` for portable helpers; `fullgraph=True` needs a Torch-only body — see [Worked examples](examples.md) |
 | `torch.jit.script` / `trace` | **Deprecated by PyTorch.** Legacy `enable_torchscript()` still covers `segment_sum` / `min` / `max` only |
-| ONNX (recommended deploy path; ORT) | Rebind onto Torch or TF tensors; `at.shape(x)[0]` for symbolic lengths. Embed weights as `nn.Parameter` (best names) or in-trace TF constants via `as_tensorflow_fn` — not outer tensors / extra inputs. See [`anytensor.export`](onnx/index.md) |
+| ONNX (recommended deploy path; ORT) | Rebind onto Torch or TF tensors; `at.shape(x)[0]` for symbolic lengths (including partition totals / GraphNetwork `sum_n_node`). Embed weights as `nn.Parameter` (best names) or in-trace TF constants via `as_tensorflow_fn` — not outer tensors / extra inputs. See [`anytensor.export`](onnx/index.md) |
 
 ### 9. Legacy TorchScript divert (not recommended)
 

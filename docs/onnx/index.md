@@ -51,6 +51,21 @@ Then tell the exporter those axes are dynamic:
 `export.assert_embedded_weights(model, params)` fails if a weight is a feed
 instead of an initializer.
 
+### Partition totals
+
+Official jraph names the flattened length `sum_partitions` / uses
+`sum(n_node)`. A data `sum(partitions)` becomes `ReduceSum` in ONNX
+(and `int(sum(...))` bakes a host constant). AnyTensor takes that total as
+a **shape-size**, so it stays a `dim_param`:
+
+- `partition_ids` / `partition_softmax`: required `total_length` /
+  jraph `sum_partitions` is `at.shape(logits)[0]`, not `sum(partitions)`.
+- GraphNetwork apply: `sum_n_node = at.shape(nodes)[0]`,
+  `sum_n_edge = at.shape(senders)[0]` — not `sum(n_node)`.
+- A single-graph count vector (`n_node` / `n_edge` *values*):
+  `at.full((1,), at.shape(x)[0], dtype=np.int32, like=x)`. The vector
+  length is 1 (one graph); the fill is the same shape symbol.
+
 ## Coverage
 
 `test/test_onnx_export.py` exports the public tensor surface through the TF
@@ -67,4 +82,6 @@ The same file also exports the **model zoos** as a TF/ONNX stress test:
 GraphNetGAT, GAT, GraphConvolution). Those layers take destination sizes from
 `at.shape`, not `int(shape(...))`, so node/edge axes stay `dim_param`s.
 GraphNetwork apply is `@cache` (sticky), so `partition_ids` reuses the same `n_node` /
-`n_edge` expansion across stacked applies and during the TF trace.
+`n_edge` expansion across stacked applies and during the TF trace. Partition
+flattened length is `shape(nodes)[0]` / `shape(logits)[0]`, never a data
+`sum(n_node)`.

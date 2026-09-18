@@ -27,6 +27,10 @@
   jraph model zoos are a
   TF/ONNX stress test: destination sizes come from `at.shape` (HAN no longer
   `int()`s ranks; jraph GAT/GCN/GraphNetwork no longer read `.shape[0]`).
+  Partition totals (`total_length` / jraph `sum_partitions` / GraphNetwork
+  `sum_n_node` / `sum_n_edge`) are `at.shape` of the aligned tensor, not
+  `sum(partitions)` / `sum(n_node)`, so ONNX keeps a `dim_param`. A
+  single-graph `n_node` / `n_edge` vector is `full((1,), shape(x)[0])`.
 
 ## 2026-09-16
 

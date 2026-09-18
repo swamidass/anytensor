@@ -93,7 +93,9 @@ Einops (`rearrange`, `einsum`, `reduce`, …) is re-exported for convenience.
 `partition_ids` + `segment_softmax`. `num_segments` is not an argument — it is
 `shape(partitions)[0]`. `total_length` is a required shape-size
 (`shape(logits)[0]`). Dropping it, or passing `None`, is a `TypeError` — not a
-silent `sum(partitions)`. It calls `partition_ids` then `segment_softmax`.
+silent `sum(partitions)`. On ONNX export that total is a `dim_param`
+(`Shape` of the aligned tensor), not a `ReduceSum` of the partition vector.
+It calls `partition_ids` then `segment_softmax`.
 `partition_ids` is the only partition helper that talks to the cache:
 wrap the apply in `@cache` (sticky: later calls reuse the map),
 `with cache():` (scoped), or `cache.enable()` / `disable()`. Every partition helper
