@@ -237,7 +237,7 @@ def test_cache_weakrefs_and_partition_softmax(monkeypatch):
         gc.collect()
         assert dead() is None
         ns = at.cache["partition"]
-        key = (id(other), ("i", 3))
+        key = (id(other),)
         ns[key] = (dead, ids_other)
         ids_fresh = at.partition_ids(other, 3)
         assert ids_fresh is not ids_other
@@ -409,7 +409,7 @@ def test_cache_purges_wrong_size_ids(monkeypatch):
     with at.cache():
         at.partition_ids(parts, 3)
         ns = at.cache["partition"]
-        key = (id(parts), ("i", 3))
+        key = (id(parts),)
         wrong = np.array([0, 0], dtype=np.int64)
         ns[key] = (weakref.ref(parts), wrong)
         with pytest.warns(UserWarning, match="length 2 != total_length 3"):
@@ -428,7 +428,7 @@ def test_cache_purges_wrong_size_ids(monkeypatch):
 
         monkeypatch.setattr(segment, "_host_concrete_int", lambda _v: None)
         stale = np.array([0], dtype=np.int64)
-        ns[(id(parts), ("i", 3))] = (weakref.ref(parts), stale)
+        ns[(id(parts),)] = (weakref.ref(parts), stale)
         assert at.partition_ids(parts, 3) is stale
 
         calls = {"n": 0}
@@ -439,6 +439,23 @@ def test_cache_purges_wrong_size_ids(monkeypatch):
 
         monkeypatch.setattr(segment, "_host_concrete_int", once_int)
         assert at.partition_ids(parts, 3) is stale
+
+
+def test_cache_one_entry_per_partition_total_is_ids_size():
+    """The partition cache is keyed by the vector; ``shape(ids)[0]`` is the total."""
+    parts = np.array([2, 1], dtype=np.int64)
+    with at.cache():
+        ids = at.partition_ids(parts, 3)
+        ns = at.cache["partition"]
+        assert list(ns) == [(id(parts),)]
+        assert int(np.asarray(at.shape(ids)[0])) == 3
+        assert at.partition_ids(parts, 3) is ids
+        with pytest.warns(UserWarning, match="length 3 != total_length 2"):
+            other = at.partition_ids(parts, 2)
+        assert other is not ids
+        assert list(ns) == [(id(parts),)]
+        assert int(np.asarray(other).shape[0]) == 2
+        assert at.partition_ids(parts, 2) is other
 
 
 def test_normalize_shape_dim_and_promote_shape_roles():

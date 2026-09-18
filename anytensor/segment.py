@@ -49,7 +49,7 @@ from .core import (
 )
 from .namespace import array_namespace
 from ._cache import cache as cache
-from ._cache import _cache_lookup, _cache_store, _namespace, _size_cache_key
+from ._cache import _cache_lookup, _cache_store, _namespace
 
 _TORCHSCRIPT_ENABLED = False
 
@@ -472,15 +472,14 @@ def partition_ids(
 
     The only partition helper that talks to :data:`cache`. Outside the
     cache, every call rebuilds ids. Inside, the same ``partitions``
-    tensor (and ``total_length``) returns the previous ids from
-    ``cache["partition"]`` until the tensor is collected or the block
-    exits. If a cached expansion's length does not match
+    tensor returns the previous ids from ``cache["partition"]`` until
+    the tensor is collected or the block exits — **one entry per
+    partition vector**. The flattened total is ``shape(ids)[0]`` (not a
+    separate ``sum(partitions)`` cache); on ONNX export that length is a
+    ``dim_param``. If a cached expansion's length does not match
     ``total_length`` (in-place edit of a 0-d size, or a stale entry),
     that entry is purged, a warning is issued, and ids are recomputed.
     The length check uses host Python ints only; tracing skips it.
-    There is no separate cache of ``sum(partitions)``: the ids'
-    leading size *is* that total (``shape(logits)[0]``), and on ONNX
-    export it stays a ``dim_param``.
     Passing ``None`` for ``total_length`` is a ``TypeError``.
     """
     n_part = shape(partitions)[0]
@@ -488,7 +487,7 @@ def partition_ids(
     ns = _namespace("partition")
     key = None
     if ns is not None:
-        key, cached = _cache_lookup(ns, partitions, _size_cache_key(total))
+        key, cached = _cache_lookup(ns, partitions)
         if cached is not None:
             stale = _stale_cached_ids(cached, total)
             if stale is not None:

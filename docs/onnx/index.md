@@ -66,8 +66,9 @@ a **shape-size**, so it stays a `dim_param`:
   `at.full((1,), at.shape(x)[0], dtype=np.int32, like=x)`. The vector
   length is 1 (one graph); the fill is the same shape symbol.
 
-With `cache` on, `partition_ids` stores the expansion; `shape(ids)[0]`
-*is* that total (no extra `sum(partitions)` cache).
+With `cache` on, `partition_ids` stores **one expansion per partition
+vector**; `shape(ids)[0]` *is* that total (no extra `sum(partitions)`
+cache).
 
 ## Coverage
 

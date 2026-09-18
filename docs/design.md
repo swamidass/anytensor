@@ -175,9 +175,10 @@ the ids, and callbacks hold only a weakref to the namespace map — that avoids 
 callback→map→entry loop that would pin ids for the life of the tensor. If a
 cached expansion's length does not match `total_length` (both host Python ints),
 that entry is purged, a warning is issued, and ids are recomputed. Under tracing
-the lengths are not Python ints, so the check is skipped. That ids length *is*
-the partition total (`shape(logits)[0]`); do not cache a separate
-`sum(partitions)` — on ONNX export it is a `dim_param` of the ids tensor. Call
+the lengths are not Python ints, so the check is skipped. One cache entry per
+partition vector: `shape(ids)[0]` *is* the flattened total (`shape(logits)[0]`);
+do not cache a separate `sum(partitions)` — on ONNX export it is a `dim_param`
+of the ids tensor. Call
 `partition_ids` once yourself if you are outside that block. Do not add
 `partition_sum` / `partition_min` / `partition_max`. There is no
 process-wide cache: tensors are unhashable, in-place edits would stale the

@@ -70,10 +70,16 @@ def _namespace(name: str):
     return root.namespace(name)
 
 
-def _size_cache_key(value):
-    if type(value) is int:
-        return ("i", value)
-    return ("o", id(value))
+def _cache_lookup(ns, obj):
+    """One cached value per ``obj`` (partition totals are ``shape(ids)[0]``)."""
+    key = (id(obj),)
+    hit = ns.get(key)
+    if hit is not None:
+        held_ref, value = hit
+        if held_ref() is obj:
+            return key, value
+        ns.pop(key, None)
+    return key, None
 
 
 class _StrongRef:
@@ -86,17 +92,6 @@ class _StrongRef:
 
     def __call__(self):
         return self._obj
-
-
-def _cache_lookup(ns, obj, extra):
-    key = (id(obj), extra)
-    hit = ns.get(key)
-    if hit is not None:
-        held_ref, value = hit
-        if held_ref() is obj:
-            return key, value
-        ns.pop(key, None)
-    return key, None
 
 
 def _purge_cache_entry(ns_ref, key):
@@ -156,12 +151,12 @@ class _Cache:
     after the block and cannot form a callback→map→entry cycle that would
     pin cached values. :func:`~anytensor.partition_ids` is the only
     partition helper that consults ``"partition"``; other partition
-    functions call ``partition_ids`` so a cache hit is shared. If a
-    cached expansion's length does not match ``total_length`` (host
-    Python ints), that entry is purged, a warning is issued, and ids
-    are recomputed; tracing skips the check. The ids' leading size
-    *is* the partition total — there is no separate ``sum(partitions)``
-    cache; on export that length is a ``dim_param``.
+    functions call ``partition_ids`` so a cache hit is shared. One entry
+    per partition tensor: the ids' leading size *is* the flattened total
+    (no separate ``sum(partitions)`` cache; on export that length is a
+    ``dim_param``). If a cached expansion's length does not match
+    ``total_length`` (host Python ints), that entry is purged, a warning
+    is issued, and ids are recomputed; tracing skips the check.
     Callers do not thread ids through the stack.
     :func:`~anytensor.jraph.GraphNetwork` is decorated so stacked applies
     reuse ``n_node`` / ``n_edge`` expansions.

@@ -85,7 +85,7 @@ tensors) so `jax.jit` / `tf.function` / `torch.compile` can treat them as static
 | `segment_min_or_constant` / `segment_max_or_constant` | Empty segments → constant |
 | `partition_softmax` | Softmax over contiguous partition lengths (`total_length` required; `num_segments` is `shape(partitions)[0]`; calls `partition_ids`, which reuses ids when `cache` is active) |
 | `partition_ids` | Expand partition lengths to segment ids (the cache chokepoint; other partition helpers call this) |
-| `cache` | Decorator (sticky across calls) / context / `enable`+`disable`: dict of dicts; `partition_ids` stores expansions at `cache["partition"]`; `purge("partition", tensor)` drops one tensor; wrong-size hit warns, purges, and recomputes |
+| `cache` | Decorator (sticky across calls) / context / `enable`+`disable`: dict of dicts; `partition_ids` stores **one expansion per partition vector** at `cache["partition"]` (`shape(ids)[0]` is the total); `purge("partition", tensor)` drops one tensor; wrong-size hit warns, purges, and recomputes |
 
 Einops (`rearrange`, `einsum`, `reduce`, …) is re-exported for convenience.
 
@@ -98,7 +98,9 @@ silent `sum(partitions)`. On ONNX export that total is a `dim_param`
 It calls `partition_ids` then `segment_softmax`.
 `partition_ids` is the only partition helper that talks to the cache:
 wrap the apply in `@cache` (sticky: later calls reuse the map),
-`with cache():` (scoped), or `cache.enable()` / `disable()`. Every partition helper
+`with cache():` (scoped), or `cache.enable()` / `disable()`. One cache
+entry per partition vector; `shape(ids)[0]` is the flattened total.
+Every partition helper
 shares `cache["partition"]`, so graph code does not thread ids through the stack.
 If a cached expansion's length does not match `total_length` (both host Python
 ints), that entry is purged, a warning is issued, and ids are recomputed.
