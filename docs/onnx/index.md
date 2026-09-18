@@ -2,14 +2,18 @@
 
 !!! warning "Unstable guide"
     [`anytensor.export`](api.md) is an opt-in subpackage for downstream *model*
-    builders. It is **not** in `anytensor.__all__`, **not** a stable library
-    contract, and **not** an ONNX Runtime backend. Names may change.
+    builders. It is **not** in `anytensor.__all__` and **not** a stable library
+    contract. Names may change.
 
-AnyTensor is **not** an ONNX Runtime backend. Export means: run the same
-portable function on **Torch** or **TensorFlow** tensors, then serialize that
-graph. Symbolic lengths come from tensor shapes (`at.shape(x)[0]`), not from
-Python ints. Learned weights must land in `graph.initializer`, not as extra
-feeds — use `export.as_torch_module(fn, params)` / `export.as_tensorflow_fn`.
+**Recommend ONNX** as the serialization target: [ONNX Runtime](https://onnxruntime.ai/)
+(ORT) is well tested and a common engine for deploying a frozen graph. AnyTensor
+does not run ops *on* ORT. Export means: run the same portable function on
+**Torch** or **TensorFlow** tensors, then serialize that graph so ORT (or
+another ONNX runner) can serve it.
+
+Symbolic lengths come from tensor shapes (`at.shape(x)[0]`), not from Python
+ints. Learned weights must land in `graph.initializer`, not as extra feeds —
+use `export.as_torch_module(fn, params)` / `export.as_tensorflow_fn`.
 
 ```python
 from anytensor import export

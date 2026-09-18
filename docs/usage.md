@@ -110,7 +110,8 @@ Torch is imported.
 
 ## ONNX (dynamic shapes)
 
-ONNX Runtime is not a backend. The recipes live in the opt-in
+**Recommend ONNX** for deployment: ONNX Runtime is well tested as a serving
+engine. AnyTensor does not run ops on ORT. The recipes live in the opt-in
 `anytensor.export` subpackage (not in `anytensor.__all__`, not a stable
 library API). Export the **same** AnyTensor function after it is running on
 Torch or TensorFlow tensors. Derive `num_segments` from `at.shape(nodes)[0]`

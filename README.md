@@ -51,7 +51,7 @@ Read next:
 - [Tree](docs/tree/index.md) — nest helpers (pure Python + NumPy) for graphs and any structured record
 - [Design](docs/design.md) — principles, edge cases, **testing as contract**, SemVer
 - [Usage](docs/usage.md) — promotion, segment helpers, `torch.compile`, typing
-- [ONNX](docs/onnx/index.md) — `anytensor.export` recipes (Flax / Lightning / Keras, symbolic lengths)
+- [ONNX](docs/onnx/index.md) — recommended deploy path (ORT); `anytensor.export` recipes (Flax / Lightning / Keras, symbolic lengths)
 - [Surprising differences](docs/semantics.md) — NaN / ±inf / graph / GPU gotchas from fuzz
 - [API reference](docs/api/index.md) — generated from docstrings
 - [Contributing](docs/contributing.md) — tests, fuzz, docs build

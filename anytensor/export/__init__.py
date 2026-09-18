@@ -1,13 +1,14 @@
-"""ONNX recipes for AnyTensor models (unstable guide).
+"""Export AnyTensor models to ONNX (unstable guide).
 
-This **subpackage** is **not** a stable library API, **not** in
-``anytensor.__all__``, and **not** an ONNX Runtime backend. Import it
-explicitly::
+This **subpackage** is **not** a stable library API and **not** in
+``anytensor.__all__``. Import it explicitly::
 
     from anytensor import export
 
-It records how a downstream *model* author can serialize an AnyTensor
-function that already runs on Torch or TensorFlow tensors.
+The recommended serialization target is **ONNX**. ONNX Runtime (ORT) is
+well tested and a common engine for serving a frozen graph. AnyTensor does
+not run ops *on* ORT: keep the portable body, bind weights on Torch or
+TensorFlow, then serialize so ORT (or another ONNX runner) can deploy it.
 
 Library authors should keep helpers portable (``at.shape``, segment ops) and
 leave export to the application. These names may change.

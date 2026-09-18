@@ -1,7 +1,7 @@
 # ONNX examples
 
 These fenced blocks are executed by pytest (Sybil). Overview:
-[ONNX export](index.md). Helpers: [API](api.md).
+[ONNX export](index.md) (recommended deploy path; ORT). Helpers: [API](api.md).
 
 The portable body uses **`at.shape(nodes)[0]`** so node count `N` is a
 symbolic length, not a Python int.

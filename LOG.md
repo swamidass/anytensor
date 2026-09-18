@@ -4,7 +4,9 @@
 
 - ONNX recipes live in the opt-in `anytensor.export` subpackage (not in
   `anytensor.__all__`; `to_onnx_torch` / `to_onnx_tensorflow` /
-  `numpy_leaves`). Weights embed as ONNX initializers via
+  `numpy_leaves`). ONNX is the recommended deploy target (ORT is well
+  tested); AnyTensor does not run ops on ORT. Weights embed as ONNX
+  initializers via
   `as_torch_module(fn, params)` (`nn.Parameter`, best names) or
   `as_tensorflow_fn` (named constants created *inside* the TF trace). Outer
   `tf.constant` / extra args leak as graph inputs; `assert_embedded_weights`

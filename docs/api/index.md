@@ -15,8 +15,8 @@ Generated from package docstrings with
 Graphs and nests have their own sections: [Tree](../tree/index.md),
 [Jraph](../jraph/index.md), [Hetero](../hetero/index.md) (API pages
 [tree/api](../tree/api.md), [jraph/api](../jraph/api.md),
-[hetero/api](../hetero/api.md)). ONNX serialization is an opt-in
-subpackage (`anytensor.export`), not part of the core API:
+[hetero/api](../hetero/api.md)). ONNX is the recommended deploy format (ORT);
+helpers live in the opt-in `anytensor.export` subpackage, not the core API:
 [ONNX](../onnx/index.md) ([helpers](../onnx/api.md)).
 
 Backends (`anytensor.backends`) are internal; use public helpers instead of
