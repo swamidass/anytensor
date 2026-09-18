@@ -156,8 +156,9 @@ class _Cache:
     pin cached values. :func:`~anytensor.partition_ids` is the only
     partition helper that consults ``"partition"``; other partition
     functions call ``partition_ids`` so a cache hit is shared. If a
-    cached expansion's length does not match ``total_length``, that
-    entry is purged, a warning is issued, and ids are recomputed.
+    cached expansion's length does not match ``total_length`` (host
+    Python ints), that entry is purged, a warning is issued, and ids
+    are recomputed; tracing skips the check.
     Callers do not thread ids through the stack.
     :func:`~anytensor.jraph.GraphNetwork` is decorated so each apply hits it.
 

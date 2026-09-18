@@ -20,8 +20,8 @@
   `total_length=at.shape(logits)[0]`. `partition_ids` is the one-shot
   conversion (and the only partition helper that talks to `cache["partition"]`);
   other partition functions call it. If a cached expansion's length does not
-  match `total_length`, that entry is purged, a warning is issued, and ids are
-  recomputed. `cache` is a decorator (GraphNetwork apply), a reentrant
+  match `total_length` (host Python ints), that entry is purged, a warning is
+  issued, and ids are recomputed; tracing skips the check. `cache` is a decorator (GraphNetwork apply), a reentrant
   context, and ``enable``/``disable``; dict of dicts; ``purge`` drops one tensor. Hetero and
   jraph model zoos are a
   TF/ONNX stress test: destination sizes come from `at.shape` (HAN no longer

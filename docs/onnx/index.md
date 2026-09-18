@@ -66,3 +66,5 @@ The same file also exports the **model zoos** as a TF/ONNX stress test:
 (GraphNetwork, InteractionNetwork, GraphMapFeatures, RelationNetwork, DeepSets,
 GraphNetGAT, GAT, GraphConvolution). Those layers take destination sizes from
 `at.shape`, not `int(shape(...))`, so node/edge axes stay `dim_param`s.
+GraphNetwork apply is `@cache`, so `partition_ids` reuses the same `n_node` /
+`n_edge` expansion during the TF trace.

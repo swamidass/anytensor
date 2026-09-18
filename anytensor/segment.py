@@ -11,9 +11,11 @@ tensor scalar — never inferred from ``segment_ids`` (that would be
 require ``total_length`` (``shape(logits)[0]``, not a data
 ``sum(partitions)``). Partition helpers call :func:`partition_ids`,
 which consults ``cache["partition"]`` when a decorator /
-context / :meth:`cache.enable` is active. :meth:`cache.purge` drops
-one tensor from one namespace. There is no ``partition_sum`` /
-``partition_min`` family.
+context / :meth:`cache.enable` is active. If a cached expansion's
+length does not match ``total_length`` (host Python ints), that entry
+is purged, a warning is issued, and ids are recomputed; tracing skips
+the check. :meth:`cache.purge` drops one tensor from one namespace.
+There is no ``partition_sum`` / ``partition_min`` family.
 
 TorchScript: :func:`enable_torchscript` wraps ``segment_sum`` / ``min`` /
 ``max`` with a ``torch.jit.is_scripting()`` divert. Import order does not
@@ -475,6 +477,7 @@ def partition_ids(
     exits. If a cached expansion's length does not match
     ``total_length`` (in-place edit of a 0-d size, or a stale entry),
     that entry is purged, a warning is issued, and ids are recomputed.
+    The length check uses host Python ints only; tracing skips it.
     Passing ``None`` for ``total_length`` is a ``TypeError``.
     """
     n_part = shape(partitions)[0]
