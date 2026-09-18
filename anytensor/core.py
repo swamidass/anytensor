@@ -541,8 +541,17 @@ def where(condition: ShapedArray, x: ShapedArray, y: ShapedArray) -> ShapedArray
 
 @as_array_result
 def clip(x: ShapedArray, min: Any = None, max: Any = None) -> ShapedArray:
-    """Clip values to ``[min, max]``."""
-    return array_namespace(x).clip(x, min=min, max=max)
+    """Clip values to ``[min, max]``.
+
+    Implemented with :func:`maximum` / :func:`minimum` so TF tracing does not
+    emit ``BroadcastArgs`` (tf2onnx cannot lower that op).
+    """
+    out = x
+    if min is not None:
+        out = maximum(out, min)
+    if max is not None:
+        out = minimum(out, max)
+    return out
 
 
 @as_array_result

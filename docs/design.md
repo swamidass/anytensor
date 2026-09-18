@@ -203,7 +203,7 @@ rely on NaN under XLA for portability.
 | `tf.function` | Prefer Python ints for sizes **or** `at.shape(x)` under polymorphic / ONNX graphs |
 | `torch.compile` | Prefer over deprecated `torch.jit.*`. `fullgraph=False` for portable helpers; `fullgraph=True` needs a Torch-only body — see [Worked examples](examples.md) |
 | `torch.jit.script` / `trace` | **Deprecated by PyTorch.** Legacy `enable_torchscript()` still covers `segment_sum` / `min` / `max` only |
-| ONNX | Rebind onto Torch or TF tensors; `at.shape(x)[0]` for symbolic lengths. Lightning → `to_onnx_torch`. Keras → `tf.function` + `to_onnx_tensorflow`. Flax → `numpy_leaves` then TF/Torch — not jax2tf. See [ONNX export](onnx/index.md) |
+| ONNX | Rebind onto Torch or TF tensors; `at.shape(x)[0]` for symbolic lengths. Embed weights as `nn.Parameter` (best names) or in-trace TF constants via `as_tensorflow_fn` — not outer tensors / extra inputs. See [ONNX export](onnx/index.md) |
 
 ### 9. Legacy TorchScript divert (not recommended)
 

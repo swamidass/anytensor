@@ -89,9 +89,14 @@ dims = export.assert_symbolic_lengths(
 assert dims["out"][0] == "N"
 ```
 
-A `LightningModule` is an `nn.Module` — pass it as `model` to `to_onnx_torch`.
+A `LightningModule` is an `nn.Module` — put weights on it as `nn.Parameter`
+(not closed-over tensors) and pass the module to `to_onnx_torch`.
 
-## Flax — rebind params, do not jax2tf
+## Flax — rebind params as embedded weights, do not jax2tf
+
+Preferred: Torch `nn.Parameter` via `as_torch_module(fn, params)` (named
+initializers). TF: `as_tensorflow_fn` / `to_onnx_tensorflow(..., params=)` so
+constants are created **inside** the trace. Do not close over outer tensors.
 
 ```python
 jax = pytest.importorskip("jax")
@@ -118,20 +123,23 @@ variables = mod.init(
     jax.numpy.asarray(dst),
     jax.numpy.asarray(nodes),
 )
-w = export.numpy_leaves(variables["params"])["W"]
+params = export.numpy_leaves(variables["params"])
 
 
-def tf_apply(messages, scores, dst_index, nodes):
-    return neighbor_from_nodes(messages @ tf.constant(w), scores, dst_index, nodes)
+def apply(messages, scores, dst_index, nodes, *, params):
+    return neighbor_from_nodes(messages @ params["W"], scores, dst_index, nodes)
+
 
 proto = export.to_onnx_tensorflow(
-    tf_apply,
+    apply,
     [
         tf.TensorSpec((None, 2), tf.float32, name="messages"),
         tf.TensorSpec((None,), tf.float32, name="scores"),
         tf.TensorSpec((None,), tf.int64, name="dst"),
         tf.TensorSpec((None, 2), tf.float32, name="nodes"),
     ],
+    params=params,
 )
 assert isinstance(export.symbolic_dims(proto)["messages"][0], str)
+assert export.assert_embedded_weights(proto, params)["W"].startswith("W")
 ```

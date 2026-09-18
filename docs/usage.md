@@ -116,9 +116,9 @@ is running on Torch or TensorFlow tensors. Derive `num_segments` from
 
 | Start | Recipe |
 |---|---|
-| Lightning | `LightningModule.forward` + `anytensor.export.to_onnx_torch(..., dynamic_shapes=)` |
-| Keras | `tf.function` + `TensorSpec((None, …))` + `to_onnx_tensorflow` (not `model.export`) |
-| Flax | `export.numpy_leaves(params)`, rebind onto TF/Torch, then the row above — not `jax2tf` |
+| Lightning | `nn.Parameter` on the module + `to_onnx_torch(..., dynamic_shapes=)` (best named initializers) |
+| Keras | `as_tensorflow_fn` / `to_onnx_tensorflow(..., params=)` so constants are created inside the trace |
+| Flax | `numpy_leaves(params)` then `as_torch_module(fn, params)` (preferred) or the Keras row — not `jax2tf`, not extra inputs |
 
 Helpers and coverage: [ONNX export](onnx/index.md).
 

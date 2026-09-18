@@ -69,6 +69,20 @@ def test_numpy_leaves_converts_array_pytree():
     assert out["inner"][1] is None
     assert out["n"] == 3
 
+    class Frozen(dict):
+        pass
+
+    frozen = Frozen(w=np.array([1.0], dtype=np.float32))
+    assert export.numpy_leaves(frozen)["w"][0] == 1.0
+    listed = export.numpy_leaves([np.array([2.0]), None])
+    assert listed[0][0] == 2.0
+    assert listed[1] is None
+    from collections import namedtuple
+
+    Pair = namedtuple("Pair", "a b")
+    pair = export.numpy_leaves(Pair(np.array([1.0]), np.array([2.0])))
+    assert pair.a[0] == 1.0
+
 
 def test_symbolic_dims_and_assert_on_hand_built_graph():
     from onnx import TensorProto, helper
@@ -140,6 +154,143 @@ def test_assert_symbolic_lengths_rejects_static_rank1():
         export.assert_symbolic_lengths(model)
 
 
+def _weight_params():
+    return {
+        "Dense_0": {
+            "kernel": np.array([[1.0, 0.5], [0.25, 2.0]], dtype=np.float32),
+            "bias": np.array([0.5, -0.25], dtype=np.float32),
+        }
+    }
+
+
+def _apply_dense(x, *, params):
+    layer = params["Dense_0"]
+    return x @ layer["kernel"] + layer["bias"]
+
+
+def test_named_weight_leaves_paths_and_duplicates():
+    from collections import namedtuple
+
+    W = np.eye(2, dtype=np.float32)
+    B = np.array([1.0, 2.0], dtype=np.float32)
+    _td, slots, weights = export._named_weight_leaves({"W": W, "n": 3})
+    assert "W" in weights and "n" not in weights
+    assert ("static", 3) in slots
+    assert export._path_name(("plain",)) == "plain"
+    seq = export._named_weight_leaves((W, B))[2]
+    assert "p_0" in seq and "p_1" in seq
+    NT = namedtuple("NT", "kernel bias")
+    named = export._named_weight_leaves(NT(W, B))[2]
+    assert set(named) == {"kernel", "bias"}
+    from anytensor.tree import DictKey
+
+    assert export._path_name((DictKey("..."),)) == "p"
+    with pytest.raises(ValueError, match="duplicate"):
+        export._named_weight_leaves({"a-b": W, "a_b": B})
+    assert export._forward_arg_names(lambda *args: args) is None
+    assert export._forward_arg_names(42) is None
+    assert export._forward_arg_names(lambda x, **kwargs: x) == ["x"]
+    mixed = export._named_weight_leaves({"W": W, "n": 3, "s": "hi"})
+    assert mixed[2].keys() == {"W"}
+
+
+def test_as_torch_module_varargs_and_static_slots():
+    torch = pytest.importorskip("torch")
+    mod = export.as_torch_module(lambda *args: args[0])
+    x = torch.tensor([1.0])
+    assert torch.equal(mod(x), x)
+    W = np.eye(2, dtype=np.float32)
+
+    def apply(x, *, params):
+        return x @ params["W"]
+
+    bound = export.as_torch_module(apply, {"W": W, "n": 3})
+    y = bound(torch.ones(2, 2)).detach().cpu().numpy()
+    np.testing.assert_allclose(y, np.ones((2, 2)), atol=1e-5)
+    d = export.torch_dim("E")
+    assert d.min == 1
+
+
+def test_assert_embedded_weights_hand_built():
+    from onnx import TensorProto, helper, numpy_helper
+
+    W = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
+    graph = helper.make_graph(
+        [helper.make_node("MatMul", ["x", "W"], ["y"])],
+        "m",
+        [helper.make_tensor_value_info("x", TensorProto.FLOAT, ["N", 2])],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, ["N", 2])],
+        [numpy_helper.from_array(W, name="W")],
+    )
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 18)])
+    assert export.assert_embedded_weights(model, {"W": W}) == {"W": "W"}
+    assert export.initializer_arrays(model)["W"].shape == (2, 2)
+
+    graph_tf = helper.make_graph(
+        [helper.make_node("MatMul", ["x", "W:0"], ["y"])],
+        "m",
+        [helper.make_tensor_value_info("x", TensorProto.FLOAT, ["N", 2])],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, ["N", 2])],
+        [numpy_helper.from_array(W, name="W:0")],
+    )
+    model_tf = helper.make_model(graph_tf, opset_imports=[helper.make_opsetid("", 18)])
+    assert export.assert_embedded_weights(model_tf, {"W": W})["W"] == "W:0"
+
+    graph_anon = helper.make_graph(
+        [helper.make_node("MatMul", ["x", "Const"], ["y"])],
+        "m",
+        [helper.make_tensor_value_info("x", TensorProto.FLOAT, ["N", 2])],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, ["N", 2])],
+        [numpy_helper.from_array(W, name="Const")],
+    )
+    model_anon = helper.make_model(graph_anon, opset_imports=[helper.make_opsetid("", 18)])
+    with pytest.raises(AssertionError, match="not an embedded"):
+        export.assert_embedded_weights(model_anon, {"W": W})
+    assert export.assert_embedded_weights(model_anon, {"W": W}, require_names=False)["W"] == "Const"
+
+    graph_in = helper.make_graph(
+        [helper.make_node("MatMul", ["x", "W"], ["y"])],
+        "m",
+        [
+            helper.make_tensor_value_info("x", TensorProto.FLOAT, ["N", 2]),
+            helper.make_tensor_value_info("W", TensorProto.FLOAT, [2, 2]),
+        ],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, ["N", 2])],
+    )
+    model_in = helper.make_model(graph_in, opset_imports=[helper.make_opsetid("", 18)])
+    with pytest.raises(AssertionError, match="leaked"):
+        export.assert_embedded_weights(model_in, {"W": W})
+    with pytest.raises(AssertionError, match="no array"):
+        export.assert_embedded_weights(model, {"n": 3})
+    with pytest.raises(AssertionError, match="not an embedded"):
+        export.assert_embedded_weights(model, {"W": np.zeros_like(W)})
+
+    extra = numpy_helper.from_array(W, name="W2")
+    graph_dup = helper.make_graph(
+        [helper.make_node("Add", ["W", "W2"], ["y"])],
+        "m",
+        [],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, [2, 2])],
+        [numpy_helper.from_array(W, name="W"), extra],
+    )
+    model_dup = helper.make_model(graph_dup, opset_imports=[helper.make_opsetid("", 18)])
+    matched = export.assert_embedded_weights(
+        model_dup, {"u": W, "v": W.copy()}, require_names=False
+    )
+    assert set(matched.values()) == {"W", "W2"}
+
+    wrong = numpy_helper.from_array(np.zeros_like(W), name="Z")
+    graph_skip = helper.make_graph(
+        [helper.make_node("Identity", ["W"], ["y"])],
+        "m",
+        [],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, [2, 2])],
+        [wrong, numpy_helper.from_array(W, name="Keep")],
+    )
+    model_skip = helper.make_model(graph_skip, opset_imports=[helper.make_opsetid("", 18)])
+    assert export.assert_embedded_weights(model_skip, {"W": W}, require_names=False)["W"] == "Keep"
+
+
 def test_to_onnx_rejects_numpy_only():
     with pytest.raises(RuntimeError, match="NumPy-only"):
         export.to_onnx(at.exp, (np.array([1.0], dtype=np.float32),))
@@ -201,6 +352,24 @@ def test_to_onnx_torch_defaults_dynamo_and_wraps(monkeypatch):
     assert isinstance(captured["model"], torch.nn.Module)
     y = captured["model"](x).detach().cpu().numpy()
     np.testing.assert_allclose(y, np.exp([1.0, 2.0]).astype(np.float32), atol=1e-5)
+
+
+def test_to_onnx_torch_binds_params(monkeypatch):
+    torch = pytest.importorskip("torch")
+    captured = {}
+
+    def fake_export(model, args, **kwargs):
+        captured["model"] = model
+        return model
+
+    monkeypatch.setattr(torch.onnx, "export", fake_export)
+    params = {"W": np.eye(2, dtype=np.float32)}
+
+    def apply(x, *, params):
+        return x @ params["W"]
+
+    export.to_onnx_torch(apply, (torch.ones(2, 2),), params=params)
+    assert "W" in dict(captured["model"].named_parameters())
 
 
 def test_to_onnx_torch_passes_existing_module(monkeypatch):
@@ -413,8 +582,6 @@ def _tf_cases() -> dict[str, tuple[Callable, list, tuple]]:
     ids = tf.constant([0, 0, 1], tf.int64)
     idx = tf.constant([0, 2], tf.int64)
     x23 = tf.reshape(tf.range(6, dtype=tf.float32), (2, 3))
-    x2 = tf.reshape(x, (3, 1))
-    y2 = tf.constant([[1.0], [0.5], [2.0]], tf.float32)
     nodes2 = tf.zeros((2, 1), tf.float32)
     vec = tf.TensorSpec((None,), tf.float32)
     vec_i = tf.TensorSpec((None,), tf.int64)
@@ -449,7 +616,11 @@ def _tf_cases() -> dict[str, tuple[Callable, list, tuple]]:
         "zeros_like": (lambda a: at.zeros_like(a), [vec], (x,)),
         "ones_like": (lambda a: at.ones_like(a), [vec], (x,)),
         "full_like": (lambda a: at.full_like(a, 3.0), [vec], (x,)),
-        "matmul": (lambda a, b: at.matmul(at.transpose(a, (1, 0)), b), [col, col], (x2, y2)),
+        "matmul": (
+            lambda a: at.matmul(a, tf.constant([[1.0, 0.0], [0.5, 1.0], [0.0, 0.5]], tf.float32)),
+            [mat],
+            (x23,),
+        ),
         "repeat": (lambda a: at.repeat(a, 2), [vec], (x,)),
         "is_nan": (lambda a: at.is_nan(a), [vec], (x,)),
         "is_finite": (lambda a: at.is_finite(a), [vec], (x,)),
@@ -595,6 +766,31 @@ def test_lightning_module_exports_like_nn_module():
     np.testing.assert_allclose(y, _EAGER, equal_nan=True, atol=1e-5)
 
 
+@_SKIP_CI_TORCH
+def test_torch_parameters_embed_named_weights():
+    torch = pytest.importorskip("torch")
+    params = _weight_params()
+    x = torch.ones(3, 2)
+    E = export.torch_dim("B")
+    prog = export.to_onnx_torch(
+        _apply_dense,
+        (x,),
+        params=params,
+        dynamic_shapes={"x": {0: E}},
+        input_names=["x"],
+        output_names=["y"],
+    )
+    matched = export.assert_embedded_weights(prog, params)
+    assert matched["Dense_0__kernel"] == "Dense_0__kernel"
+    assert matched["Dense_0__bias"] == "Dense_0__bias"
+    feeds = [i.name for i in export._model_proto(prog).graph.input]
+    assert "Dense_0__kernel" not in feeds
+    y = _ort(prog, (x,))
+    np.testing.assert_allclose(
+        y, _apply_dense(np.ones((3, 2), dtype=np.float32), params=params), atol=1e-5
+    )
+
+
 def test_flax_params_rebind_to_tensorflow_onnx():
     jax = pytest.importorskip("jax")
     flax = pytest.importorskip("flax")
@@ -606,7 +802,8 @@ def test_flax_params_rebind_to_tensorflow_onnx():
         @nn.compact
         def __call__(self, messages, scores, dst_index, nodes):
             w = self.param("W", nn.initializers.ones, (2, 2))
-            return neighbor_from_nodes(messages @ w, scores, dst_index, nodes)
+            b = self.param("b", nn.initializers.constant(0.5), (2,))
+            return neighbor_from_nodes(messages @ w + b, scores, dst_index, nodes)
 
     mj, sj, dj, nj = (
         jax.numpy.asarray(_MESSAGES),
@@ -617,19 +814,25 @@ def test_flax_params_rebind_to_tensorflow_onnx():
     module = FlaxAttn()
     variables = module.init(jax.random.key(0), mj, sj, dj, nj)
     params = export.numpy_leaves(variables["params"])
-    w = params["W"]
     eager = np.asarray(module.apply(variables, mj, sj, dj, nj))
 
-    def tf_apply(messages, scores, dst, nodes):
-        return neighbor_from_nodes(messages @ tf.constant(w), scores, dst, nodes)
+    def tf_apply(messages, scores, dst, nodes, *, params):
+        return neighbor_from_nodes(
+            messages @ params["W"] + params["b"], scores, dst, nodes
+        )
 
-    proto = export.to_onnx_tensorflow(tf_apply, _tf_neighbor_signature())
+    proto = export.to_onnx_tensorflow(
+        tf_apply, _tf_neighbor_signature(), params=params
+    )
     out_name = proto.graph.output[0].name
     export.assert_symbolic_lengths(
         proto,
         inputs={"messages": (0,), "nodes": (0,)},
         outputs={out_name: (0,)},
     )
+    matched = export.assert_embedded_weights(proto, params)
+    assert matched["W"].startswith("W")
+    assert matched["b"].startswith("b")
     y = _ort(
         proto,
         (
@@ -641,6 +844,70 @@ def test_flax_params_rebind_to_tensorflow_onnx():
     )
     np.testing.assert_allclose(y, eager, equal_nan=True, atol=1e-5)
     del flax
+
+
+def test_tensorflow_named_constants_embed_weights():
+    tf = pytest.importorskip("tensorflow")
+    pytest.importorskip("tf2onnx")
+    params = _weight_params()
+    x = np.ones((4, 2), dtype=np.float32)
+    proto = export.to_onnx(
+        _apply_dense,
+        (tf.constant(x),),
+        backend="tensorflow",
+        params=params,
+        input_signature=[tf.TensorSpec((None, 2), tf.float32, name="x")],
+    )
+    export.assert_symbolic_lengths(proto, inputs={"x": (0,)})
+    matched = export.assert_embedded_weights(proto, params)
+    assert "Dense_0__kernel" in matched["Dense_0__kernel"]
+    y = _ort(proto, (x,))
+    np.testing.assert_allclose(y, _apply_dense(x, params=params), atol=1e-5)
+
+    def apply_static(x, *, params):
+        return x @ params["Dense_0"]["kernel"] + params["n"]
+
+    proto_s = export.to_onnx_tensorflow(
+        apply_static,
+        [tf.TensorSpec((None, 2), tf.float32, name="x")],
+        params={"Dense_0": params["Dense_0"], "n": 0.0},
+    )
+    export.assert_embedded_weights(
+        proto_s, {"Dense_0": {"kernel": params["Dense_0"]["kernel"]}}
+    )
+
+
+def test_as_tensorflow_fn_eager_static_and_weights():
+    tf = pytest.importorskip("tensorflow")
+    params = {"W": np.eye(2, dtype=np.float32), "n": 1.0}
+
+    def apply(x, *, params):
+        return x @ params["W"] + params["n"]
+
+    fn = export.as_tensorflow_fn(apply, params)
+    y = np.asarray(fn(tf.ones((2, 2))))
+    np.testing.assert_allclose(y, np.ones((2, 2)) + 1.0, atol=1e-5)
+
+
+def test_tensorflow_outer_tensors_do_not_embed():
+    """Closing over outer constants leaks weights as ONNX inputs."""
+    tf = pytest.importorskip("tensorflow")
+    pytest.importorskip("tf2onnx")
+    params = _weight_params()
+    W = params["Dense_0"]["kernel"]
+    B = params["Dense_0"]["bias"]
+    W_c, B_c = tf.constant(W), tf.constant(B)
+
+    def leaked(x):
+        return x @ W_c + B_c
+
+    proto = export.to_onnx_tensorflow(
+        leaked, [tf.TensorSpec((None, 2), tf.float32, name="x")]
+    )
+    with pytest.raises(AssertionError, match="leaked|not an embedded"):
+        export.assert_embedded_weights(
+            proto, {"kernel": W, "bias": B}, require_names=False
+        )
 
 
 def test_keras_tf_function_recipe():
@@ -691,3 +958,18 @@ def test_as_torch_module_forward():
 
     unnamed = export.as_torch_module(_Fn())
     assert type(unnamed).__name__ == "AnyTensorModule"
+
+    params = _weight_params()
+    bound = export.as_torch_module(_apply_dense, params)
+    assert set(dict(bound.named_parameters())) == {"Dense_0__kernel", "Dense_0__bias"}
+    x = torch.ones(3, 2)
+    y = bound(x).detach().cpu().numpy()
+    eager = _apply_dense(np.ones((3, 2), dtype=np.float32), params=params)
+    np.testing.assert_allclose(y, eager, atol=1e-5)
+
+    buf = export.as_torch_module(_apply_dense, params, buffers=True)
+    assert set(dict(buf.named_buffers())) >= {"Dense_0__kernel", "Dense_0__bias"}
+    np.testing.assert_allclose(buf(x).detach().cpu().numpy(), eager, atol=1e-5)
+
+    with pytest.raises(TypeError, match="params="):
+        export.to_onnx_torch(bound, (x,), params=params)

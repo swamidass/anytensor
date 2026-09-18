@@ -3,11 +3,15 @@
 ## 2026-09-18
 
 - ONNX export with symbolic lengths: `anytensor.export` (`to_onnx_torch` /
-  `to_onnx_tensorflow` / `numpy_leaves`). Lightning is an `nn.Module`; Keras
-  uses `tf.function` + tf2onnx (not `model.export`); Flax rebinds numpy params
-  onto TF/Torch — jax2tf is a dead end (`XlaCallModule`). Torch
-  `segment_reduce` no longer `int()`s `num_segments`. Public-op coverage via
-  TF tf2onnx in CI; Torch dynamo ONNX skipped on CI.
+  `to_onnx_tensorflow` / `numpy_leaves`). Weights embed as ONNX initializers
+  via `as_torch_module(fn, params)` (`nn.Parameter`, best names) or
+  `as_tensorflow_fn` (named constants created *inside* the TF trace). Outer
+  `tf.constant` / extra args leak as graph inputs; `assert_embedded_weights`
+  catches that. Lightning is an `nn.Module`; Keras uses `tf.function` +
+  tf2onnx (not `model.export`); Flax rebinds numpy params — jax2tf is a dead
+  end (`XlaCallModule`). Torch `segment_reduce` no longer `int()`s
+  `num_segments`. Public-op coverage via TF tf2onnx in CI; Torch dynamo ONNX
+  skipped on CI.
 
 ## 2026-09-16
 

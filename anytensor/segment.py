@@ -374,7 +374,8 @@ def _replace_empty_with_constant(aggregated, segment_ids, num_segments, constant
     while counts.ndim < aggregated.ndim:
         counts = xp.expand_dims(counts, axis=-1)
     const = xp.asarray(constant, dtype=aggregated.dtype)
-    const = xp.broadcast_to(const, aggregated.shape)
+    # ``where`` broadcasts a 0-d fill; ``broadcast_to(..., aggregated.shape)``
+    # fails under TF polymorphic / ONNX ``None`` leading lengths.
     return where(counts == 0, const, aggregated)
 
 

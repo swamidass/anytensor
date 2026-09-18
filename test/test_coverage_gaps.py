@@ -251,6 +251,7 @@ def test_tensorflow_namespace_helpers():
     assert list(np.asarray(ns.arange(0, 3, 1, dtype=tf.int32))) == [0, 1, 2]
     assert list(np.asarray(ns.full((2,), 7.0))) == [7.0, 7.0]
     assert list(np.asarray(ns.full((2,), 7.0, dtype=tf.float32))) == [7.0, 7.0]
+    assert list(np.asarray(ns.clip(tf.constant([0.0, 5.0]), min=1.0, max=2.0))) == [1.0, 2.0]
 
 
 def test_enable_typecheck_installs_hook():

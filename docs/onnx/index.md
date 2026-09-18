@@ -3,7 +3,8 @@
 AnyTensor is **not** an ONNX Runtime backend. Export means: run the same
 portable function on **Torch** or **TensorFlow** tensors, then serialize that
 graph. Symbolic lengths come from tensor shapes (`at.shape(x)[0]`), not from
-Python ints.
+Python ints. Learned weights must land in `graph.initializer`, not as extra
+feeds — use `export.as_torch_module(fn, params)` / `export.as_tensorflow_fn`.
 
 Runnable recipes: [Examples](examples.md). Helpers: [Export API](../api/export.md).
 
@@ -11,13 +12,11 @@ Runnable recipes: [Examples](examples.md). Helpers: [Export API](../api/export.m
 
 | Starting stack | What to do | What not to do |
 |---|---|---|
-| **PyTorch Lightning** | Put AnyTensor in `LightningModule.forward`. `anytensor.export.to_onnx_torch(..., dynamo=True, dynamic_shapes=...)`. A Lightning module **is** an `nn.Module`. | `torch.jit.trace` / `script` |
-| **Keras 3** | `@tf.function(input_signature=TensorSpec((None, …)))` on the AnyTensor function, then `to_onnx_tensorflow`. | `model.export(format="onnx")` on a custom AnyTensor layer (inspect/bind failures) |
-| **Flax** | `numpy_leaves(params)`, call the **same** function on TF or Torch arrays, then the Keras or Lightning path. | `jax2tf` → tf2onnx (`XlaCallModule` / StableHLO does not lower) |
+| **PyTorch Lightning** | Put AnyTensor in `LightningModule.forward` with **`nn.Parameter` weights**. `to_onnx_torch(..., dynamo=True, dynamic_shapes=...)`. A Lightning module **is** an `nn.Module`. Initializers keep the Parameter names (`W`, `Dense_0__kernel`). | `torch.jit.trace` / `script`; closing over raw tensors (not Parameters) |
+| **Keras 3** | `as_tensorflow_fn(fn, params)` so named `tf.constant` values are created **inside** the trace, then `to_onnx_tensorflow`. | `model.export(format="onnx")` on a custom AnyTensor layer; closing over **outer** `tf.constant` / `Variable` (those become graph inputs) |
+| **Flax** | `numpy_leaves(params)`, then the **same** function as `fn(*xs, params=tree)` on Torch (preferred) or TF. | `jax2tf` → tf2onnx (`XlaCallModule` / StableHLO does not lower); passing weights as extra ONNX inputs |
 
-The Flax result is the important AnyTensor-specific trick: you do not translate
-JAX primitives. You **rebind** the already-portable body onto an exportable
-array type.
+**Which rebind embeds weights best?** Torch `nn.Parameter` (via `as_torch_module` or a Lightning module). Names in the ONNX file match the pytree path. The TF helper is the CI-reliable fallback: it plants named constants *inside* the traced function (`W:0`). Outer tensors and extra arguments leak as feeds — `assert_embedded_weights` fails those graphs.
 
 ## Symbolic lengths
 
@@ -36,6 +35,8 @@ Then tell the exporter those axes are dynamic:
 - TF / Keras: `tf.TensorSpec((None, feat), …)` — `None` is the symbolic length.
 
 `export.assert_symbolic_lengths` fails the test if those axes baked to ints.
+`export.assert_embedded_weights(model, params)` fails if a weight is a feed
+instead of an initializer.
 
 ## Coverage
 

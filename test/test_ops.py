@@ -297,6 +297,9 @@ def test_where_clip_astype(backend):
     by = at.where(bx > 5, bx, 0.0)
     assert close(backend_impl.to_numpy(by), np.where(x > 5, x, 0.0))
     assert close(backend_impl.to_numpy(at.clip(bx, 5.0, 10.0)), np.clip(x, 5.0, 10.0))
+    assert close(backend_impl.to_numpy(at.clip(bx, min=5.0)), np.clip(x, 5.0, None))
+    assert close(backend_impl.to_numpy(at.clip(bx, max=10.0)), np.clip(x, None, 10.0))
+    assert close(backend_impl.to_numpy(at.clip(bx)), x)
     xp = array_namespace(bx)
     # Use the namespace default integer (JAX often has no int64 without x64).
     casted = at.astype(bx, xp.asarray(0).dtype)
