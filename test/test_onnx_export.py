@@ -497,6 +497,7 @@ _ONNX_OP_NAMES = (
     "nan_to_num",
     "ones",
     "ones_like",
+    "partition_ids",
     "partition_softmax",
     "prod",
     "rearrange",
@@ -640,6 +641,11 @@ def _tf_cases() -> dict[str, tuple[Callable, list, tuple]]:
             lambda a: at.concatenate(at.split(a, 3, axis=1), axis=1),
             [mat],
             (x23,),
+        ),
+        "partition_ids": (
+            lambda p, a: at.partition_ids(p, at.shape(p)[0], at.shape(a)[0]),
+            [vec_i, vec],
+            (tf.constant([2, 1], tf.int64), x),
         ),
         "partition_softmax": (
             lambda a, p: at.partition_softmax(

@@ -20,6 +20,7 @@ from .segment import (
     segment_min_or_constant,
     segment_max_or_constant,
     partition_softmax,
+    partition_ids,
     enable_torchscript,
 )
 
@@ -155,6 +156,7 @@ __all__ = [
     "segment_min_or_constant",
     "segment_max_or_constant",
     "partition_softmax",
+    "partition_ids",
     "enable_torchscript",
     "repeat",
     "take",

@@ -155,9 +155,11 @@ by design (see below).
 `partitions`.
 
 `partition_softmax` is a convenience, not a family: it rebuilds `segment_ids`
-on every call (`arange` + `repeat`). A compiler may CSE that; eager will not.
-Prefer `segment_softmax` when ids are reused. Do not add `partition_sum` /
-`partition_min` / `partition_max`.
+on every call (`partition_ids` = `arange` + `repeat`). A compiler may CSE
+that; eager will not. Call `partition_ids` once and reuse with `segment_*`.
+Do not add `partition_sum` / `partition_min` / `partition_max`. There is no
+`id()` / weakref cache of that conversion: tensors are unhashable, in-place
+edits would stale the ids, and tracers wrap a new object every compile.
 
 Allowed forms:
 

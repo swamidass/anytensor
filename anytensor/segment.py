@@ -7,8 +7,9 @@ Empty-segment identities are standardized in :mod:`anytensor.semantics`
 Python int, a jit/compile symbolic constant, or a 0-d tensor scalar — never
 inferred from ``segment_ids``. The same rule applies to ``sum_partitions`` on
 :func:`partition_softmax`. Partition helpers rebuild ``segment_ids`` on every
-call (fine under a compiler CSE, extra work eagerly) — prefer
-:func:`segment_softmax` when ids are reused. There is no ``partition_sum`` /
+call (fine under a compiler CSE, extra work eagerly) — call
+:func:`partition_ids` once and reuse with :func:`segment_softmax`, or skip
+the helper when you already have ids. There is no ``partition_sum`` /
 ``partition_min`` family.
 
 TorchScript: :func:`enable_torchscript` wraps ``segment_sum`` / ``min`` /
@@ -436,6 +437,30 @@ def segment_max_or_constant(
     return _replace_empty_with_constant(out, segment_ids, num_segments, constant, sorted=sorted)
 
 
+def partition_ids(
+    partitions: IntArray,
+    num_segments: ShapeSize,
+    sum_partitions: ShapeSize,
+) -> IntArray:
+    """Expand partition lengths to segment ids (``[0,0,…,1,1,…,n-1]``).
+
+    This is the conversion :func:`partition_softmax` does internally. Call it
+    **once** and reuse the ids with :func:`segment_softmax` / ``segment_*``.
+    Both sizes are required shape-sizes (JAX convention): ``num_segments`` is
+    ``shape(partitions)[0]``; ``sum_partitions`` is the flattened length
+    (``shape(logits)[0]``, not a data ``sum(partitions)``).
+
+    There is no process-wide cache keyed on ``id(partitions)``: tensors are
+    unhashable, in-place edits would stale ids, and tracers get a new wrapper
+    every compile. Hold the returned array if you need reuse.
+    """
+    n_part = _normalize_shape_dim(num_segments)
+    ids = arange(n_part, like=partitions)
+    return repeat(
+        ids, partitions, total_repeat_length=_normalize_shape_dim(sum_partitions)
+    )
+
+
 def partition_softmax(
     logits: ShapedArray,
     partitions: IntArray,
@@ -444,13 +469,11 @@ def partition_softmax(
 ) -> ShapedArray:
     """Softmax within contiguous partitions of lengths ``partitions``.
 
-    Convenience over :func:`segment_softmax`: builds ``segment_ids`` by
-    repeating ``0 .. num_segments-1`` according to ``partitions`` (e.g.
-    jraph-style ``n_node``), then softmaxes. **Ids are rebuilt on every
-    call** — a compiler may CSE that, eager will not. If you already have
-    ids, or you softmax the same partitions more than once, call
-    :func:`segment_softmax` instead. This is not a pattern to grow
-    (no ``partition_sum`` / ``partition_min``).
+    Convenience: :func:`partition_ids` then :func:`segment_softmax`. **Ids are
+    rebuilt on every call** — a compiler may CSE that, eager will not. If you
+    already have ids, or you softmax the same partitions more than once, call
+    :func:`partition_ids` once (or :func:`segment_softmax` with existing ids).
+    This is not a pattern to grow (no ``partition_sum`` / ``partition_min``).
 
     Args:
         logits: Scores aligned with the flattened partitions (length
@@ -467,9 +490,5 @@ def partition_softmax(
     Returns:
         Softmax of ``logits`` within each partition (same shape as ``logits``).
     """
-    n_part = _normalize_shape_dim(num_segments)
-    ids = arange(n_part, like=partitions)
-    segment_ids = repeat(
-        ids, partitions, total_repeat_length=_normalize_shape_dim(sum_partitions)
-    )
-    return segment_softmax(logits, segment_ids, num_segments=n_part)
+    segment_ids = partition_ids(partitions, num_segments, sum_partitions)
+    return segment_softmax(logits, segment_ids, num_segments=num_segments)

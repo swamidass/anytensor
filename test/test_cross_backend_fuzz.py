@@ -632,6 +632,12 @@ def fuzz_segment_count(segment_ids, num_segments):
 
 
 @fuzz_op(sample_partition_softmax)
+def fuzz_partition_ids(logits, partitions, num_segments, sum_partitions):
+    del logits
+    return at.partition_ids(partitions, num_segments, sum_partitions)
+
+
+@fuzz_op(sample_partition_softmax)
 def fuzz_partition_softmax(logits, partitions, num_segments, sum_partitions):
     return at.partition_softmax(logits, partitions, num_segments, sum_partitions)
 
