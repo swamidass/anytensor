@@ -323,10 +323,9 @@ def GAT(
 
     def _ApplyGAT(graph: GraphsTuple) -> GraphsTuple:
         nodes, edges, receivers, senders, _, _, _ = graph
-        try:
-            sum_n_node = shape(nodes)[0]
-        except (IndexError, AttributeError) as exc:
-            raise IndexError("GAT requires node features") from exc
+        if nodes is None:
+            raise IndexError("GAT requires node features")
+        sum_n_node = shape(nodes)[0]
         nodes = attention_query_fn(nodes)
         sent_attributes = take(nodes, senders)
         received_attributes = take(nodes, receivers)
