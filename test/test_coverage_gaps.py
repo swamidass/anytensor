@@ -247,6 +247,23 @@ def test_partition_cache_weakrefs_and_partition_softmax(monkeypatch):
         assert list(np.asarray(ids_ok)) == [0, 0, 1]
 
 
+def test_partition_cache_callback_does_not_pin_cache():
+    """GC callbacks must not keep the cache map alive after the block exits."""
+    from anytensor import segment
+
+    parts = np.array([2, 1], dtype=np.int64)
+    with at.partition_cache():
+        ids = at.partition_ids(parts, 2, 3)
+        cache_wr = weakref.ref(segment._PARTITION_IDS_CACHE.get())
+    gc.collect()
+    assert cache_wr() is None
+    assert list(np.asarray(ids)) == [0, 0, 1]
+    wr = weakref.ref(parts)
+    del parts, ids
+    gc.collect()
+    assert wr() is None
+
+
 class _Gone:
     pass
 

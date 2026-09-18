@@ -97,8 +97,9 @@ Dropping either, or passing `None`, is a `TypeError` — not a silent
 the block in `partition_cache()` — then `partition_softmax` consults the cache
 itself, so graph code does not thread ids through the stack. A compiler may CSE
 the rebuild; eager will not. Entries are weak (GC drops them; the context does
-not pin). Use `segment_softmax` if you already have ids. There is no
-process-wide `id()` cache.
+not pin). Callbacks hold only a weakref to the cache map so a long-lived
+tensor cannot keep the block alive. Use `segment_softmax` if you already have
+ids. There is no process-wide `id()` cache.
 
 ```python
 with at.partition_cache():

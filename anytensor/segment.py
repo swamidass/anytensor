@@ -46,7 +46,13 @@ from .core import (
 from .namespace import array_namespace
 
 _TORCHSCRIPT_ENABLED = False
-_PARTITION_IDS_CACHE: ContextVar[dict | None] = ContextVar(
+
+
+class _PartitionIdsMap(dict):
+    """Weakref-able cache map (builtin ``dict`` cannot take a weakref)."""
+
+
+_PARTITION_IDS_CACHE: ContextVar[_PartitionIdsMap | None] = ContextVar(
     "anytensor_partition_ids_cache", default=None
 )
 
@@ -481,15 +487,17 @@ def partition_cache():
     than once in a call. A process-wide ``id()`` cache is wrong (unhashable
     tensors, in-place edits, tracers). This context is opt-in and reentrant.
     Entries are weak: when the partition tensor is collected, the cached ids
-    drop; the map is also cleared on exit so it does not pin. Partition
-    helpers (:func:`partition_ids`, :func:`partition_softmax`) consult it
+    drop; the map is also cleared on exit so it does not pin. GC callbacks
+    hold only a weakref to this map, so a long-lived ``n_node`` cannot keep
+    an empty cache alive after the block. Partition helpers
+    (:func:`partition_ids`, :func:`partition_softmax`) consult it
     automatically — callers do not thread ids through the stack.
     :func:`~anytensor.jraph.GraphNetwork` enters one per apply.
     """
     if _PARTITION_IDS_CACHE.get() is not None:
         yield
         return
-    cache: dict = {}
+    cache = _PartitionIdsMap()
     token = _PARTITION_IDS_CACHE.set(cache)
     try:
         yield
@@ -510,8 +518,11 @@ def _cache_lookup(cache, partitions, n_part, total):
 
 
 def _cache_store(cache, key, partitions, ids):
-    def _drop(_ref, cache=cache, key=key):
-        cache.pop(key, None)
+    def _drop(_ref, cache_ref=weakref.ref(cache), key=key):
+        held = cache_ref()
+        if held is None:
+            return
+        held.pop(key, None)
 
     held_ref = _ref_partitions(partitions, _drop)
     cache[key] = (held_ref, ids)

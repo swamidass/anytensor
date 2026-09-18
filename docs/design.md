@@ -161,11 +161,12 @@ cannot silently become data-dependent (`sum(partitions)` / `max(ids)+1`);
 passing `None` is a `TypeError`, not that fallback. Inside `partition_cache()`
 (reentrant; GraphNetwork enters one per apply), `partition_softmax` and
 `partition_ids` reuse the same tensor's expansion via weakrefs — the cache
-does not pin, and GC drops the ids. Call `partition_ids` once yourself if you
-are outside that block. Do not add `partition_sum` / `partition_min` /
-`partition_max`. There is no process-wide cache: tensors are unhashable,
-in-place edits would stale the ids, and tracers wrap a new object every
-compile.
+does not pin, GC drops the ids, and callbacks hold only a weakref to the
+cache map so a long-lived tensor cannot zombie the block after exit. Call
+`partition_ids` once yourself if you are outside that block. Do not add
+`partition_sum` / `partition_min` / `partition_max`. There is no
+process-wide cache: tensors are unhashable, in-place edits would stale the
+ids, and tracers wrap a new object every compile.
 
 Allowed forms:
 
