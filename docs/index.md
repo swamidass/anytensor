@@ -189,7 +189,7 @@ live in [Worked examples](examples.md):
 - `torch.compile(neighbor_attention, fullgraph=False)` (portable); `fullgraph=True` needs a Torch-only body
 - `torch.export` via an `nn.Module` whose `forward` calls the helper
 - `tf.function` / `jit_compile=True`
-- ONNX with symbolic lengths: [ONNX](onnx/index.md) (`anytensor.onnx`; Lightning / Keras / Flax recipes)
+- ONNX with symbolic lengths: [ONNX](onnx/index.md) (`anytensor.export`; Lightning / Keras / Flax recipes)
 
 Prefer `torch.compile` / `torch.export` over deprecated `torch.jit.script` /
 `trace`. Those fences are executed in CI via Sybil so they do not rot.

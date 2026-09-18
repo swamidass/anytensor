@@ -42,7 +42,7 @@ else.
 
 Non-goals (for now): a RaggedTensor API, ONNX Runtime as a **compute** backend, or
 papering over every XLA vs eager disagreement. Exporting an AnyTensor function
-*to* an ONNX graph is an opt-in guide in [`anytensor.onnx`](onnx/index.md)
+*to* an ONNX graph is an opt-in guide in [`anytensor.export`](onnx/index.md)
 (not a stable library API). GraphsTuple lives in
 [`anytensor.jraph`](jraph/index.md) (jraph-compatible, any backend);
 heterogeneous graphs and their model zoo live in
@@ -204,7 +204,7 @@ rely on NaN under XLA for portability.
 | `tf.function` | Prefer Python ints for sizes **or** `at.shape(x)` under polymorphic / ONNX graphs |
 | `torch.compile` | Prefer over deprecated `torch.jit.*`. `fullgraph=False` for portable helpers; `fullgraph=True` needs a Torch-only body — see [Worked examples](examples.md) |
 | `torch.jit.script` / `trace` | **Deprecated by PyTorch.** Legacy `enable_torchscript()` still covers `segment_sum` / `min` / `max` only |
-| ONNX | Rebind onto Torch or TF tensors; `at.shape(x)[0]` for symbolic lengths. Embed weights as `nn.Parameter` (best names) or in-trace TF constants via `as_tensorflow_fn` — not outer tensors / extra inputs. See [`anytensor.onnx`](onnx/index.md) |
+| ONNX | Rebind onto Torch or TF tensors; `at.shape(x)[0]` for symbolic lengths. Embed weights as `nn.Parameter` (best names) or in-trace TF constants via `as_tensorflow_fn` — not outer tensors / extra inputs. See [`anytensor.export`](onnx/index.md) |
 
 ### 9. Legacy TorchScript divert (not recommended)
 

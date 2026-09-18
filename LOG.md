@@ -2,7 +2,7 @@
 
 ## 2026-09-18
 
-- ONNX recipes live in the opt-in `anytensor.onnx` subpackage (not in
+- ONNX recipes live in the opt-in `anytensor.export` subpackage (not in
   `anytensor.__all__`; `to_onnx_torch` / `to_onnx_tensorflow` /
   `numpy_leaves`). Weights embed as ONNX initializers via
   `as_torch_module(fn, params)` (`nn.Parameter`, best names) or

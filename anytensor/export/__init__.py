@@ -4,7 +4,7 @@ This **subpackage** is **not** a stable library API, **not** in
 ``anytensor.__all__``, and **not** an ONNX Runtime backend. Import it
 explicitly::
 
-    from anytensor import onnx
+    from anytensor import export
 
 It records how a downstream *model* author can serialize an AnyTensor
 function that already runs on Torch or TensorFlow tensors.

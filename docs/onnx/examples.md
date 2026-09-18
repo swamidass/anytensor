@@ -38,7 +38,7 @@ import os
 
 tf = pytest.importorskip("tensorflow")
 pytest.importorskip("tf2onnx")
-from anytensor import onnx
+from anytensor import export
 
 signature = [
     tf.TensorSpec((None, 2), tf.float32, name="messages"),
@@ -46,8 +46,8 @@ signature = [
     tf.TensorSpec((None,), tf.int64, name="dst"),
     tf.TensorSpec((None, 2), tf.float32, name="nodes"),
 ]
-proto = onnx.to_onnx_tensorflow(neighbor_from_nodes, signature)
-dims = onnx.assert_symbolic_lengths(
+proto = export.to_onnx_tensorflow(neighbor_from_nodes, signature)
+dims = export.assert_symbolic_lengths(
     proto, inputs={"messages": (0,), "nodes": (0,)}
 )
 assert isinstance(dims["messages"][0], str)
@@ -61,10 +61,10 @@ import os
 pytest.importorskip("torch")
 if os.environ.get("CI"):
     pytest.skip("torch.onnx dynamo disabled on CI runners (dynamo/triton)")
-from anytensor import onnx
+from anytensor import export
 
 E, N = torch.export.Dim("E"), torch.export.Dim("N")
-prog = onnx.to_onnx_torch(
+prog = export.to_onnx_torch(
     neighbor_from_nodes,
     (
         torch.as_tensor(messages),
@@ -81,7 +81,7 @@ prog = onnx.to_onnx_torch(
     input_names=["messages", "scores", "dst_index", "nodes"],
     output_names=["out"],
 )
-dims = onnx.assert_symbolic_lengths(
+dims = export.assert_symbolic_lengths(
     prog,
     inputs={"messages": (0,), "nodes": (0,)},
     outputs={"out": (0,)},
@@ -104,7 +104,7 @@ flax = pytest.importorskip("flax")
 tf = pytest.importorskip("tensorflow")
 pytest.importorskip("tf2onnx")
 from flax import linen as nn
-from anytensor import onnx
+from anytensor import export
 
 
 class FlaxNeighbor(nn.Module):
@@ -123,14 +123,14 @@ variables = mod.init(
     jax.numpy.asarray(dst),
     jax.numpy.asarray(nodes),
 )
-params = onnx.numpy_leaves(variables["params"])
+params = export.numpy_leaves(variables["params"])
 
 
 def apply(messages, scores, dst_index, nodes, *, params):
     return neighbor_from_nodes(messages @ params["W"], scores, dst_index, nodes)
 
 
-proto = onnx.to_onnx_tensorflow(
+proto = export.to_onnx_tensorflow(
     apply,
     [
         tf.TensorSpec((None, 2), tf.float32, name="messages"),
@@ -140,7 +140,7 @@ proto = onnx.to_onnx_tensorflow(
     ],
     params=params,
 )
-dims = onnx.assert_symbolic_lengths(proto, inputs={"messages": (0,)})
+dims = export.assert_symbolic_lengths(proto, inputs={"messages": (0,)})
 assert isinstance(dims["messages"][0], str)
-assert onnx.assert_embedded_weights(proto, params)["W"].startswith("W")
+assert export.assert_embedded_weights(proto, params)["W"].startswith("W")
 ```

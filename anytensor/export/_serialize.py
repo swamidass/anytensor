@@ -120,7 +120,7 @@ def _to_onnx(fn, args, *, backend: str | None = None, params=None, **kwargs):
     if kind == "jax":
         raise RuntimeError(
             "JAX/Flax arrays cannot go through jax2tf to ONNX (XlaCallModule). "
-            "Convert params with anytensor.onnx.numpy_leaves and bind them with "
+            "Convert params with anytensor.export.numpy_leaves and bind them with "
             "as_torch_module / as_tensorflow_fn (or to_onnx(..., params=))."
         )
     raise RuntimeError(
