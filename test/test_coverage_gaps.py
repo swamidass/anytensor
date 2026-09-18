@@ -157,13 +157,13 @@ def test_partition_softmax_and_semantics_edges():
     assert list(np.asarray(ids)) == [0, 0, 1]
     out2 = at.segment_softmax(logits, ids, 2)
     assert close(np.asarray(out2), np.asarray(out))
-    out3 = at.partition_softmax(logits, parts, sum_partitions=3)
+    out3 = at.partition_softmax(logits, parts, total_length=3)
     assert out3.shape == (3,)
     with pytest.raises(TypeError):
         at.partition_softmax(logits, parts)
-    with pytest.raises(TypeError, match="sum_partitions"):
+    with pytest.raises(TypeError, match="total_length"):
         at.partition_softmax(logits, parts, None)
-    with pytest.raises(TypeError, match="sum_partitions"):
+    with pytest.raises(TypeError, match="total_length"):
         at.partition_ids(parts, None)
     with pytest.raises(TypeError, match="num_segments"):
         at.segment_sum(logits, np.array([0, 0, 1]), None)

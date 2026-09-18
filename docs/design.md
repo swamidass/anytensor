@@ -148,14 +148,14 @@ by design (see below).
 ### 5. Shape-sizes are required and stay static-friendly
 
 `num_segments` is **always required** on segment ops (JAX convention). We
-do **not** infer `max(ids)+1`. `sum_partitions` on partition helpers is
+do **not** infer `max(ids)+1`. `total_length` on partition helpers is
 the same kind of required shape-size (`shape(logits)[0]`, not a data
 `sum(partitions)`). Partition helpers do **not** take `num_segments` — that
 is `shape(partitions)[0]`, a shape read, not data-dependent.
 
 `partition_softmax` is a convenience, not a family: it rebuilds `segment_ids`
 on every call (`partition_ids` = `arange` + `repeat`). A compiler may CSE
-that; eager will not. JAX keeps `sum_partitions` required so dropping an
+that; eager will not. JAX keeps `total_length` required so dropping an
 optional cannot silently become data-dependent (`sum(partitions)`);
 passing `None` is a `TypeError`, not that fallback. Inside `partition_cache()`
 (reentrant; GraphNetwork enters one per apply), `partition_softmax` and
@@ -218,7 +218,7 @@ rely on NaN under XLA for portability.
 | Path | Expectation |
 |---|---|
 | Eager (all backends) | Full public surface |
-| `jax.jit` | Mark shape-sizes static; `repeat` needs `total_repeat_length` under jit; `partition_softmax` always requires `sum_partitions` (`num_segments` is `shape(partitions)[0]`) |
+| `jax.jit` | Mark shape-sizes static; `repeat` needs `total_repeat_length` under jit; `partition_softmax` always requires `total_length` (`num_segments` is `shape(partitions)[0]`) |
 | `tf.function` | Prefer Python ints for sizes **or** `at.shape(x)` under polymorphic / ONNX graphs |
 | `torch.compile` | Prefer over deprecated `torch.jit.*`. `fullgraph=False` for portable helpers; `fullgraph=True` needs a Torch-only body — see [Worked examples](examples.md) |
 | `torch.jit.script` / `trace` | **Deprecated by PyTorch.** Legacy `enable_torchscript()` still covers `segment_sum` / `min` / `max` only |

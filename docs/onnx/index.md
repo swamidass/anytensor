@@ -59,7 +59,7 @@ dynamo ONNX (skipped on CI, same Triton SIGSEGV as `torch.compile`).
 Constructors (`zeros` / `ones` / `full` / `arange` / `split`) take sizes from
 `at.shape` so the new length is a graph symbol. `partition_softmax` takes
 `num_segments` from `shape(partitions)[0]` and requires
-`sum_partitions=at.shape(logits)[0]` so the flattened length is not a data sum.
+`total_length=at.shape(logits)[0]` so the flattened length is not a data sum.
 
 The same file also exports the **model zoos** as a TF/ONNX stress test:
 `anytensor.hetero` (R-GCN, GraphSAGE, CompGCN, HGT, HAN) and `anytensor.jraph`

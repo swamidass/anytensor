@@ -17,7 +17,7 @@
   skipped on CI. Constructor ops (`zeros` / `ones` / `full` / `arange` /
   `split`) take sizes from `at.shape`; `partition_softmax` takes
   `num_segments` from `shape(partitions)[0]` and requires
-  `sum_partitions=at.shape(logits)[0]`. `partition_ids` is the one-shot
+  `total_length=at.shape(logits)[0]`. `partition_ids` is the one-shot
   conversion to reuse with `segment_*`; `partition_cache()` is a reentrant
   context so partition helpers reuse ids for the same tensors (weakrefs; GC
   drops entries; GraphNetwork enters one per apply). Hetero and

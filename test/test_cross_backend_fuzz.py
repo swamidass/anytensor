@@ -632,14 +632,14 @@ def fuzz_segment_count(segment_ids, num_segments):
 
 
 @fuzz_op(sample_partition_softmax)
-def fuzz_partition_ids(logits, partitions, sum_partitions):
+def fuzz_partition_ids(logits, partitions, total_length):
     del logits
-    return at.partition_ids(partitions, sum_partitions)
+    return at.partition_ids(partitions, total_length)
 
 
 @fuzz_op(sample_partition_softmax)
-def fuzz_partition_softmax(logits, partitions, sum_partitions):
-    return at.partition_softmax(logits, partitions, sum_partitions)
+def fuzz_partition_softmax(logits, partitions, total_length):
+    return at.partition_softmax(logits, partitions, total_length)
 
 
 # Public names that are infrastructure, aliases, or non-ops — not required in FUZZ_OPS.

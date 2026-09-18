@@ -62,7 +62,7 @@ Dtype policy is per-operand via `@promote`:
 @promote(x="data", segment_ids="index", num_segments="shape")  # size dim
 ```
 
-`num_segments` / `total_repeat_length` / `sum_partitions` are **shape** sizes:
+`num_segments` / `total_repeat_length` / `total_length` are **shape** sizes:
 Python `int`, jit symbolic constant, or 0-d integral tensor scalar — **required**
 (JAX convention), never inferred from ids. Plain ints stay Python (not 0-d
 tensors) so `jax.jit` / `tf.function` / `torch.compile` can treat them as static.
@@ -83,15 +83,15 @@ tensors) so `jax.jit` / `tf.function` / `torch.compile` can treat them as static
 | `segment_count` / `mean` / `variance` | Counts and moments |
 | `segment_normalize` / `segment_softmax` | Per-segment normalize / softmax |
 | `segment_min_or_constant` / `segment_max_or_constant` | Empty segments → constant |
-| `partition_softmax` | Softmax over contiguous partition lengths (`sum_partitions` required; `num_segments` is `shape(partitions)[0]`; rebuilds ids each call unless `partition_cache` is active) |
+| `partition_softmax` | Softmax over contiguous partition lengths (`total_length` required; `num_segments` is `shape(partitions)[0]`; rebuilds ids each call unless `partition_cache` is active) |
 | `partition_ids` | Expand partition lengths to segment ids (call once, reuse) |
 | `partition_cache` | Context: partition helpers reuse ids for the same tensors (weakrefs; GraphNetwork enters one per apply) |
 
 Einops (`rearrange`, `einsum`, `reduce`, …) is re-exported for convenience.
 
-`partition_softmax(logits, partitions, sum_partitions)` is a convenience over
+`partition_softmax(logits, partitions, total_length)` is a convenience over
 `partition_ids` + `segment_softmax`. `num_segments` is not an argument — it is
-`shape(partitions)[0]`. `sum_partitions` is a required shape-size
+`shape(partitions)[0]`. `total_length` is a required shape-size
 (`shape(logits)[0]`). Dropping it, or passing `None`, is a `TypeError` — not a
 silent `sum(partitions)`. It rebuilds `segment_ids` on **every** call unless you
 wrap the block in `partition_cache()` — then `partition_softmax` consults the
@@ -103,11 +103,11 @@ already have ids. There is no process-wide `id()` cache.
 
 ```python
 with at.partition_cache():
-    y = at.partition_softmax(logits, partitions, sum_partitions)
-    z = at.partition_softmax(other_logits, partitions, sum_partitions)
+    y = at.partition_softmax(logits, partitions, total_length)
+    z = at.partition_softmax(other_logits, partitions, total_length)
 ```
 
-Under `jax.jit`, `sum_partitions` must be a static-friendly shape-size
+Under `jax.jit`, `total_length` must be a static-friendly shape-size
 (`shape(logits)[0]`, or a Python int). See [Surprising differences](semantics.md).
 
 ## Torch compile / export

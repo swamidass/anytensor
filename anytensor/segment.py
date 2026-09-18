@@ -8,7 +8,7 @@ Callers may pass a Python int, a jit/compile symbolic constant, or a 0-d
 tensor scalar — never inferred from ``segment_ids`` (that would be
 ``max(ids)+1``, data-dependent). Partition helpers do **not** take
 ``num_segments``: it is ``shape(partitions)[0]``, a shape read. They do
-require ``sum_partitions`` (``shape(logits)[0]``, not a data
+require ``total_length`` (``shape(logits)[0]``, not a data
 ``sum(partitions)``). Wrap a block in :func:`partition_cache` and
 :func:`partition_softmax` / :func:`partition_ids` reuse the same expansion.
 There is no ``partition_sum`` / ``partition_min`` family.
@@ -543,22 +543,23 @@ def _ref_partitions(partitions, callback):
 
 def partition_ids(
     partitions: IntArray,
-    sum_partitions: ShapeSize,
+    total_length: ShapeSize,
 ) -> IntArray:
     """Expand partition lengths to segment ids (``[0,0,…,1,1,…,n-1]``).
 
     This is the conversion :func:`partition_softmax` does internally.
     ``num_segments`` is ``shape(partitions)[0]`` (not an argument; not
-    data-dependent). ``sum_partitions`` is the required flattened length
-    (``shape(logits)[0]``, not a data ``sum(partitions)``).
+    data-dependent). ``total_length`` is the required flattened length
+    (``shape(logits)[0]``, not a data ``sum(partitions)``). Passed to
+    :func:`repeat` as ``total_repeat_length``.
 
     Outside :func:`partition_cache`, every call rebuilds ids. Inside the
-    cache, the same ``partitions`` tensor (and ``sum_partitions``) returns
+    cache, the same ``partitions`` tensor (and ``total_length``) returns
     the previous ids until the tensor is collected or the block exits.
-    Passing ``None`` for ``sum_partitions`` is a ``TypeError``.
+    Passing ``None`` for ``total_length`` is a ``TypeError``.
     """
     n_part = shape(partitions)[0]
-    total = _require_shape_size("sum_partitions", sum_partitions)
+    total = _require_shape_size("total_length", total_length)
     cache = _PARTITION_IDS_CACHE.get()
     key = None
     if cache is not None:
@@ -574,13 +575,13 @@ def partition_ids(
 def partition_softmax(
     logits: ShapedArray,
     partitions: IntArray,
-    sum_partitions: ShapeSize,
+    total_length: ShapeSize,
 ) -> ShapedArray:
     """Softmax within contiguous partitions of lengths ``partitions``.
 
     Convenience: :func:`partition_ids` then :func:`segment_softmax`.
     ``num_segments`` is ``shape(partitions)[0]`` — not an argument.
-    ``sum_partitions`` is **required** (``shape(logits)[0]``, not a data
+    ``total_length`` is **required** (``shape(logits)[0]``, not a data
     ``sum(partitions)``). **Ids are rebuilt on every call** unless a
     :func:`partition_cache` is active — then this helper reuses the cached
     expansion. A compiler may CSE the rebuild; eager will not. If you
@@ -589,15 +590,15 @@ def partition_softmax(
 
     Args:
         logits: Scores aligned with the flattened partitions (length
-            ``sum_partitions``).
+            ``total_length``).
         partitions: 1-D integer vector of partition sizes. Length is the
             number of segments.
-        sum_partitions: **Required** shape-size for the flattened length
+        total_length: **Required** shape-size for the flattened length
             (``shape(logits)[0]``, not a data ``sum(partitions)``). Passed
             to :func:`repeat` as ``total_repeat_length``.
 
     Returns:
         Softmax of ``logits`` within each partition (same shape as ``logits``).
     """
-    segment_ids = partition_ids(partitions, sum_partitions)
+    segment_ids = partition_ids(partitions, total_length)
     return segment_softmax(logits, segment_ids, num_segments=shape(partitions)[0])

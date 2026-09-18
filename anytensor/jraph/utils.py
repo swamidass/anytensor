@@ -207,11 +207,10 @@ def partition_softmax(logits, partitions, sum_partitions):
     """Softmax within contiguous partitions of lengths ``partitions``.
 
     Official jraph takes ``sum_partitions`` as the third positional and allows
-    omitting it. AnyTensor **requires** it (not a data ``sum(partitions)``).
-    ``num_segments`` is not an argument — it is ``shape(partitions)[0]``.
-    Rebuilds segment ids on every call unless :func:`~anytensor.partition_cache`
-    is active (then this helper reuses the expansion). Prefer
-    :func:`segment_softmax` when ids are already in hand.
+    omitting it. AnyTensor **requires** it (core name ``total_length``;
+    ``shape(logits)[0]``, not a data ``sum(partitions)``). ``num_segments`` is
+    not an argument — it is ``shape(partitions)[0]``. Rebuilds segment ids on
+    every call unless :func:`~anytensor.partition_cache` is active.
     """
     return _partition_softmax(logits, partitions, sum_partitions)
 
