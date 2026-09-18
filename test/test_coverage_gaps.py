@@ -213,6 +213,9 @@ def test_cache_weakrefs_and_partition_softmax(monkeypatch):
         at.partition_softmax(logits, parts, 3)
         at.partition_softmax(logits, parts, 3)
         assert at.partition_ids(parts, 3) is not None
+        ids = at.partition_ids(parts, 3)
+        at.partition_softmax(logits, parts, 3)
+        assert at.partition_ids(parts, 3) is ids
     assert repeats["n"] == 3
 
     with at.cache():

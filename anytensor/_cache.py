@@ -153,9 +153,10 @@ class _Cache:
     clears on exit so it does not pin. GC callbacks hold only a weakref to
     the **namespace** map, so a long-lived tensor cannot keep the root alive
     after the block and cannot form a callback→map→entry cycle that would
-    pin cached values. Partition helpers (:func:`~anytensor.partition_ids`,
-    :func:`~anytensor.partition_softmax`) consult ``"partition"``
-    automatically — callers do not thread ids through the stack.
+    pin cached values. :func:`~anytensor.partition_ids` is the only
+    partition helper that consults ``"partition"``; other partition
+    functions call ``partition_ids`` so a cache hit is shared. Callers
+    do not thread ids through the stack.
     :func:`~anytensor.jraph.GraphNetwork` is decorated so each apply hits it.
 
     Tensor-keyed namespaces use ``key[0] == id(obj)`` so :meth:`purge` can

@@ -9,12 +9,11 @@ tensor scalar — never inferred from ``segment_ids`` (that would be
 ``max(ids)+1``, data-dependent). Partition helpers do **not** take
 ``num_segments``: it is ``shape(partitions)[0]``, a shape read. They do
 require ``total_length`` (``shape(logits)[0]``, not a data
-``sum(partitions)``). :data:`cache` as a decorator (preferred on
-library apply functions), a context, or :meth:`cache.enable` /
-:meth:`~cache.disable` makes :func:`partition_softmax` /
-:func:`partition_ids` reuse expansions (namespace ``"partition"``).
-:meth:`cache.purge` drops one tensor from one namespace. There is no
-``partition_sum`` / ``partition_min`` family.
+``sum(partitions)``). Partition helpers call :func:`partition_ids`,
+which consults :data:`cache` ``["partition"]`` when a decorator /
+context / :meth:`cache.enable` is active. :meth:`cache.purge` drops
+one tensor from one namespace. There is no ``partition_sum`` /
+``partition_min`` family.
 
 TorchScript: :func:`enable_torchscript` wraps ``segment_sum`` / ``min`` /
 ``max`` with a ``torch.jit.is_scripting()`` divert. Import order does not
@@ -460,16 +459,17 @@ def partition_ids(
 ) -> IntArray:
     """Expand partition lengths to segment ids (``[0,0,…,1,1,…,n-1]``).
 
-    This is the conversion :func:`partition_softmax` does internally.
+    This is the conversion other partition helpers call internally.
     ``num_segments`` is ``shape(partitions)[0]`` (not an argument; not
     data-dependent). ``total_length`` is the required flattened length
     (``shape(logits)[0]``, not a data ``sum(partitions)``). Passed to
     :func:`repeat` as ``total_repeat_length``.
 
-    Outside :data:`cache`, every call rebuilds ids. Inside the cache, the
-    same ``partitions`` tensor (and ``total_length``) returns the previous
-    ids from ``cache["partition"]`` until the tensor is collected or the
-    block exits. Passing ``None`` for ``total_length`` is a ``TypeError``.
+    The only partition helper that talks to :data:`cache`. Outside the
+    cache, every call rebuilds ids. Inside, the same ``partitions``
+    tensor (and ``total_length``) returns the previous ids from
+    ``cache["partition"]`` until the tensor is collected or the block
+    exits. Passing ``None`` for ``total_length`` is a ``TypeError``.
     """
     n_part = shape(partitions)[0]
     total = _require_shape_size("total_length", total_length)
@@ -495,11 +495,12 @@ def partition_softmax(
     Convenience: :func:`partition_ids` then :func:`segment_softmax`.
     ``num_segments`` is ``shape(partitions)[0]`` — not an argument.
     ``total_length`` is **required** (``shape(logits)[0]``, not a data
-    ``sum(partitions)``). **Ids are rebuilt on every call** unless
-    :data:`cache` is active — then this helper reuses ``cache["partition"]``.
-    A compiler may CSE the rebuild; eager will not. If you
-    already have ids, call :func:`segment_softmax`. This is not a pattern
-    to grow (no ``partition_sum`` / ``partition_min``).
+    ``sum(partitions)``). Does not talk to :data:`cache` itself —
+    :func:`partition_ids` does, so a cache hit is shared with every
+    partition helper. **Ids are rebuilt on every call** unless that
+    cache is active. A compiler may CSE the rebuild; eager will not.
+    If you already have ids, call :func:`segment_softmax`. This is not
+    a pattern to grow (no ``partition_sum`` / ``partition_min``).
 
     Args:
         logits: Scores aligned with the flattened partitions (length

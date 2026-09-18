@@ -83,9 +83,9 @@ tensors) so `jax.jit` / `tf.function` / `torch.compile` can treat them as static
 | `segment_count` / `mean` / `variance` | Counts and moments |
 | `segment_normalize` / `segment_softmax` | Per-segment normalize / softmax |
 | `segment_min_or_constant` / `segment_max_or_constant` | Empty segments → constant |
-| `partition_softmax` | Softmax over contiguous partition lengths (`total_length` required; `num_segments` is `shape(partitions)[0]`; rebuilds ids each call unless `cache` is active) |
-| `partition_ids` | Expand partition lengths to segment ids (call once, reuse) |
-| `cache` | Decorator / context / `enable`+`disable`: dict of dicts; partition helpers reuse ids at `cache["partition"]`; `purge("partition", tensor)` drops one tensor |
+| `partition_softmax` | Softmax over contiguous partition lengths (`total_length` required; `num_segments` is `shape(partitions)[0]`; calls `partition_ids`, which reuses ids when `cache` is active) |
+| `partition_ids` | Expand partition lengths to segment ids (the cache chokepoint; other partition helpers call this) |
+| `cache` | Decorator / context / `enable`+`disable`: dict of dicts; `partition_ids` stores expansions at `cache["partition"]`; `purge("partition", tensor)` drops one tensor |
 
 Einops (`rearrange`, `einsum`, `reduce`, …) is re-exported for convenience.
 
@@ -93,10 +93,11 @@ Einops (`rearrange`, `einsum`, `reduce`, …) is re-exported for convenience.
 `partition_ids` + `segment_softmax`. `num_segments` is not an argument — it is
 `shape(partitions)[0]`. `total_length` is a required shape-size
 (`shape(logits)[0]`). Dropping it, or passing `None`, is a `TypeError` — not a
-silent `sum(partitions)`. It rebuilds `segment_ids` on **every** call unless you
+silent `sum(partitions)`. It calls `partition_ids` then `segment_softmax`.
+`partition_ids` is the only partition helper that talks to the cache:
 wrap the block in `cache()` (or `@cache` on a library
-apply, or `cache.enable()` / `disable()`) — then `partition_softmax`
-consults `cache["partition"]` itself, so graph code does not thread ids through the stack. A compiler
+apply, or `cache.enable()` / `disable()`) and every partition helper
+shares `cache["partition"]`, so graph code does not thread ids through the stack. A compiler
 may CSE the rebuild; eager will not. Entries are weak (GC drops them; the
 context does not pin). Callbacks hold only a weakref to the namespace map so a
 long-lived tensor cannot keep the block alive. Use `segment_softmax` if you

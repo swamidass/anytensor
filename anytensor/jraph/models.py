@@ -38,7 +38,11 @@ GNUpdateGlobalFn = Callable[[NodeFeatures, EdgeFeatures, Globals], Globals]
 
 
 def _repeat_by(values, repeats, total_length):
-    """Scatter rows of ``values`` according to per-row ``repeats`` (axis 0)."""
+    """Scatter rows of ``values`` according to per-row ``repeats`` (axis 0).
+
+    Goes through :func:`~anytensor.partition_ids` so a cache hit is shared
+    with other partition helpers.
+    """
     idx = partition_ids(repeats, total_length)
     return take(values, idx)
 

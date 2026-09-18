@@ -153,16 +153,18 @@ the same kind of required shape-size (`shape(logits)[0]`, not a data
 `sum(partitions)`). Partition helpers do **not** take `num_segments` — that
 is `shape(partitions)[0]`, a shape read, not data-dependent.
 
-`partition_softmax` is a convenience, not a family: it rebuilds `segment_ids`
-on every call (`partition_ids` = `arange` + `repeat`). A compiler may CSE
-that; eager will not. JAX keeps `total_length` required so dropping an
+`partition_softmax` is a convenience, not a family: it calls
+`partition_ids` (`arange` + `repeat`) then `segment_softmax`.
+`partition_ids` is the only partition helper that talks to the cache;
+other partition functions call it so a hit is shared. A compiler may CSE
+the rebuild; eager will not. JAX keeps `total_length` required so dropping an
 optional cannot silently become data-dependent (`sum(partitions)`);
 passing `None` is a `TypeError`, not that fallback. `@cache` on a
 library apply (GraphNetwork), `with cache():`, or
 `cache.enable()` / `disable()` turns the cache on;
 `cache.purge("partition", partitions)` drops one tensor. The cache is a
 dict of dicts (`cache["partition"]` holds the ids map) so later helpers can
-add other namespaces the same way. Partition helpers reuse
+add other namespaces the same way. `partition_ids` reuses
 the same tensor's expansion via weakrefs — the cache does not pin, GC drops
 the ids, and callbacks hold only a weakref to the namespace map — that avoids a
 callback→map→entry loop that would pin ids for the life of the tensor. Call
