@@ -229,12 +229,10 @@ def han(
     for ntype in {e[2] for e in meta_path_etypes}:
         h_stack = stacked.nodes[ntype]  # (n, R, d)
         h_act = node_activation(h_stack)
-        n = int(shape(h_act)[0])
-        r = int(shape(h_act)[1])
-        d = int(shape(h_act)[2])
-        flat = reshape(h_act, (n * r, d))
+        n, r, d = shape(h_act)[:3]
+        flat = reshape(h_act, (-1, d))
         proj = semantic_project(flat)
-        d_s = int(shape(proj)[-1])
+        d_s = shape(proj)[-1]
         proj = reshape(proj, (n, r, d_s))
         proj = semantic_activation(proj)
         q_vec = reshape(semantic_query, (d_s,))

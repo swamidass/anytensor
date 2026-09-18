@@ -60,3 +60,9 @@ Constructors (`zeros` / `ones` / `full` / `arange` / `split`) take sizes from
 `at.shape` so the new length is a graph symbol. `partition_softmax` passes
 `sum_partitions=at.shape(logits)[0]` so the flattened length is not a data
 sum.
+
+The same file also exports the **model zoos** as a TF/ONNX stress test:
+`anytensor.hetero` (R-GCN, GraphSAGE, CompGCN, HGT, HAN) and `anytensor.jraph`
+(GraphNetwork, InteractionNetwork, GraphMapFeatures, RelationNetwork, DeepSets,
+GraphNetGAT, GAT, GraphConvolution). Those layers take destination sizes from
+`at.shape`, not `int(shape(...))`, so node/edge axes stay `dim_param`s.

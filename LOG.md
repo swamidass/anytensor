@@ -16,7 +16,9 @@
   `num_segments`. Public-op coverage via TF tf2onnx in CI; Torch dynamo ONNX
   skipped on CI. Constructor ops (`zeros` / `ones` / `full` / `arange` /
   `split`) take sizes from `at.shape`; `partition_softmax` uses
-  `sum_partitions=at.shape(logits)[0]`.
+  `sum_partitions=at.shape(logits)[0]`. Hetero and jraph model zoos are a
+  TF/ONNX stress test: destination sizes come from `at.shape` (HAN no longer
+  `int()`s ranks; jraph GAT/GCN/GraphNetwork no longer read `.shape[0]`).
 
 ## 2026-09-16
 

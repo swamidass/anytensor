@@ -516,14 +516,6 @@ def test_multi_update_all_edge_cases_and_stack():
     np.testing.assert_array_equal(
         hm._cross_reduce_leaves([np.asarray([1.0, 2.0])], "sum"), [1.0, 2.0]
     )
-    # monkeypatch concrete size failure
-    real = hm._host_concrete_int
-    hm._host_concrete_int = lambda _v: None
-    try:
-        with pytest.raises(ValueError, match="concrete destination"):
-            multi_update_all(g, etypes=[writes])
-    finally:
-        hm._host_concrete_int = real
     # None nodes take path
     assert hm._take_nodes(None, g.senders[writes]) is None
 

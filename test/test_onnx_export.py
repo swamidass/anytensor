@@ -1003,3 +1003,319 @@ def test_as_torch_module_forward():
 
     with pytest.raises(TypeError, match="params="):
         export.to_onnx_torch(bound, (x,), params=params)
+
+
+_WRITES = ("author", "writes", "paper")
+_CITES = ("paper", "cites", "paper")
+_HETERO_WEIGHTS = {
+    "Ww": np.eye(2, dtype=np.float32) * 1.1,
+    "Wc": np.eye(2, dtype=np.float32) * 0.9,
+    "Sa": np.eye(2, dtype=np.float32) * 0.2,
+    "Sp": np.eye(2, dtype=np.float32) * 0.3,
+    "C": np.concatenate(
+        [np.eye(2, dtype=np.float32), np.eye(2, dtype=np.float32)], axis=0
+    ),
+    "attn": np.ones((4, 1), dtype=np.float32) * 0.5,
+    "q": np.array([0.7, -0.2], dtype=np.float32),
+}
+_JRAPH_WEIGHTS = {"W": np.eye(2, dtype=np.float32) * 1.2}
+
+
+def _lin(w):
+    return lambda x: x @ w
+
+
+def _size1(x):
+    """Turn a leading length into a length-1 vector (one graph in the batch)."""
+    return at.reshape(at.shape(x)[0:1], (1,))
+
+
+def _dot_logit(a, b):
+    return at.reshape(at.sum(a * b, axes=-1), (at.shape(a)[0], 1))
+
+
+def _hetero_pack(author, paper, w_send, w_recv, c_send, c_recv, w_e, c_e):
+    from anytensor.hetero import HeteroGraphsTuple
+
+    return HeteroGraphsTuple(
+        nodes={"author": author, "paper": paper},
+        edges={_WRITES: w_e, _CITES: c_e},
+        senders={_WRITES: w_send, _CITES: c_send},
+        receivers={_WRITES: w_recv, _CITES: c_recv},
+        n_node={"author": _size1(author), "paper": _size1(paper)},
+        n_edge={_WRITES: _size1(w_send), _CITES: _size1(c_send)},
+    )
+
+
+def _hetero_signature(tf):
+    return [
+        tf.TensorSpec((None, 2), tf.float32, name="author"),
+        tf.TensorSpec((None, 2), tf.float32, name="paper"),
+        tf.TensorSpec((None,), tf.int32, name="w_send"),
+        tf.TensorSpec((None,), tf.int32, name="w_recv"),
+        tf.TensorSpec((None,), tf.int32, name="c_send"),
+        tf.TensorSpec((None,), tf.int32, name="c_recv"),
+        tf.TensorSpec((None, 2), tf.float32, name="w_e"),
+        tf.TensorSpec((None, 2), tf.float32, name="c_e"),
+    ]
+
+
+def _hetero_args(tf):
+    return (
+        tf.constant([[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]]),
+        tf.constant([[0.5, 0.5], [2.0, 0.0]]),
+        tf.constant([0, 1, 2], tf.int32),
+        tf.constant([0, 0, 1], tf.int32),
+        tf.constant([0], tf.int32),
+        tf.constant([1], tf.int32),
+        tf.ones((3, 2), tf.float32),
+        tf.ones((1, 2), tf.float32),
+    )
+
+
+def _rgcn_fn(author, paper, w_send, w_recv, c_send, c_recv, w_e, c_e, *, params):
+    from anytensor.hetero import relational_graph_convolution
+
+    g = _hetero_pack(author, paper, w_send, w_recv, c_send, c_recv, w_e, c_e)
+    return relational_graph_convolution(
+        g,
+        {_WRITES: _lin(params["Ww"]), _CITES: _lin(params["Wc"])},
+        {"author": _lin(params["Sa"]), "paper": _lin(params["Sp"])},
+        activation=lambda x: x,
+    ).nodes["paper"]
+
+
+def _sage_fn(author, paper, w_send, w_recv, c_send, c_recv, w_e, c_e, *, params):
+    from anytensor.hetero import hetero_sage
+
+    g = _hetero_pack(author, paper, w_send, w_recv, c_send, c_recv, w_e, c_e)
+    return hetero_sage(
+        g,
+        {_WRITES: _lin(params["Ww"]), _CITES: _lin(params["Wc"])},
+        {"paper": _lin(params["C"]), "author": _lin(params["C"])},
+        activation=lambda x: x,
+    ).nodes["paper"]
+
+
+def _compgcn_fn(author, paper, w_send, w_recv, c_send, c_recv, w_e, c_e, *, params):
+    from anytensor.hetero import comp_gcn
+
+    g = _hetero_pack(author, paper, w_send, w_recv, c_send, c_recv, w_e, c_e)
+    return comp_gcn(
+        g,
+        {_WRITES: _lin(params["Ww"]), _CITES: _lin(params["Wc"])},
+        {"author": _lin(params["Sa"]), "paper": _lin(params["Sp"])},
+        composition="mult",
+        activation=lambda x: x,
+    ).nodes["paper"]
+
+
+def _hgt_fn(author, paper, w_send, w_recv, c_send, c_recv, w_e, c_e, *, params):
+    from anytensor.hetero import gat_attention_logit, hgt
+
+    g = _hetero_pack(author, paper, w_send, w_recv, c_send, c_recv, w_e, c_e)
+    attn = _lin(params["attn"])
+    return hgt(
+        g,
+        {_WRITES: _lin(params["Ww"]), _CITES: _lin(params["Wc"])},
+        {
+            _WRITES: lambda s, d, e: gat_attention_logit(s, d, attn),
+            _CITES: lambda s, d, e: gat_attention_logit(s, d, attn),
+        },
+        {"paper": _lin(params["Sp"])},
+    ).nodes["paper"]
+
+
+def _han_fn(author, paper, w_send, w_recv, c_send, c_recv, w_e, c_e, *, params):
+    from anytensor.hetero import gat_attention_logit, han
+
+    g = _hetero_pack(author, paper, w_send, w_recv, c_send, c_recv, w_e, c_e)
+    attn = _lin(params["attn"])
+    return han(
+        g,
+        [_WRITES, _CITES],
+        {_WRITES: _lin(params["Ww"]), _CITES: _lin(params["Wc"])},
+        {
+            _WRITES: lambda s, d, e: gat_attention_logit(s, d, attn),
+            _CITES: lambda s, d, e: gat_attention_logit(s, d, attn),
+        },
+        _lin(params["Sp"]),
+        params["q"],
+        node_activation=lambda x: x,
+        semantic_activation=lambda x: x,
+    ).nodes["paper"]
+
+
+def _pick(keys):
+    return {k: _HETERO_WEIGHTS[k] for k in keys}
+
+
+@pytest.mark.parametrize(
+    "zoo_fn, weight_keys",
+    [
+        pytest.param(_rgcn_fn, ("Ww", "Wc", "Sa", "Sp"), id="rgcn"),
+        pytest.param(_sage_fn, ("Ww", "Wc", "C"), id="hetero_sage"),
+        pytest.param(_compgcn_fn, ("Ww", "Wc", "Sa", "Sp"), id="comp_gcn"),
+        pytest.param(_hgt_fn, ("Ww", "Wc", "attn", "Sp"), id="hgt"),
+        pytest.param(_han_fn, ("Ww", "Wc", "attn", "Sp", "q"), id="han"),
+    ],
+)
+def test_hetero_zoo_tensorflow_onnx(zoo_fn, weight_keys):
+    tf = pytest.importorskip("tensorflow")
+    pytest.importorskip("tf2onnx")
+    params = _pick(weight_keys)
+    args = _hetero_args(tf)
+    proto = export.to_onnx_tensorflow(zoo_fn, _hetero_signature(tf), params=params)
+    export.assert_symbolic_lengths(proto, inputs={"author": (0,), "paper": (0,)})
+    export.assert_embedded_weights(proto, params)
+    y = _ort(proto, args)
+    eager = np.asarray(zoo_fn(*args, params=params))
+    np.testing.assert_allclose(y, eager, equal_nan=True, atol=1e-4)
+
+
+def _jraph_pack(nodes, edges, senders, receivers, n_node, n_edge, globals_):
+    from anytensor.jraph.graph import GraphsTuple
+
+    return GraphsTuple(
+        nodes=nodes,
+        edges=edges,
+        senders=senders,
+        receivers=receivers,
+        globals=globals_,
+        n_node=n_node,
+        n_edge=n_edge,
+    )
+
+
+def _jraph_signature(tf):
+    return [
+        tf.TensorSpec((None, 2), tf.float32, name="nodes"),
+        tf.TensorSpec((None, 2), tf.float32, name="edges"),
+        tf.TensorSpec((None,), tf.int32, name="senders"),
+        tf.TensorSpec((None,), tf.int32, name="receivers"),
+        tf.TensorSpec((None,), tf.int32, name="n_node"),
+        tf.TensorSpec((None,), tf.int32, name="n_edge"),
+        tf.TensorSpec((None, 2), tf.float32, name="globals"),
+    ]
+
+
+def _jraph_args(tf):
+    return (
+        tf.constant(np.arange(6.0, dtype=np.float32).reshape(3, 2)),
+        tf.constant(np.arange(10.0, dtype=np.float32).reshape(5, 2)),
+        tf.constant([0, 0, 1, 1, 2], tf.int32),
+        tf.constant([1, 2, 0, 2, 1], tf.int32),
+        tf.constant([3], tf.int32),
+        tf.constant([5], tf.int32),
+        tf.constant([[1.0, 0.0]], tf.float32),
+    )
+
+
+def _jraph_gat(nodes, edges, senders, receivers, n_node, n_edge, globals_, *, params):
+    from anytensor import jraph as atj
+
+    g = _jraph_pack(nodes, edges, senders, receivers, n_node, n_edge, globals_)
+    return atj.GAT(
+        lambda x: x @ params["W"],
+        lambda a, b, _e: _dot_logit(a, b),
+        lambda x: x,
+    )(g).nodes
+
+
+def _jraph_gcn(nodes, edges, senders, receivers, n_node, n_edge, globals_, *, params):
+    from anytensor import jraph as atj
+
+    g = _jraph_pack(nodes, edges, senders, receivers, n_node, n_edge, globals_)
+    return atj.GraphConvolution(lambda x: x @ params["W"], add_self_edges=True)(g).nodes
+
+
+def _jraph_gn(nodes, edges, senders, receivers, n_node, n_edge, globals_, *, params):
+    from anytensor import jraph as atj
+
+    g = _jraph_pack(nodes, edges, senders, receivers, n_node, n_edge, globals_)
+    return atj.GraphNetwork(
+        lambda e, s, r, _g: e,
+        lambda n, s, r, _g: n @ params["W"],
+        None,
+    )(g).nodes
+
+
+def _jraph_interaction(
+    nodes, edges, senders, receivers, n_node, n_edge, globals_, *, params
+):
+    from anytensor import jraph as atj
+
+    g = _jraph_pack(nodes, edges, senders, receivers, n_node, n_edge, globals_)
+    return atj.InteractionNetwork(
+        lambda e, s, r: e,
+        lambda n, r: n @ params["W"],
+    )(g).nodes
+
+
+def _jraph_map(nodes, edges, senders, receivers, n_node, n_edge, globals_, *, params):
+    from anytensor import jraph as atj
+
+    g = _jraph_pack(nodes, edges, senders, receivers, n_node, n_edge, globals_)
+    embed = atj.GraphMapFeatures(lambda e: e, lambda n: n @ params["W"], lambda gl: gl)
+    return embed(g).nodes
+
+
+def _jraph_deepsets(
+    nodes, edges, senders, receivers, n_node, n_edge, globals_, *, params
+):
+    from anytensor import jraph as atj
+
+    g = _jraph_pack(nodes, edges, senders, receivers, n_node, n_edge, globals_)
+    # Node update reads repeated globals, so arange/repeat stay live in the graph.
+    return atj.DeepSets(lambda n, gl: n @ params["W"] + gl, lambda n: n)(g).nodes
+
+
+def _jraph_relation(
+    nodes, edges, senders, receivers, n_node, n_edge, globals_, *, params
+):
+    from anytensor import jraph as atj
+
+    g = _jraph_pack(nodes, edges, senders, receivers, n_node, n_edge, globals_)
+    return atj.RelationNetwork(
+        lambda s, r: s + r,
+        lambda e: e @ params["W"],
+    )(g).globals
+
+
+def _jraph_gngat(nodes, edges, senders, receivers, n_node, n_edge, globals_, *, params):
+    from anytensor import jraph as atj
+
+    g = _jraph_pack(nodes, edges, senders, receivers, n_node, n_edge, globals_)
+    return atj.GraphNetGAT(
+        lambda e, s, r, gl: e,
+        lambda n, s, r, gl: n @ params["W"],
+        lambda e, s, r, gl: _dot_logit(s, r),
+        lambda e, w: e * w,
+    )(g).nodes
+
+
+@pytest.mark.parametrize(
+    "zoo_fn",
+    [
+        pytest.param(_jraph_gat, id="gat"),
+        pytest.param(_jraph_gcn, id="gcn"),
+        pytest.param(_jraph_gn, id="graph_network"),
+        pytest.param(_jraph_interaction, id="interaction_network"),
+        pytest.param(_jraph_map, id="graph_map_features"),
+        pytest.param(_jraph_deepsets, id="deep_sets"),
+        pytest.param(_jraph_relation, id="relation_network"),
+        pytest.param(_jraph_gngat, id="graphnet_gat"),
+    ],
+)
+def test_jraph_zoo_tensorflow_onnx(zoo_fn):
+    tf = pytest.importorskip("tensorflow")
+    pytest.importorskip("tf2onnx")
+    params = dict(_JRAPH_WEIGHTS)
+    args = _jraph_args(tf)
+    proto = export.to_onnx_tensorflow(zoo_fn, _jraph_signature(tf), params=params)
+    export.assert_symbolic_lengths(proto, inputs={"nodes": (0,), "edges": (0,)})
+    export.assert_embedded_weights(proto, params)
+    y = _ort(proto, args)
+    eager = np.asarray(zoo_fn(*args, params=params))
+    np.testing.assert_allclose(y, eager, equal_nan=True, atol=1e-4)
+

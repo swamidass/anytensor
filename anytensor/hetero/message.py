@@ -40,7 +40,6 @@ from typing import Any, Callable, Literal, Mapping, NamedTuple, Optional, Sequen
 
 from anytensor import tree
 from anytensor.core import maximum, minimum, shape, stack, take
-from anytensor.core import _host_concrete_int
 from anytensor.segment import (
     segment_max_or_constant,
     segment_mean,
@@ -98,14 +97,12 @@ def attention_weight_messages(messages: ArrayTree, weights: ArrayTree) -> ArrayT
     return tree.map(lambda m, w: m * w, messages, weights)
 
 
-def _leading(nodes) -> int:
+def _leading(nodes):
+    """Leading size of destination features (Python int or a graph symbol)."""
     leaves = tree.leaves(nodes)
     if not leaves:
         raise ValueError("destination ntype has no feature leaves to size against")
-    n = _host_concrete_int(shape(leaves[0])[0])
-    if n is None:
-        raise ValueError("multi_update_all requires a concrete destination size")
-    return n
+    return shape(leaves[0])[0]
 
 
 def _take_nodes(nodes, index):
@@ -120,7 +117,7 @@ def copy_u_message(src_nodes, dst_nodes, edges):
     return src_nodes
 
 
-def _reduce_messages(messages, receivers, num_dst: int, reduce: ReduceName):
+def _reduce_messages(messages, receivers, num_dst, reduce: ReduceName):
     fn = _SEGMENT_REDUCE[reduce]
     return tree.map(lambda m: fn(m, receivers, num_dst), messages)
 

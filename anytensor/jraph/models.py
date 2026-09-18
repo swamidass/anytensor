@@ -9,6 +9,7 @@ import numpy as np
 
 from anytensor import tree
 from anytensor.core import concatenate, maximum, reshape, rsqrt, shape, take, where
+from anytensor.core import _host_concrete_int
 from anytensor.core import arange as at_arange
 from anytensor.core import ones as at_ones
 from anytensor.core import repeat as at_repeat
@@ -80,12 +81,17 @@ def GraphNetwork(
         nodes, edges, receivers, senders, globals_, n_node, n_edge = graph
         node_leaves = tree.leaves(nodes)
         if node_leaves:
-            sum_n_node = node_leaves[0].shape[0]
+            sum_n_node = shape(node_leaves[0])[0]
         else:
             sum_n_node = int(np_sum_n_node(n_node))
-        sum_n_edge = 0 if senders is None else senders.shape[0]
-        if node_leaves and not utils._tree_all(  # noqa: SLF001
-            tree.map(lambda n: n.shape[0] == sum_n_node, nodes)
+        sum_n_edge = 0 if senders is None else shape(senders)[0]
+        concrete_n = _host_concrete_int(sum_n_node)
+        if (
+            node_leaves
+            and concrete_n is not None
+            and not utils._tree_all(  # noqa: SLF001
+                tree.map(lambda n: n.shape[0] == concrete_n, nodes)
+            )
         ):
             raise ValueError(
                 "All node arrays in nest must contain the same number of nodes."
@@ -142,7 +148,7 @@ def GraphNetwork(
             )
 
         if update_global_fn:
-            n_graph = n_node.shape[0]
+            n_graph = shape(n_node)[0]
             graph_idx = at_arange(n_graph, like=n_node)
             node_gr_idx = at_repeat(graph_idx, n_node, total_repeat_length=sum_n_node)
             edge_gr_idx = (
@@ -317,7 +323,7 @@ def GAT(
     def _ApplyGAT(graph: GraphsTuple) -> GraphsTuple:
         nodes, edges, receivers, senders, _, _, _ = graph
         try:
-            sum_n_node = nodes.shape[0]
+            sum_n_node = shape(nodes)[0]
         except (IndexError, AttributeError) as exc:
             raise IndexError("GAT requires node features") from exc
         nodes = attention_query_fn(nodes)
@@ -346,7 +352,7 @@ def GraphConvolution(
     def _ApplyGCN(graph: GraphsTuple) -> GraphsTuple:
         nodes, _, receivers, senders, _, _, _ = graph
         nodes = update_node_fn(nodes)
-        total_num_nodes = tree.leaves(nodes)[0].shape[0]
+        total_num_nodes = shape(tree.leaves(nodes)[0])[0]
         if add_self_edges:
             self_idx = at_arange(total_num_nodes, like=senders)
             conv_receivers = concatenate((receivers, self_idx), axis=0)
