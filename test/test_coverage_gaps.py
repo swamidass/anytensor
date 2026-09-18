@@ -402,6 +402,20 @@ def test_cache_is_dict_of_dicts():
     assert "partition" not in at.cache
 
 
+def test_cache_lookup_store_noop_when_off():
+    obj = np.array([0, 1], dtype=np.int64)
+    extra = (True,)
+    assert at.cache.lookup("structure", obj, extra) is None
+    at.cache.store("structure", obj, "built", extra)
+    assert at.cache.lookup("structure", obj, extra) is None
+    with at.cache():
+        at.cache.store("structure", obj, "built", extra)
+        assert at.cache.lookup("structure", obj, extra) == "built"
+        assert at.cache.lookup("structure", obj, (False,)) is None
+        at.cache.purge("structure", obj)
+        assert at.cache.lookup("structure", obj, extra) is None
+
+
 def test_cache_purges_wrong_size_ids(monkeypatch):
     from anytensor import segment
 

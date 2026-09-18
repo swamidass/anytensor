@@ -2,6 +2,9 @@
 
 ## 2026-09-18
 
+- Public cache pattern: `@cache` on apply plus `cache.lookup` / `store`.
+  GraphNetwork, GCN, GAT, GraphMapFeatures, and hetero apply use it;
+  callers write the same decorator.
 - Docs: GraphNetwork does not pick a cache key (`partition_ids` keys by
   `n_node` / `n_edge`); users follow with `@cache` on apply. Hetero does
   not expand partitions / does not write the cache.

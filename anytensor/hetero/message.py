@@ -41,6 +41,7 @@ from typing import Any, Callable, Literal, Mapping, NamedTuple, Optional, Sequen
 from anytensor import tree
 from anytensor.core import maximum, minimum, shape, stack, take
 from anytensor.segment import (
+    cache,
     segment_max_or_constant,
     segment_mean,
     segment_min_or_constant,
@@ -187,6 +188,7 @@ def _parse_relation_spec(spec, default_reduce: ReduceName) -> RelationSpec:
     )
 
 
+@cache
 def relation_mailbox(
     graph: HeteroGraphsTuple,
     etype: CanonicalEtype,
@@ -207,7 +209,8 @@ def relation_mailbox(
     before the segment reduce — same flow as
     :func:`anytensor.jraph.GraphNetwork` attention. Omit
     ``attention_reduce_fn`` to default to :func:`attention_weight_messages`.
-    With attention, prefer ``reduce="sum"``.
+    With attention, prefer ``reduce="sum"``. Apply is ``@cache`` (same
+    pattern as GraphNetwork).
     """
     if etype not in graph.n_edge:
         raise KeyError(f"etype {etype!r} not in graph")
@@ -237,6 +240,7 @@ def relation_mailbox(
     return _reduce_messages(messages, receivers, num_dst, reduce)
 
 
+@cache
 def multi_update_all(
     graph: HeteroGraphsTuple,
     etype_dict: Optional[
@@ -269,6 +273,8 @@ def multi_update_all(
             ``etype_dict``. ``sum``/``mean``/``max``/``min`` match DGL
             (empty destinations ``0``).
         etypes: Subset of relations when ``etype_dict`` is omitted.
+
+    Apply is ``@cache`` (same pattern as GraphNetwork).
 
     Returns:
         A new :class:`HeteroGraphsTuple` whose destination node features are

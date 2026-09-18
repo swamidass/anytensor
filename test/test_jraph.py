@@ -221,19 +221,28 @@ def test_graph_network_cache_keys_are_partition_tensor_ids():
     assert set(ns) == keys
 
 
-def test_user_cache_decorator_follows_graph_network_keying():
-    parts = np.array([2, 1], dtype=np.int64)
+def test_user_apply_uses_lookup_store():
+    """Caller apply: @cache + partition_ids + cache.lookup/store (same as GCN)."""
+    g1, _ = _toy_graphs()
 
     @at.cache
-    def my_apply(partitions, total):
-        a = at.partition_ids(partitions, total)
-        b = at.partition_ids(partitions, total)
-        return a, b
+    def apply(graph):
+        total = at.shape(graph.nodes)[0]
+        ids = at.partition_ids(graph.n_node, total)
+        extra = (True,)
+        packed = at.cache.lookup("structure", graph.senders, extra)
+        if packed is None:
+            packed = (graph.senders, total)
+            at.cache.store("structure", graph.senders, packed, extra)
+        return ids, packed
 
-    first, second = my_apply(parts, 3)
-    assert first is second
-    assert (id(parts),) in at.cache["partition"]
-    assert (id(first),) not in at.cache["partition"]
+    ids1, packed1 = apply(g1)
+    ids2, packed2 = apply(g1)
+    assert ids1 is ids2
+    assert packed1 is packed2
+    assert at.cache.lookup("structure", g1.senders, (True,)) is packed1
+    assert at.cache.lookup("structure", g1.senders, (False,)) is None
+    assert (id(g1),) not in at.cache["partition"]
 
 
 def test_graph_convolution_cache_reuses_self_edges(monkeypatch):
@@ -251,6 +260,7 @@ def test_graph_convolution_cache_reuses_self_edges(monkeypatch):
     layer = atj.GraphConvolution(update_node_fn=lambda n: n, add_self_edges=True)
     layer(g1)
     assert counts["n"] == 1
+    assert at.cache.lookup("gcn", g1.senders, (True, True)) is not None
     assert (id(g1.senders), True, True) in at.cache["gcn"]
     layer(g1)
     assert counts["n"] == 1

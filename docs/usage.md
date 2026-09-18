@@ -111,60 +111,49 @@ On ONNX those totals are `dim_param`s (`Shape` of the aligned tensor), not
 
 ### Cache
 
-Off by default. Opt in; entries are weak (GC drops them; the cache does not
-pin). There is no process-wide `id()` cache: tensors are unhashable, in-place
-edits would stale ids, and tracers wrap a new object every compile.
-
-| Form | Behavior |
-|---|---|
-| `@cache` on a callable | **Sticky** `enable()` — later calls reuse the map (GraphNetwork / GraphConvolution apply) |
-| `with cache():` | Scoped; drops on exit unless sticky |
-| `cache.enable()` / `disable()` | Turn the cache on or off |
-| `cache.purge("partition", tensor)` | Drop one tensor from one namespace |
-
-`at.cache` is a dict of dicts. `partition_ids` is the only partition helper
-that talks to `cache["partition"]`: **one expansion per partition vector**;
-`shape(ids)[0]` *is* the flattened total (no separate `sum(partitions)` map).
-Other partition helpers call `partition_ids`, so a hit is shared. If a cached
-expansion's length does not match `total_length` (both host Python ints), that
-entry is purged, a warning is issued, and ids are recomputed. Under tracing
-the lengths are not Python ints, so the check is skipped.
-
-#### Who sets the key
-
-GraphNetwork does **not** invent a graph-level key. `@cache` on apply only
-calls `enable()` (sticky). Keys are written by `partition_ids` when GN
-expands the same `n_node` / `n_edge` vectors (`_repeat_by`, global
-aggregation). Stacked `net(g)` hits because those count vectors are
-unchanged; node/edge **features** are new each layer and are not the key.
-
-| Helper | Namespace | Key | Who writes it |
-|---|---|---|---|
-| GraphNetwork / `partition_softmax` | `"partition"` | `(id(partitions),)` | `partition_ids` |
-| GraphConvolution structure | `"gcn"` | `(id(senders), add_self_edges, symmetric_normalization)` | GCN apply (self-edges / `N` / degrees) |
-| Hetero `multi_update_all` / zoo | — | — | Nothing. Dest size is `shape(dst_nodes)[0]`; incidence is already `senders` / `receivers`. No `partition_ids`. |
-
-Follow GraphNetwork in your own helper the same way: decorate apply, then
-call `partition_ids` (or GN / GCN). Do not key by the `GraphsTuple`.
+**Pattern** (library apply and caller apply are the same): put `@at.cache`
+on the function you apply, then call `partition_ids` / GraphNetwork /
+GraphConvolution / `multi_update_all`. For derived structure, use
+`cache.lookup` / `cache.store` — the same pair GraphConvolution uses.
 
 ```python
 @at.cache
-def my_apply(graph):
+def apply(graph):
     total = at.shape(graph.nodes)[0]
-    return at.partition_ids(graph.n_node, total)  # key is id(graph.n_node)
+    ids = at.partition_ids(graph.n_node, total)
+    extra = (True,)  # flags that change the derived tensor
+    packed = at.cache.lookup("structure", graph.senders, extra)
+    if packed is None:
+        packed = (graph.senders, total)
+        at.cache.store("structure", graph.senders, packed, extra)
+    return ids, packed
 ```
 
-`GraphConvolution` adds a second namespace because self-edges / degrees are
-**derived** (`arange` + `concat`), not a partition expansion. Per-layer
-`MatMul` still appears once per apply. That lookup/store helper is
-library-internal; for a custom derived tensor, subscript `cache["name"]`
-while the cache is on and start the key with `id(obj)` so
-`cache.purge("name", obj)` can drop it.
+Off by default. `@cache` is **sticky** (`enable()` until `disable()`).
+`with cache():` is scoped (drops on exit unless already sticky). Entries
+are weak (GC drops them). There is no process-wide `id()` cache: tensors
+are unhashable, in-place edits would stale ids, and tracers wrap a new
+object every compile.
 
-Hetero layers are **plain functions**, not `@cache` factories. Wrapping a
-stack in `@cache` is harmless but empty unless a `message_fn` also calls
-`partition_ids`. Batch/unbatch still data-sum `n_node` for offsets (eager,
-like jraph pad) — that is not the apply path.
+| Form | Behavior |
+|---|---|
+| `@cache` on apply | Sticky `enable()` — GraphNetwork, GCN, GAT, GraphMapFeatures, hetero `multi_update_all` / zoo |
+| `cache.lookup(ns, obj, extra)` / `store(...)` | Key `(id(obj),) + tuple(extra)`; no-op when the cache is off |
+| `with cache():` | Scoped; drops on exit unless sticky |
+| `cache.enable()` / `disable()` | Turn the cache on or off |
+| `cache.purge(ns, obj)` | Drop one object from one namespace |
+
+`partition_ids` is `lookup` / `store` on `"partition"` (one expansion per
+partition vector; `shape(ids)[0]` is the flattened total). Other partition
+helpers call it. Wrong-size hits (both lengths host Python ints) purge,
+warn, and recompute; tracing skips the check.
+
+GraphConvolution stores self-edges / `N` / degrees with the same
+`lookup` / `store` on `"gcn"` and `extra=(add_self_edges, symmetric_normalization)`.
+Hetero dest size is `shape(dst_nodes)[0]` (incidence is already
+`senders` / `receivers`); `@cache` still enables the map so a `message_fn`
+that calls `partition_ids` shares it. Do not key by the graph object.
+Batch/unbatch still data-sum `n_node` for offsets (eager, like jraph pad).
 
 ```python
 import anytensor as at
@@ -190,7 +179,7 @@ Opt-in `anytensor.export` is a recipe, not a stable library API (not in
 | `from anytensor import export` | Treat export helpers as a frozen public contract |
 | Keep lengths as `at.shape` so ONNX gets `dim_param`s | Python ints or data sums that bake `N` |
 | Embed weights (`as_torch_module` / Lightning `nn.Parameter`, or `as_tensorflow_fn`) | Extra feeds, outer `tf.constant`, or `jax2tf` |
-| Stack GraphNetwork / GraphConvolution under `@cache` | Expect a fresh partition / GCN structure subgraph per layer |
+| Stack `@cache` apply (GN / GCN / hetero) | Expect a fresh partition / GCN structure subgraph per layer |
 
 ## Segment helpers
 
@@ -202,7 +191,7 @@ Opt-in `anytensor.export` is a recipe, not a stable library API (not in
 | `segment_min_or_constant` / `segment_max_or_constant` | Empty segments → constant |
 | `partition_softmax` | Softmax over contiguous partition lengths (`total_length` required; `num_segments` is `shape(partitions)[0]`; calls `partition_ids`, which reuses ids when `cache` is active) |
 | `partition_ids` | Expand partition lengths to segment ids (the cache chokepoint; other partition helpers call this) |
-| `cache` | Decorator (sticky across calls) / context / `enable`+`disable`: dict of dicts; `partition_ids` stores **one expansion per partition vector** at `cache["partition"]` (`shape(ids)[0]` is the total); `purge("partition", tensor)` drops one tensor; wrong-size hit warns, purges, and recomputes |
+| `cache` | `@cache` apply / `lookup`+`store` / context / `enable`+`disable` — GraphNetwork, GCN, GAT, hetero use this same pattern |
 
 Einops (`rearrange`, `einsum`, `reduce`, …) is re-exported for convenience.
 

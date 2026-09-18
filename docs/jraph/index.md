@@ -75,17 +75,13 @@ totals from `at.shape`, sticky `@cache`, stacked GCN structure):
 `GraphNetwork` follows Battaglia et al. (sender and receiver aggregations,
 optional softmax attention). Thin wrappers match jraph:
 `InteractionNetwork`, `GraphMapFeatures`, `RelationNetwork`, `DeepSets`,
-`GraphNetGAT`, `GAT`, `GraphConvolution`. GraphNetwork apply (and wrappers
-that return one: InteractionNetwork, RelationNetwork, DeepSets, GraphNetGAT)
-is decorated with `@cache` so `partition_ids` expands the same `n_node` /
-`n_edge` vector once. GN does **not** pick a cache key — `@cache` only
-enables (sticky); the key is `(id(n_node),)` / `(id(n_edge),)` inside
-`cache["partition"]`. Users follow that by putting `@cache` on their apply
-and calling `partition_ids` / GN; do not key by the `GraphsTuple`.
-`GraphConvolution` also caches self-edges / node count / degrees at
-`cache["gcn"]` keyed by `(id(senders), add_self_edges, symmetric_normalization)`
-so a stacked GCN does not duplicate `Shape` / `Range` / `Concat` on ONNX.
-`GAT` and `GraphMapFeatures` do not expand partitions and are not `@cache`.
+`GraphNetGAT`, `GAT`, `GraphConvolution`. **Every apply is `@cache`** —
+the same pattern callers use (`docs/usage.md#cache`). `partition_ids`
+does `cache.lookup` / `store` on `"partition"` keyed by `n_node` /
+`n_edge`. GraphConvolution uses the same pair on `"gcn"` with
+`extra=(add_self_edges, symmetric_normalization)` so stacked GCN does not
+duplicate `Shape` / `Range` / `Concat` on ONNX. Do not key by the
+`GraphsTuple`.
 
 Segment helpers on this module still require `num_segments` (AnyTensor
 contract). `unique_indices` is accepted and ignored.

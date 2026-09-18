@@ -12,7 +12,6 @@ from anytensor.core import concatenate, maximum, reshape, rsqrt, shape, take, wh
 from anytensor.core import arange as at_arange
 from anytensor.core import ones as at_ones
 from anytensor.segment import cache, partition_ids
-from anytensor._cache import _cache_lookup, _cache_store, _namespace
 
 from . import utils
 from .graph import GraphsTuple
@@ -71,12 +70,10 @@ def GraphNetwork(
 
     Follows Algorithm 1 of https://arxiv.org/abs/1806.01261, with separate
     sender/receiver aggregations and optional softmax attention. Same call
-    signature as :func:`jraph.GraphNetwork`. Apply is decorated with
-    :data:`~anytensor.cache` (sticky) so stacked calls reuse ``n_node`` /
-    ``n_edge`` expansions. GraphNetwork does not pick a cache key:
-    :func:`~anytensor.partition_ids` keys ``cache["partition"]`` by
-    ``id(n_node)`` / ``id(n_edge)``. Callers follow the same pattern with
-    ``@cache`` on their apply.
+    signature as :func:`jraph.GraphNetwork`. Apply uses the public cache
+    pattern: ``@cache`` (sticky) plus :func:`~anytensor.partition_ids`
+    (``cache.lookup`` / ``store`` on ``"partition"``, keyed by ``n_node`` /
+    ``n_edge``). Callers write the same ``@cache`` apply.
 
     Flattened totals (official ``sum_n_node`` / ``sum_n_edge``) are
     :func:`~anytensor.shape` of the node / sender axis — not
@@ -245,12 +242,16 @@ def GraphMapFeatures(
     embed_node_fn: Optional[EmbedNodeFn] = None,
     embed_global_fn: Optional[EmbedGlobalFn] = None,
 ):
-    """Embed nodes, edges, and globals independently."""
+    """Embed nodes, edges, and globals independently.
+
+    Apply is ``@cache`` (same pattern as GraphNetwork).
+    """
     identity = lambda x: x
     embed_edges_fn = embed_edge_fn if embed_edge_fn else identity
     embed_nodes_fn = embed_node_fn if embed_node_fn else identity
     embed_globals_fn = embed_global_fn if embed_global_fn else identity
 
+    @cache
     def Embed(graphs_tuple: GraphsTuple) -> GraphsTuple:
         return graphs_tuple._replace(
             nodes=embed_nodes_fn(graphs_tuple.nodes),
@@ -332,13 +333,18 @@ def GAT(
     attention_logit_fn: GATAttentionLogitFn,
     node_update_fn: Optional[GATNodeUpdateFn] = None,
 ):
-    """Graph Attention Network layer (Veličković et al.). Expects self-edges."""
+    """Graph Attention Network layer (Veličković et al.). Expects self-edges.
+
+    Apply is ``@cache`` (same pattern as GraphNetwork). Destination size is
+    :func:`~anytensor.shape` of nodes.
+    """
     if node_update_fn is None:
 
         def node_update_fn(x):
             y = _leaky_relu(x)
             return reshape(y, (shape(y)[0], -1))
 
+    @cache
     def _ApplyGAT(graph: GraphsTuple) -> GraphsTuple:
         nodes, edges, receivers, senders, _, _, _ = graph
         if nodes is None:
@@ -367,10 +373,10 @@ def GraphConvolution(
 ):
     """GCN layer (Kipf & Welling). No activation after aggregation.
 
-    Apply is decorated with :data:`~anytensor.cache` (sticky). Structure
-    (self-edges / ``N`` / degrees) is stored at ``cache["gcn"]`` keyed by
-    ``(id(senders), add_self_edges, symmetric_normalization)`` so stacked
-    applies and ONNX do not duplicate ``Shape`` / ``Range`` / ``Concat``.
+    Apply uses the public cache pattern: ``@cache`` plus
+    :meth:`~anytensor.cache.lookup` / :meth:`~anytensor.cache.store` on
+    ``"gcn"`` keyed by senders and the constructor flags so stacked applies
+    and ONNX do not duplicate ``Shape`` / ``Range`` / ``Concat``.
     """
 
     @cache
@@ -432,10 +438,9 @@ def _gcn_structure(
     add_self_edges: bool,
     symmetric_normalization: bool,
 ):
-    """Self-edges, ``N``, and degrees — one cache entry per ``senders`` + flags."""
-    ns = _namespace("gcn")
+    """Self-edges, ``N``, and degrees — ``cache.lookup`` / ``store`` on ``"gcn"``."""
     extra = (add_self_edges, symmetric_normalization)
-    key, cached = _cache_lookup(ns, senders, extra)
+    cached = cache.lookup("gcn", senders, extra)
     if cached is not None:
         return cached
     total_num_nodes = shape(tree.leaves(nodes)[0])[0]
@@ -468,5 +473,5 @@ def _gcn_structure(
         sender_degree,
         receiver_degree,
     )
-    _cache_store(ns, key, senders, packed)
+    cache.store("gcn", senders, packed, extra)
     return packed

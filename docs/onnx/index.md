@@ -89,11 +89,10 @@ The same file also exports the **model zoos** as a TF/ONNX stress test:
 (GraphNetwork, InteractionNetwork, GraphMapFeatures, RelationNetwork, DeepSets,
 GraphNetGAT, GAT, GraphConvolution). Those layers take destination sizes from
 `at.shape`, not `int(shape(...))`, so node/edge axes stay `dim_param`s.
-GraphNetwork apply is `@cache` (sticky), so `partition_ids` reuses the same `n_node` /
-`n_edge` expansion across stacked applies and during the TF trace (GN does not
-pick a key; the key is `id(n_node)` / `id(n_edge)`). Partition
-flattened length is `shape(nodes)[0]` / `shape(logits)[0]`, never a data
-`sum(n_node)`. Stacked `GraphConvolution` reuses self-edges, `N`, and degrees
-(`cache["gcn"]`, keyed by senders + flags) so the ONNX graph does not duplicate
-`Shape` / `Range` / `Concat` per layer. Hetero zoo layers do not expand
-partitions; dest size is `shape(dst_nodes)[0]`.
+GraphNetwork / GAT / GraphConvolution / hetero apply are `@cache`
+(sticky) — the same pattern callers use (`cache.lookup` / `store`).
+`partition_ids` reuses `n_node` / `n_edge` across stacked GraphNetwork
+applies. Stacked `GraphConvolution` reuses self-edges / `N` / degrees
+via `cache.lookup("gcn", senders, extra)`. Hetero dest size is
+`shape(dst_nodes)[0]`. Partition flattened length is `shape(nodes)[0]`
+/ `shape(logits)[0]`, never a data `sum(n_node)`.

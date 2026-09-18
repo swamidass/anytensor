@@ -311,7 +311,7 @@ def test_rgcn_default_relu():
     assert out.nodes["paper"].shape == (2, 2)
 
 
-def test_hetero_apply_does_not_write_partition_cache():
+def test_hetero_apply_uses_cache_decorator():
     import anytensor as at
 
     g, writes, cites = _author_paper()
@@ -323,10 +323,10 @@ def test_hetero_apply_does_not_write_partition_cache():
         "author": _lin(np.eye(2, dtype=np.float32)),
         "paper": _lin(np.eye(2, dtype=np.float32)),
     }
-    with at.cache():
-        out = relational_graph_convolution(g, rel, self_a)
-        assert dict(at.cache["partition"]) == {}
-        assert "gcn" not in at.cache
+    out = relational_graph_convolution(g, rel, self_a)
+    assert "partition" in at.cache
+    assert dict(at.cache["partition"]) == {}
+    assert at.cache.lookup("gcn", g.senders[writes], (True, True)) is None
     assert out.nodes["paper"].shape == (2, 2)
 
 

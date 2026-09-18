@@ -10,8 +10,9 @@ tensor scalar — never inferred from ``segment_ids`` (that would be
 ``num_segments``: it is ``shape(partitions)[0]``, a shape read. They do
 require ``total_length`` (``shape(logits)[0]``, not a data
 ``sum(partitions)``). Partition helpers call :func:`partition_ids`,
-which consults ``cache["partition"]`` when a decorator (sticky across
-calls) / context / :meth:`cache.enable` is active. If a cached expansion's
+which uses :meth:`cache.lookup` / :meth:`cache.store` on ``"partition"``
+when a decorator (sticky across calls) / context / :meth:`cache.enable`
+is active. If a cached expansion's
 length does not match ``total_length`` (host Python ints), that entry
 is purged, a warning is issued, and ids are recomputed; tracing skips
 the check. :meth:`cache.purge` drops one tensor from one namespace.
@@ -49,7 +50,6 @@ from .core import (
 )
 from .namespace import array_namespace
 from ._cache import cache as cache
-from ._cache import _cache_lookup, _cache_store, _namespace
 
 _TORCHSCRIPT_ENABLED = False
 
@@ -470,8 +470,9 @@ def partition_ids(
     (``shape(logits)[0]``, not a data ``sum(partitions)``). Passed to
     :func:`repeat` as ``total_repeat_length``.
 
-    The only partition helper that talks to :data:`cache`. Outside the
-    cache, every call rebuilds ids. Inside, the same ``partitions``
+    The only partition helper that talks to :data:`cache`. Uses
+    :meth:`cache.lookup` / :meth:`cache.store` on ``"partition"``. Outside
+    the cache, every call rebuilds ids. Inside, the same ``partitions``
     tensor returns the previous ids from ``cache["partition"]`` until
     the tensor is collected or the block exits — **one entry per
     partition vector**. The flattened total is ``shape(ids)[0]`` (not a
@@ -484,25 +485,21 @@ def partition_ids(
     """
     n_part = shape(partitions)[0]
     total = _require_shape_size("total_length", total_length)
-    ns = _namespace("partition")
-    key = None
-    if ns is not None:
-        key, cached = _cache_lookup(ns, partitions)
-        if cached is not None:
-            stale = _stale_cached_ids(cached, total)
-            if stale is not None:
-                ns.pop(key, None)
-                got, want = stale
-                warnings.warn(
-                    f"cached partition ids length {got} != total_length {want}; "
-                    "purging and recomputing",
-                    stacklevel=2,
-                )
-            else:
-                return cached
+    cached = cache.lookup("partition", partitions)
+    if cached is not None:
+        stale = _stale_cached_ids(cached, total)
+        if stale is not None:
+            cache.purge("partition", partitions)
+            got, want = stale
+            warnings.warn(
+                f"cached partition ids length {got} != total_length {want}; "
+                "purging and recomputing",
+                stacklevel=2,
+            )
+        else:
+            return cached
     ids = repeat(arange(n_part, like=partitions), partitions, total_repeat_length=total)
-    if ns is not None:
-        _cache_store(ns, key, partitions, ids)
+    cache.store("partition", partitions, ids)
     return ids
 
 

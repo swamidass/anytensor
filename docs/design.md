@@ -167,7 +167,8 @@ data-dependent (`sum(partitions)`); passing `None` is a `TypeError`, not
 that fallback. Do not add `partition_sum` / `partition_min` /
 `partition_max`. A compiler may CSE a rebuild of ids; eager will not.
 
-The cache is opt-in (forms and namespaces: [Caller rules](usage.md#caller-rules)).
+The cache is opt-in. Library apply and caller apply use the same pattern
+(`@cache` plus `cache.lookup` / `store`): [Caller rules](usage.md#cache).
 Entries are weak: GC drops them, and callbacks hold only a weakref to the
 namespace map so a long-lived tensor cannot pin the block. There is no
 process-wide cache because tensors are unhashable, in-place edits would

@@ -140,6 +140,8 @@ class _Cache:
           with cache():
               ...
 
+    * :meth:`lookup` / :meth:`store` for derived structure (same pair
+      :func:`~anytensor.partition_ids` and GraphConvolution use).
     * :meth:`enable` / :meth:`disable` for a ContextVar-scoped cache outside
       a block (``disable`` clears and turns it off).
     * :meth:`purge` drops cached values for one object in one namespace.
@@ -163,11 +165,23 @@ class _Cache:
     ``total_length`` (host Python ints), that entry is purged, a warning
     is issued, and ids are recomputed; tracing skips the check.
     Callers do not thread ids through the stack.
-    :func:`~anytensor.jraph.GraphNetwork` is decorated so stacked applies
-    reuse ``n_node`` / ``n_edge`` expansions. It does not pick a key —
-    :func:`~anytensor.partition_ids` does (``id`` of the partition vector).
-    Hetero message passing does not expand partitions and does not write
-    this cache.
+
+    **Pattern** (library apply and user apply are the same)::
+
+        @cache
+        def apply(graph):
+            ids = partition_ids(graph.n_node, shape(graph.nodes)[0])
+            extra = (flag,)
+            packed = cache.lookup("structure", graph.senders, extra)
+            if packed is None:
+                packed = build(graph)
+                cache.store("structure", graph.senders, packed, extra)
+            return ...
+
+    :func:`~anytensor.partition_ids` is :meth:`lookup` / :meth:`store` on
+    ``"partition"``. GraphConvolution uses the same pair on ``"gcn"``.
+    GraphNetwork, GraphConvolution, GAT, GraphMapFeatures, and hetero
+    ``multi_update_all`` are ``@cache`` so stacked applies share the map.
 
     Tensor-keyed namespaces use ``key[0] == id(obj)`` so :meth:`purge` can
     drop every entry for one object.
@@ -208,6 +222,27 @@ class _Cache:
         if root is None:
             return
         _drop(root)
+
+    def lookup(self, namespace, obj, extra=()):
+        """Return the cached value for ``obj`` (+ ``extra``), or ``None``.
+
+        No-op miss when the cache is off. The key is
+        ``(id(obj),) + tuple(extra)``. This is the same helper
+        :func:`~anytensor.partition_ids` and GraphConvolution use.
+        """
+        ns = _namespace(namespace)
+        if ns is None:
+            return None
+        _, value = _cache_lookup(ns, obj, extra)
+        return value
+
+    def store(self, namespace, obj, value, extra=()):
+        """Cache ``value`` for ``obj`` (+ ``extra``). No-op when the cache is off."""
+        ns = _namespace(namespace)
+        if ns is None:
+            return
+        key, _ = _cache_lookup(ns, obj, extra)
+        _cache_store(ns, key, obj, value)
 
     def purge(self, namespace, obj):
         """Drop cached entries for ``obj`` in ``namespace`` (no-op if off)."""
