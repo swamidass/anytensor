@@ -62,9 +62,19 @@ def _align_segment_args(x, segment_ids):
     return converted["x"], converted["segment_ids"]
 
 
+def _require_shape_size(name: str, value):
+    """Shape-sizes are required; ``None`` must not become a data-dependent length."""
+    if value is None:
+        raise TypeError(
+            f"{name} is a required shape-size (JAX convention). "
+            "Omitting it does not infer max(ids)+1 or sum(partitions)."
+        )
+    return _normalize_shape_dim(value)
+
+
 def _segment_reduce(x, segment_ids, num_segments, reduction: str, sorted: bool = False):
     x, segment_ids = _align_segment_args(x, segment_ids)
-    num_segments = _normalize_shape_dim(num_segments)
+    num_segments = _require_shape_size("num_segments", num_segments)
     backend = get_backend(x)
     return backend.segment_reduce(x, segment_ids, num_segments, reduction, sorted)
 
@@ -528,10 +538,11 @@ def partition_ids(
 
     Outside :func:`partition_cache`, every call rebuilds ids. Inside the
     cache, the same ``partitions`` tensor (and sizes) returns the previous
-    ids until the tensor is collected or the block exits.
+    ids until the tensor is collected or the block exits. Passing ``None``
+    for either size is a ``TypeError`` (not a data ``sum`` / ``max+1``).
     """
-    n_part = _normalize_shape_dim(num_segments)
-    total = _normalize_shape_dim(sum_partitions)
+    n_part = _require_shape_size("num_segments", num_segments)
+    total = _require_shape_size("sum_partitions", sum_partitions)
     cache = _PARTITION_IDS_CACHE.get()
     key = None
     if cache is not None:

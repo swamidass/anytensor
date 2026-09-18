@@ -156,8 +156,9 @@ by design (see below).
 
 `partition_softmax` is a convenience, not a family: it rebuilds `segment_ids`
 on every call (`partition_ids` = `arange` + `repeat`). A compiler may CSE
-that; eager will not. JAX keeps both sizes required so omitting an optional
-cannot silently become `sum(partitions)`. Inside `partition_cache()`
+that; eager will not. JAX keeps both sizes required so dropping an optional
+cannot silently become data-dependent (`sum(partitions)` / `max(ids)+1`);
+passing `None` is a `TypeError`, not that fallback. Inside `partition_cache()`
 (reentrant; GraphNetwork enters one per apply), `partition_softmax` and
 `partition_ids` reuse the same tensor's expansion via weakrefs — the cache
 does not pin, and GC drops the ids. Call `partition_ids` once yourself if you
