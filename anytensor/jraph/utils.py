@@ -210,7 +210,7 @@ def partition_softmax(logits, partitions, sum_partitions):
     omitting it. AnyTensor **requires** it (core name ``total_length``;
     ``shape(logits)[0]``, not a data ``sum(partitions)``). ``num_segments`` is
     not an argument — it is ``shape(partitions)[0]``. Rebuilds segment ids on
-    every call unless :func:`~anytensor.partition_cache` is active.
+    every call unless :data:`~anytensor.cache` is active.
     """
     return _partition_softmax(logits, partitions, sum_partitions)
 

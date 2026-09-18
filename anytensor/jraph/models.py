@@ -11,7 +11,7 @@ from anytensor import tree
 from anytensor.core import concatenate, maximum, reshape, rsqrt, shape, take, where
 from anytensor.core import arange as at_arange
 from anytensor.core import ones as at_ones
-from anytensor.segment import partition_cache, partition_ids
+from anytensor.segment import cache, partition_ids
 
 from . import utils
 from .graph import GraphsTuple
@@ -74,7 +74,7 @@ def GraphNetwork(
             "attention_logit_fn and attention_reduce_fn must both be supplied."
         )
 
-    @partition_cache
+    @cache
     def _ApplyGraphNet(graph: GraphsTuple) -> GraphsTuple:
         nodes, edges, receivers, senders, globals_, n_node, n_edge = graph
         node_leaves = tree.leaves(nodes)

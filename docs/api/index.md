@@ -7,7 +7,7 @@ Generated from package docstrings with
 |---|---|
 | [Package root](anytensor.md) | Public re-exports (`anytensor` / `at`) |
 | [Core ops](core.md) | Ordinary Array-API ops, promote, specials |
-| [Segment ops](segment.md) | Segment reductions and `partition_softmax` |
+| [Segment ops](segment.md) | Segment reductions, `partition_softmax`, and `cache` |
 | [Semantics](semantics_api.md) | `empty_segment_identity` |
 | [Namespace](namespace.md) | TF Array-API shim (`array_namespace`) |
 | [Optional imports](optional.md) | `module_if_loaded()` — already-imported extras, with callbacks |

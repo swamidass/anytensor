@@ -168,11 +168,11 @@ def test_partition_softmax_and_semantics_edges():
     with pytest.raises(TypeError, match="num_segments"):
         at.segment_sum(logits, np.array([0, 0, 1]), None)
 
-    with at.partition_cache():
+    with at.cache():
         ids_a = at.partition_ids(parts, 3)
         ids_b = at.partition_ids(parts, 3)
         assert ids_a is ids_b
-        with at.partition_cache():
+        with at.cache():
             assert at.partition_ids(parts, 3) is ids_a
         nsum = np.int64(3)
         ids_t = at.partition_ids(parts, nsum)
@@ -193,7 +193,7 @@ def test_partition_softmax_and_semantics_edges():
     assert empty_segment_identity(KindF(), "max", xp=np) == -np.inf
 
 
-def test_partition_cache_weakrefs_and_partition_softmax(monkeypatch):
+def test_cache_weakrefs_and_partition_softmax(monkeypatch):
     from anytensor import segment
 
     logits = np.array([1.0, 2.0, 0.5], dtype=np.float32)
@@ -209,19 +209,18 @@ def test_partition_cache_weakrefs_and_partition_softmax(monkeypatch):
     at.partition_softmax(logits, parts, 3)
     at.partition_softmax(logits, parts, 3)
     assert repeats["n"] == 2
-    with at.partition_cache():
+    with at.cache():
         at.partition_softmax(logits, parts, 3)
         at.partition_softmax(logits, parts, 3)
         assert at.partition_ids(parts, 3) is not None
     assert repeats["n"] == 3
 
-    with at.partition_cache():
+    with at.cache():
         wr, ids_live = _partition_ids_then_drop()
         ids_wr = weakref.ref(ids_live)
         gc.collect()
         assert wr() is None
-        cache = segment._PARTITION_IDS_CACHE.get()
-        assert cache == {}
+        assert at.cache["partition"] == {}
         del ids_live
         gc.collect()
         assert ids_wr() is None
@@ -234,29 +233,31 @@ def test_partition_cache_weakrefs_and_partition_softmax(monkeypatch):
         del gone
         gc.collect()
         assert dead() is None
-        cache = segment._PARTITION_IDS_CACHE.get()
+        ns = at.cache["partition"]
         key = (id(other), ("i", 3))
-        cache[key] = (dead, ids_other)
+        ns[key] = (dead, ids_other)
         ids_fresh = at.partition_ids(other, 3)
         assert ids_fresh is not ids_other
 
         stale = np.array([1, 2], dtype=np.int64)
-        cache[key] = (weakref.ref(stale), ids_fresh)
+        ns[key] = (weakref.ref(stale), ids_fresh)
         ids_ok = at.partition_ids(other, 3)
         assert ids_ok is not ids_fresh
         assert list(np.asarray(ids_ok)) == [0, 0, 1]
 
 
-def test_partition_cache_callback_does_not_pin_cache():
-    """GC callbacks must not keep the cache map alive after the block exits."""
-    from anytensor import segment
+def test_cache_callback_does_not_pin_cache():
+    """GC callbacks must not keep the cache root or namespace alive after the block exits."""
+    from anytensor import _cache
 
     parts = np.array([2, 1], dtype=np.int64)
-    with at.partition_cache():
+    with at.cache():
         ids = at.partition_ids(parts, 3)
-        cache_wr = weakref.ref(segment._PARTITION_IDS_CACHE.get())
+        root_wr = weakref.ref(_cache._CACHE.get())
+        ns_wr = weakref.ref(at.cache["partition"])
     gc.collect()
-    assert cache_wr() is None
+    assert root_wr() is None
+    assert ns_wr() is None
     assert list(np.asarray(ids)) == [0, 0, 1]
     wr = weakref.ref(parts)
     del parts, ids
@@ -265,18 +266,18 @@ def test_partition_cache_callback_does_not_pin_cache():
 
 
 def test_purge_cache_entry_noop_when_cache_is_dead():
-    from anytensor import segment
+    from anytensor import _cache
 
-    cache = segment._PartitionIdsMap()
-    key = (id(cache), ("i", 1), ("i", 1))
-    cache[key] = "held"
-    cache_ref = weakref.ref(cache)
-    segment._purge_cache_entry(cache_ref, key)
-    assert key not in cache
-    del cache
+    ns = _cache._WeakMap()
+    key = (id(ns), ("i", 1), ("i", 1))
+    ns[key] = "held"
+    ns_ref = weakref.ref(ns)
+    _cache._purge_cache_entry(ns_ref, key)
+    assert key not in ns
+    del ns
     gc.collect()
-    assert cache_ref() is None
-    segment._purge_cache_entry(cache_ref, key)
+    assert ns_ref() is None
+    _cache._purge_cache_entry(ns_ref, key)
 
 
 class _Gone:
@@ -290,30 +291,30 @@ def _partition_ids_then_drop():
     return wr, ids_live
 
 
-def test_partition_cache_strongref_when_weakref_fails(monkeypatch):
-    from anytensor import segment
+def test_cache_strongref_when_weakref_fails(monkeypatch):
+    from anytensor import _cache
 
-    real_ref = segment.weakref.ref
+    real_ref = _cache.weakref.ref
 
     def selective(obj, callback=None):
         if isinstance(obj, np.ndarray):
             raise TypeError("cannot create weak reference")
         return real_ref(obj, callback)
 
-    monkeypatch.setattr(segment.weakref, "ref", selective)
+    monkeypatch.setattr(_cache.weakref, "ref", selective)
     parts = np.array([2, 1], dtype=np.int64)
-    with at.partition_cache():
+    with at.cache():
         ids_a = at.partition_ids(parts, 3)
         ids_b = at.partition_ids(parts, 3)
         assert ids_a is ids_b
         assert list(np.asarray(ids_a)) == [0, 0, 1]
 
 
-def test_partition_cache_decorator_enable_disable_purge():
+def test_cache_decorator_enable_disable_purge():
     parts = np.array([2, 1], dtype=np.int64)
     other = np.array([1, 2], dtype=np.int64)
 
-    @at.partition_cache
+    @at.cache
     def twice(p):
         a = at.partition_ids(p, 3)
         b = at.partition_ids(p, 3)
@@ -323,7 +324,7 @@ def test_partition_cache_decorator_enable_disable_purge():
     assert a is b
     assert at.partition_ids(parts, 3) is not a
 
-    @at.partition_cache()
+    @at.cache()
     def twice_paren(p):
         a = at.partition_ids(p, 3)
         return a, at.partition_ids(p, 3)
@@ -331,31 +332,69 @@ def test_partition_cache_decorator_enable_disable_purge():
     c, d = twice_paren(parts)
     assert c is d
 
-    at.partition_cache.enable()
-    at.partition_cache.enable()
+    at.cache.enable()
+    at.cache.enable()
     try:
         e = at.partition_ids(parts, 3)
         assert at.partition_ids(parts, 3) is e
-        with at.partition_cache():
+        with at.cache():
             assert at.partition_ids(parts, 3) is e
         assert at.partition_ids(parts, 3) is e
         f = at.partition_ids(other, 3)
-        at.partition_cache.purge(parts)
+        at.cache.purge("partition", parts)
         assert at.partition_ids(parts, 3) is not e
         assert at.partition_ids(other, 3) is f
-        at.partition_cache.purge_cache(other)
+        at.cache.purge_cache("partition", other)
         assert at.partition_ids(other, 3) is not f
     finally:
-        at.partition_cache.disable()
+        at.cache.disable()
     g = at.partition_ids(parts, 3)
     assert g is not e
-    at.partition_cache.disable()
-    at.partition_cache.purge(parts)
+    at.cache.disable()
+    at.cache.purge("partition", parts)
 
-    with at.partition_cache():
+    with at.cache():
         h = at.partition_ids(parts, 3)
-        at.partition_cache.disable()
+        at.cache.disable()
         assert at.partition_ids(parts, 3) is not h
+
+    with at.cache():
+        held = at.partition_ids(parts, 3)
+        at.cache.enable()
+    try:
+        assert at.partition_ids(parts, 3) is held
+    finally:
+        at.cache.disable()
+
+
+def test_cache_is_dict_of_dicts():
+    parts = np.array([2, 1], dtype=np.int64)
+    with pytest.raises(KeyError):
+        at.cache["partition"]
+    assert "partition" not in at.cache
+    with at.cache():
+        assert "partition" in at.cache
+        assert dict(at.cache["partition"]) == {}
+        ids = at.partition_ids(parts, 3)
+        ns = at.cache["partition"]
+        assert len(ns) == 1
+        _, stored = next(iter(ns.values()))
+        assert stored is ids
+        at.cache["other"]["k"] = "v"
+        assert "other" in at.cache
+        assert at.cache["other"]["k"] == "v"
+        at.cache.purge("other", parts)
+        assert at.cache["other"]["k"] == "v"
+        at.cache["other"][(id(parts),)] = "x"
+        at.cache.purge("other", parts)
+        assert at.cache["other"]["k"] == "v"
+        assert (id(parts),) not in at.cache["other"]
+        at.cache.purge("partition", parts)
+        assert dict(at.cache["partition"]) == {}
+        assert "missing" not in at.cache
+        at.cache.purge("missing", parts)
+        at.cache.purge("partition", parts)
+    assert "partition" not in at.cache
 
 
 def test_normalize_shape_dim_and_promote_shape_roles():

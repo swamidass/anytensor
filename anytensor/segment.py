@@ -9,11 +9,12 @@ tensor scalar — never inferred from ``segment_ids`` (that would be
 ``max(ids)+1``, data-dependent). Partition helpers do **not** take
 ``num_segments``: it is ``shape(partitions)[0]``, a shape read. They do
 require ``total_length`` (``shape(logits)[0]``, not a data
-``sum(partitions)``). :class:`partition_cache` as a decorator (preferred on
-library apply functions), a context, or :meth:`partition_cache.enable` /
-:meth:`~partition_cache.disable` makes :func:`partition_softmax` /
-:func:`partition_ids` reuse expansions. :meth:`partition_cache.purge` drops
-one tensor. There is no ``partition_sum`` / ``partition_min`` family.
+``sum(partitions)``). :data:`cache` as a decorator (preferred on
+library apply functions), a context, or :meth:`cache.enable` /
+:meth:`~cache.disable` makes :func:`partition_softmax` /
+:func:`partition_ids` reuse expansions (namespace ``"partition"``).
+:meth:`cache.purge` drops one tensor from one namespace. There is no
+``partition_sum`` / ``partition_min`` family.
 
 TorchScript: :func:`enable_torchscript` wraps ``segment_sum`` / ``min`` /
 ``max`` with a ``torch.jit.is_scripting()`` divert. Import order does not
@@ -24,10 +25,6 @@ matter: a :func:`module_if_loaded` helper enables the divert as soon as
 """
 
 from __future__ import annotations
-
-import weakref
-from contextvars import ContextVar
-from functools import wraps
 
 from .backends import get_backend
 from .optional import module_if_loaded
@@ -47,44 +44,10 @@ from .core import (
     _normalize_shape_dim,
 )
 from .namespace import array_namespace
+from ._cache import cache as cache
+from ._cache import _cache_lookup, _cache_store, _namespace, _size_cache_key
 
 _TORCHSCRIPT_ENABLED = False
-
-
-class _PartitionIdsMap(dict):
-    """Weakref-able cache map (builtin ``dict`` cannot take a weakref)."""
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.depth = 0
-        self.sticky = False
-        self.token = None
-
-
-_PARTITION_IDS_CACHE: ContextVar[_PartitionIdsMap | None] = ContextVar(
-    "anytensor_partition_ids_cache", default=None
-)
-
-
-def _activate_partition_cache(*, sticky: bool = False) -> _PartitionIdsMap:
-    cache = _PARTITION_IDS_CACHE.get()
-    if cache is not None:
-        if sticky:
-            cache.sticky = True
-        return cache
-    cache = _PartitionIdsMap()
-    cache.sticky = sticky
-    cache.token = _PARTITION_IDS_CACHE.set(cache)
-    return cache
-
-
-def _drop_partition_cache(cache: _PartitionIdsMap) -> None:
-    cache.clear()
-    cache.sticky = False
-    cache.depth = 0
-    token = cache.token
-    cache.token = None
-    _PARTITION_IDS_CACHE.reset(token)
 
 
 def _align_segment_args(x, segment_ids):
@@ -491,140 +454,6 @@ def segment_max_or_constant(
     return _replace_empty_with_constant(out, segment_ids, num_segments, constant, sorted=sorted)
 
 
-def _size_cache_key(value):
-    if type(value) is int:
-        return ("i", value)
-    return ("o", id(value))
-
-
-class _StrongRef:
-    """Pin ``obj`` when it cannot take a :class:`weakref.ref`."""
-
-    __slots__ = ("_obj",)
-
-    def __init__(self, obj):
-        self._obj = obj
-
-    def __call__(self):
-        return self._obj
-
-
-class _PartitionCache:
-    """Reuse partition→segment-id expansions for the same tensors.
-
-    Graph helpers often expand the same ``n_node`` / ``n_edge`` vector more
-    than once in a call. A process-wide ``id()`` cache is wrong (unhashable
-    tensors, in-place edits, tracers). This object is opt-in:
-
-    * **Decorator** (preferred on library apply functions)::
-
-          @partition_cache
-          def apply(graph):
-              ...
-
-    * **Context** (reentrant)::
-
-          with partition_cache():
-              ...
-
-    * :meth:`enable` / :meth:`disable` for a ContextVar-scoped cache outside
-      a block (``disable`` clears and turns it off).
-    * :meth:`purge` drops cached ids for one partition tensor.
-
-    Entries are weak: when the partition tensor is collected, the cached ids
-    drop; a context that owns the map also clears on exit so it does not pin.
-    GC callbacks hold only a weakref to this map, so a long-lived ``n_node``
-    cannot keep an empty cache alive after the block and cannot form a
-    callback→cache→entry cycle that would pin the cached ids. Partition
-    helpers (:func:`partition_ids`, :func:`partition_softmax`) consult it
-    automatically — callers do not thread ids through the stack.
-    :func:`~anytensor.jraph.GraphNetwork` is decorated so each apply hits it.
-    """
-
-    def __call__(self, fn=None):
-        if fn is None:
-            return self
-
-        @wraps(fn)
-        def wrapped(*args, **kwargs):
-            with self:
-                return fn(*args, **kwargs)
-
-        return wrapped
-
-    def __enter__(self):
-        cache = _activate_partition_cache()
-        cache.depth += 1
-        return self
-
-    def __exit__(self, *exc):
-        cache = _PARTITION_IDS_CACHE.get()
-        if cache is None:
-            return False
-        cache.depth = max(0, cache.depth - 1)
-        if cache.depth == 0 and not cache.sticky:
-            _drop_partition_cache(cache)
-        return False
-
-    def enable(self):
-        """Turn the cache on until :meth:`disable` (no surrounding block)."""
-        _activate_partition_cache(sticky=True)
-
-    def disable(self):
-        """Clear the cache and turn it off."""
-        cache = _PARTITION_IDS_CACHE.get()
-        if cache is None:
-            return
-        _drop_partition_cache(cache)
-
-    def purge(self, partitions):
-        """Drop cached segment ids for ``partitions`` (no-op if cache is off)."""
-        cache = _PARTITION_IDS_CACHE.get()
-        if not cache:
-            return
-        pid = id(partitions)
-        for key in [k for k in cache if k[0] == pid]:
-            cache.pop(key, None)
-
-    purge_cache = purge
-
-
-partition_cache = _PartitionCache()
-
-
-def _cache_lookup(cache, partitions, total):
-    key = (id(partitions), _size_cache_key(total))
-    hit = cache.get(key)
-    if hit is not None:
-        held_ref, ids = hit
-        if held_ref() is partitions:
-            return key, ids
-        cache.pop(key, None)
-    return key, None
-
-
-def _purge_cache_entry(cache_ref, key):
-    held = cache_ref()
-    if held is None:
-        return
-    held.pop(key, None)
-
-
-def _cache_store(cache, key, partitions, ids):
-    def _drop(_ref, cache_ref=weakref.ref(cache), key=key):
-        _purge_cache_entry(cache_ref, key)
-
-    held_ref = _ref_partitions(partitions, _drop)
-    cache[key] = (held_ref, ids)
-
-
-def _ref_partitions(partitions, callback):
-    try:
-        return weakref.ref(partitions, callback)
-    except TypeError:
-        return _StrongRef(partitions)
-
-
 def partition_ids(
     partitions: IntArray,
     total_length: ShapeSize,
@@ -637,22 +466,22 @@ def partition_ids(
     (``shape(logits)[0]``, not a data ``sum(partitions)``). Passed to
     :func:`repeat` as ``total_repeat_length``.
 
-    Outside :func:`partition_cache`, every call rebuilds ids. Inside the
-    cache, the same ``partitions`` tensor (and ``total_length``) returns
-    the previous ids until the tensor is collected or the block exits.
-    Passing ``None`` for ``total_length`` is a ``TypeError``.
+    Outside :data:`cache`, every call rebuilds ids. Inside the cache, the
+    same ``partitions`` tensor (and ``total_length``) returns the previous
+    ids from ``cache["partition"]`` until the tensor is collected or the
+    block exits. Passing ``None`` for ``total_length`` is a ``TypeError``.
     """
     n_part = shape(partitions)[0]
     total = _require_shape_size("total_length", total_length)
-    cache = _PARTITION_IDS_CACHE.get()
+    ns = _namespace("partition")
     key = None
-    if cache is not None:
-        key, cached = _cache_lookup(cache, partitions, total)
+    if ns is not None:
+        key, cached = _cache_lookup(ns, partitions, _size_cache_key(total))
         if cached is not None:
             return cached
     ids = repeat(arange(n_part, like=partitions), partitions, total_repeat_length=total)
-    if cache is not None:
-        _cache_store(cache, key, partitions, ids)
+    if ns is not None:
+        _cache_store(ns, key, partitions, ids)
     return ids
 
 
@@ -666,9 +495,9 @@ def partition_softmax(
     Convenience: :func:`partition_ids` then :func:`segment_softmax`.
     ``num_segments`` is ``shape(partitions)[0]`` — not an argument.
     ``total_length`` is **required** (``shape(logits)[0]``, not a data
-    ``sum(partitions)``). **Ids are rebuilt on every call** unless a
-    :func:`partition_cache` is active — then this helper reuses the cached
-    expansion. A compiler may CSE the rebuild; eager will not. If you
+    ``sum(partitions)``). **Ids are rebuilt on every call** unless
+    :data:`cache` is active — then this helper reuses ``cache["partition"]``.
+    A compiler may CSE the rebuild; eager will not. If you
     already have ids, call :func:`segment_softmax`. This is not a pattern
     to grow (no ``partition_sum`` / ``partition_min``).
 

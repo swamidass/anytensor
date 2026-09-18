@@ -665,7 +665,7 @@ _NON_FUZZ_PUBLIC = frozenset(
         "enable_torchscript",
         "enable_typecheck",
         "module_if_loaded",
-        "partition_cache",
+        "cache",
         # typing helpers / jaxtyping re-exports (not runtime ops)
         "ArrayT",
         "Axes",

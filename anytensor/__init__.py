@@ -8,6 +8,7 @@ from .optional import module_if_loaded
 # Import einops functions, which work the same way as anytensor.
 from einops import einsum, pack, unpack, rearrange, reduce
 
+from ._cache import cache
 from .segment import (
     segment_sum,
     segment_max,
@@ -21,7 +22,6 @@ from .segment import (
     segment_max_or_constant,
     partition_softmax,
     partition_ids,
-    partition_cache,
     enable_torchscript,
 )
 
@@ -158,7 +158,7 @@ __all__ = [
     "segment_max_or_constant",
     "partition_softmax",
     "partition_ids",
-    "partition_cache",
+    "cache",
     "enable_torchscript",
     "repeat",
     "take",
