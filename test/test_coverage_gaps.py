@@ -150,37 +150,37 @@ def test_arange_device_typeerror_fallback(monkeypatch):
 def test_partition_softmax_and_semantics_edges():
     logits = np.array([1.0, 2.0, 0.5], dtype=np.float32)
     parts = np.array([2, 1], dtype=np.int64)
-    out = at.partition_softmax(logits, parts, 2, 3)
+    out = at.partition_softmax(logits, parts, 3)
     assert out.shape == (3,)
     assert close(float(np.sum(out[:2])), 1.0)
-    ids = at.partition_ids(parts, 2, 3)
+    ids = at.partition_ids(parts, 3)
     assert list(np.asarray(ids)) == [0, 0, 1]
     out2 = at.segment_softmax(logits, ids, 2)
     assert close(np.asarray(out2), np.asarray(out))
-    out3 = at.partition_softmax(logits, parts, num_segments=2, sum_partitions=3)
+    out3 = at.partition_softmax(logits, parts, sum_partitions=3)
     assert out3.shape == (3,)
     with pytest.raises(TypeError):
         at.partition_softmax(logits, parts)
     with pytest.raises(TypeError, match="sum_partitions"):
-        at.partition_softmax(logits, parts, 2, None)
-    with pytest.raises(TypeError, match="num_segments"):
-        at.partition_ids(parts, None, 3)
+        at.partition_softmax(logits, parts, None)
+    with pytest.raises(TypeError, match="sum_partitions"):
+        at.partition_ids(parts, None)
     with pytest.raises(TypeError, match="num_segments"):
         at.segment_sum(logits, np.array([0, 0, 1]), None)
 
     with at.partition_cache():
-        ids_a = at.partition_ids(parts, 2, 3)
-        ids_b = at.partition_ids(parts, 2, 3)
+        ids_a = at.partition_ids(parts, 3)
+        ids_b = at.partition_ids(parts, 3)
         assert ids_a is ids_b
         with at.partition_cache():
-            assert at.partition_ids(parts, 2, 3) is ids_a
-        nseg, nsum = np.int64(2), np.int64(3)
-        ids_t = at.partition_ids(parts, nseg, nsum)
-        assert at.partition_ids(parts, nseg, nsum) is ids_t
-        nseg_o, nsum_o = np.array(2), np.array(3)
-        ids_o = at.partition_ids(parts, nseg_o, nsum_o)
-        assert at.partition_ids(parts, nseg_o, nsum_o) is ids_o
-    ids_c = at.partition_ids(parts, 2, 3)
+            assert at.partition_ids(parts, 3) is ids_a
+        nsum = np.int64(3)
+        ids_t = at.partition_ids(parts, nsum)
+        assert at.partition_ids(parts, nsum) is ids_t
+        nsum_o = np.array(3)
+        ids_o = at.partition_ids(parts, nsum_o)
+        assert at.partition_ids(parts, nsum_o) is ids_o
+    ids_c = at.partition_ids(parts, 3)
     assert ids_c is not ids_a
 
     with pytest.raises(ValueError):
@@ -206,13 +206,13 @@ def test_partition_cache_weakrefs_and_partition_softmax(monkeypatch):
         return real_repeat(*args, **kwargs)
 
     monkeypatch.setattr(segment, "repeat", counting_repeat)
-    at.partition_softmax(logits, parts, 2, 3)
-    at.partition_softmax(logits, parts, 2, 3)
+    at.partition_softmax(logits, parts, 3)
+    at.partition_softmax(logits, parts, 3)
     assert repeats["n"] == 2
     with at.partition_cache():
-        at.partition_softmax(logits, parts, 2, 3)
-        at.partition_softmax(logits, parts, 2, 3)
-        assert at.partition_ids(parts, 2, 3) is not None
+        at.partition_softmax(logits, parts, 3)
+        at.partition_softmax(logits, parts, 3)
+        assert at.partition_ids(parts, 3) is not None
     assert repeats["n"] == 3
 
     with at.partition_cache():
@@ -226,7 +226,7 @@ def test_partition_cache_weakrefs_and_partition_softmax(monkeypatch):
         gc.collect()
         assert ids_wr() is None
         other = np.array([2, 1], dtype=np.int64)
-        ids_other = at.partition_ids(other, 2, 3)
+        ids_other = at.partition_ids(other, 3)
         assert list(np.asarray(ids_other)) == [0, 0, 1]
 
         gone = _Gone()
@@ -235,14 +235,14 @@ def test_partition_cache_weakrefs_and_partition_softmax(monkeypatch):
         gc.collect()
         assert dead() is None
         cache = segment._PARTITION_IDS_CACHE.get()
-        key = (id(other), ("i", 2), ("i", 3))
+        key = (id(other), ("i", 3))
         cache[key] = (dead, ids_other)
-        ids_fresh = at.partition_ids(other, 2, 3)
+        ids_fresh = at.partition_ids(other, 3)
         assert ids_fresh is not ids_other
 
         stale = np.array([1, 2], dtype=np.int64)
         cache[key] = (weakref.ref(stale), ids_fresh)
-        ids_ok = at.partition_ids(other, 2, 3)
+        ids_ok = at.partition_ids(other, 3)
         assert ids_ok is not ids_fresh
         assert list(np.asarray(ids_ok)) == [0, 0, 1]
 
@@ -253,7 +253,7 @@ def test_partition_cache_callback_does_not_pin_cache():
 
     parts = np.array([2, 1], dtype=np.int64)
     with at.partition_cache():
-        ids = at.partition_ids(parts, 2, 3)
+        ids = at.partition_ids(parts, 3)
         cache_wr = weakref.ref(segment._PARTITION_IDS_CACHE.get())
     gc.collect()
     assert cache_wr() is None
@@ -286,7 +286,7 @@ class _Gone:
 def _partition_ids_then_drop():
     live = np.array([2, 1], dtype=np.int64)
     wr = weakref.ref(live)
-    ids_live = at.partition_ids(live, 2, 3)
+    ids_live = at.partition_ids(live, 3)
     return wr, ids_live
 
 
@@ -303,8 +303,8 @@ def test_partition_cache_strongref_when_weakref_fails(monkeypatch):
     monkeypatch.setattr(segment.weakref, "ref", selective)
     parts = np.array([2, 1], dtype=np.int64)
     with at.partition_cache():
-        ids_a = at.partition_ids(parts, 2, 3)
-        ids_b = at.partition_ids(parts, 2, 3)
+        ids_a = at.partition_ids(parts, 3)
+        ids_b = at.partition_ids(parts, 3)
         assert ids_a is ids_b
         assert list(np.asarray(ids_a)) == [0, 0, 1]
 

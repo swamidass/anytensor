@@ -92,9 +92,9 @@ def test_segment_softmax_and_partition_softmax(backend):
     bpart = backend_impl.from_numpy(partitions)
 
     s = at.segment_softmax(blogits, bseg, 2)
-    p = at.partition_softmax(blogits, bpart, 2, sum_partitions=5)
+    p = at.partition_softmax(blogits, bpart, 5)
     assert close(backend_impl.to_numpy(s), at.segment_softmax(logits, seg_id, 2))
-    assert close(backend_impl.to_numpy(p), at.partition_softmax(logits, partitions, 2, 5))
+    assert close(backend_impl.to_numpy(p), at.partition_softmax(logits, partitions, 5))
     assert close(backend_impl.to_numpy(s), backend_impl.to_numpy(p))
 
 

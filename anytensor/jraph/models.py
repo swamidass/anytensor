@@ -39,7 +39,7 @@ GNUpdateGlobalFn = Callable[[NodeFeatures, EdgeFeatures, Globals], Globals]
 
 def _repeat_by(values, repeats, total_length):
     """Scatter rows of ``values`` according to per-row ``repeats`` (axis 0)."""
-    idx = partition_ids(repeats, shape(repeats)[0], total_length)
+    idx = partition_ids(repeats, total_length)
     return take(values, idx)
 
 
@@ -152,11 +152,11 @@ def GraphNetwork(
 
         if update_global_fn:
             n_graph = shape(n_node)[0]
-            node_gr_idx = partition_ids(n_node, n_graph, sum_n_node)
+            node_gr_idx = partition_ids(n_node, sum_n_node)
             edge_gr_idx = (
                 None
                 if senders is None
-                else partition_ids(n_edge, n_graph, sum_n_edge)
+                else partition_ids(n_edge, sum_n_edge)
             )
             node_attributes = (
                 None

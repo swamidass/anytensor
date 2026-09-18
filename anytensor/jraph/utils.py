@@ -203,20 +203,17 @@ def segment_softmax(
     )
 
 
-def partition_softmax(logits, partitions, sum_partitions, *, num_segments=None):
+def partition_softmax(logits, partitions, sum_partitions):
     """Softmax within contiguous partitions of lengths ``partitions``.
 
     Official jraph takes ``sum_partitions`` as the third positional and allows
-    omitting it. AnyTensor **requires** it (same JAX shape-size rule as
-    ``num_segments`` on segment ops). ``num_segments`` matches
-    :func:`segment_softmax`; default is ``shape(partitions)[0]``.
+    omitting it. AnyTensor **requires** it (not a data ``sum(partitions)``).
+    ``num_segments`` is not an argument — it is ``shape(partitions)[0]``.
     Rebuilds segment ids on every call unless :func:`~anytensor.partition_cache`
     is active (then this helper reuses the expansion). Prefer
     :func:`segment_softmax` when ids are already in hand.
     """
-    if num_segments is None:
-        num_segments = shape(partitions)[0]
-    return _partition_softmax(logits, partitions, num_segments, sum_partitions)
+    return _partition_softmax(logits, partitions, sum_partitions)
 
 
 def _map_features(func, features):

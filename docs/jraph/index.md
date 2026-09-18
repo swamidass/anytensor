@@ -84,7 +84,7 @@ contract). `unique_indices` is accepted and ignored.
 |---|---|
 | Backends | Caller’s tensors (NumPy / JAX / Torch / TF) |
 | `None` features | Empty pytree (jraph / `jax.tree`) |
-| Segment ops | `num_segments` required; `partition_softmax` requires `sum_partitions` (3rd positional, official jraph name); `unique_indices` ignored |
+| Segment ops | `num_segments` required; `partition_softmax` requires `sum_partitions` (3rd positional, official jraph name) and takes `num_segments` from `shape(partitions)[0]`; `unique_indices` ignored |
 | Nest library | [`anytensor.tree`](../tree/index.md) (no JAX runtime dep) |
 | Graph concat | Magic methods on `GraphsTuple` (`__tree_batch__` / `__tree_unbatch__`); `jraph.batch` is `tree.batch` |
 | Public names | **Every name in official `jraph.__all__`** (unit-tested). Also exports `segment_mean` / `min` / `variance` / `normalize` (on the official module, omitted from its `__all__`) and `sparse_matrix_to_graphs_tuple` (not in upstream jraph). |
