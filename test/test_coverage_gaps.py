@@ -250,17 +250,20 @@ def _partition_ids_then_drop():
 def test_partition_cache_strongref_when_weakref_fails(monkeypatch):
     from anytensor import segment
 
-    def boom(*_args, **_kwargs):
-        raise TypeError("cannot create weak reference")
+    real_ref = segment.weakref.ref
 
-    monkeypatch.setattr(segment.weakref, "ref", boom)
+    def selective(obj, callback=None):
+        if isinstance(obj, np.ndarray):
+            raise TypeError("cannot create weak reference")
+        return real_ref(obj, callback)
+
+    monkeypatch.setattr(segment.weakref, "ref", selective)
     parts = np.array([2, 1], dtype=np.int64)
     with at.partition_cache():
         ids_a = at.partition_ids(parts, 2, 3)
         ids_b = at.partition_ids(parts, 2, 3)
         assert ids_a is ids_b
-        pin = segment._StrongRef(parts)
-        assert pin() is parts
+        assert list(np.asarray(ids_a)) == [0, 0, 1]
 
 
 def test_normalize_shape_dim_and_promote_shape_roles():

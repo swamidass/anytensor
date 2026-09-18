@@ -503,11 +503,15 @@ def _cache_store(cache, key, partitions, ids):
     def _drop(_ref, cache=cache, key=key):
         cache.pop(key, None)
 
-    try:
-        held_ref = weakref.ref(partitions, _drop)
-    except TypeError:
-        held_ref = _StrongRef(partitions)
+    held_ref = _ref_partitions(partitions, _drop)
     cache[key] = (held_ref, ids)
+
+
+def _ref_partitions(partitions, callback):
+    try:
+        return weakref.ref(partitions, callback)
+    except TypeError:
+        return _StrongRef(partitions)
 
 
 def partition_ids(
