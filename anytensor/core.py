@@ -762,6 +762,8 @@ def repeat(x: ShapedArray, repeats: Any, *, total_repeat_length: Optional[ShapeS
             constant, or 0-d integral tensor) for the flattened output length.
             Required for a static output size under ``jax.jit`` when repeats
             are dynamic. Not supported together with ``axis is not None`` yet.
+            :func:`~anytensor.partition_softmax` always passes this as
+            ``sum_partitions``.
         axis: Axis to repeat along; ``None`` flattens (Array API / NumPy style).
 
     Returns:
@@ -769,9 +771,10 @@ def repeat(x: ShapedArray, repeats: Any, *, total_repeat_length: Optional[ShapeS
 
     Notes:
         Under ``jax.jit``, ``jnp.repeat`` needs static repeat counts or a
-        static ``total_repeat_length``. For :func:`~anytensor.partition_softmax`,
-        pass static ``sum_partitions``. Omitting ``total_repeat_length`` is
-        fine eagerly and on TensorFlow.
+        static ``total_repeat_length``. :func:`~anytensor.partition_softmax`
+        always passes ``sum_partitions`` as that length. Omitting
+        ``total_repeat_length`` on :func:`repeat` itself is fine eagerly and
+        on TensorFlow.
     """
     from .backends import get_backend
 

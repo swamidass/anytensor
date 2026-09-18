@@ -148,11 +148,13 @@ def test_arange_device_typeerror_fallback(monkeypatch):
 def test_partition_softmax_and_semantics_edges():
     logits = np.array([1.0, 2.0, 0.5], dtype=np.float32)
     parts = np.array([2, 1], dtype=np.int64)
-    out = at.partition_softmax(logits, parts)
+    out = at.partition_softmax(logits, parts, 2, 3)
     assert out.shape == (3,)
     assert close(float(np.sum(out[:2])), 1.0)
-    out2 = at.partition_softmax(logits, parts, sum_partitions=3)
+    out2 = at.partition_softmax(logits, parts, num_segments=2, sum_partitions=3)
     assert out2.shape == (3,)
+    with pytest.raises(TypeError):
+        at.partition_softmax(logits, parts)
 
     with pytest.raises(ValueError):
         empty_segment_identity(np.float32, "mean", xp=np)

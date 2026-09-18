@@ -642,7 +642,9 @@ def _tf_cases() -> dict[str, tuple[Callable, list, tuple]]:
             (x23,),
         ),
         "partition_softmax": (
-            lambda a, p: at.partition_softmax(a, p, sum_partitions=at.shape(a)[0]),
+            lambda a, p: at.partition_softmax(
+                a, p, at.shape(p)[0], sum_partitions=at.shape(a)[0]
+            ),
             [vec, vec_i],
             (x, tf.constant([2, 1], tf.int64)),
         ),

@@ -130,7 +130,7 @@ def test_partition_softmax_single_partition(backend):
     parts = np.array([3], dtype=np.int64)
     blog = backend_impl.from_numpy(logits)
     bpart = backend_impl.from_numpy(parts)
-    out = backend_impl.to_numpy(at.partition_softmax(blog, bpart, sum_partitions=3))
+    out = backend_impl.to_numpy(at.partition_softmax(blog, bpart, 1, sum_partitions=3))
     ref = np.exp(logits - logits.max())
     ref = ref / ref.sum()
     assert close(out, ref)

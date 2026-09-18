@@ -57,9 +57,9 @@ instead of an initializer.
 `tf2onnx` path (runs in CI) and the GAT-style neighbor helper through Torch
 dynamo ONNX (skipped on CI, same Triton SIGSEGV as `torch.compile`).
 Constructors (`zeros` / `ones` / `full` / `arange` / `split`) take sizes from
-`at.shape` so the new length is a graph symbol. `partition_softmax` passes
-`sum_partitions=at.shape(logits)[0]` so the flattened length is not a data
-sum.
+`at.shape` so the new length is a graph symbol. `partition_softmax` requires
+`num_segments=at.shape(partitions)[0]` (same name as `segment_softmax`) and
+`sum_partitions=at.shape(logits)[0]` so neither size is a data sum.
 
 The same file also exports the **model zoos** as a TF/ONNX stress test:
 `anytensor.hetero` (R-GCN, GraphSAGE, CompGCN, HGT, HAN) and `anytensor.jraph`

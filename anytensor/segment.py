@@ -5,7 +5,11 @@ Empty-segment identities are standardized in :mod:`anytensor.semantics`
 
 ``num_segments`` is always required (JAX convention). Callers may pass a
 Python int, a jit/compile symbolic constant, or a 0-d tensor scalar — never
-inferred from ``segment_ids``.
+inferred from ``segment_ids``. The same rule applies to ``sum_partitions`` on
+:func:`partition_softmax`. Partition helpers rebuild ``segment_ids`` on every
+call (fine under a compiler CSE, extra work eagerly) — prefer
+:func:`segment_softmax` when ids are reused. There is no ``partition_sum`` /
+``partition_min`` family.
 
 TorchScript: :func:`enable_torchscript` wraps ``segment_sum`` / ``min`` /
 ``max`` with a ``torch.jit.is_scripting()`` divert. Import order does not
@@ -16,8 +20,6 @@ matter: a :func:`module_if_loaded` helper enables the divert as soon as
 """
 
 from __future__ import annotations
-
-from typing import Optional
 
 from .backends import get_backend
 from .optional import module_if_loaded
@@ -30,7 +32,6 @@ from .core import (
     maximum,
     repeat,
     arange,
-    shape,
     _xp,
     _asarray,
     _apply_dtype_roles,
@@ -435,37 +436,40 @@ def segment_max_or_constant(
     return _replace_empty_with_constant(out, segment_ids, num_segments, constant, sorted=sorted)
 
 
-def partition_softmax(logits: ShapedArray, partitions: IntArray, sum_partitions: Optional[ShapeSize] = None) -> ShapedArray:
+def partition_softmax(
+    logits: ShapedArray,
+    partitions: IntArray,
+    num_segments: ShapeSize,
+    sum_partitions: ShapeSize,
+) -> ShapedArray:
     """Softmax within contiguous partitions of lengths ``partitions``.
 
-    Builds segment ids by repeating ``0 .. n_part-1`` according to
-    ``partitions`` (e.g. jraph-style ``n_node``), then calls
-    :func:`segment_softmax`.
+    Convenience over :func:`segment_softmax`: builds ``segment_ids`` by
+    repeating ``0 .. num_segments-1`` according to ``partitions`` (e.g.
+    jraph-style ``n_node``), then softmaxes. **Ids are rebuilt on every
+    call** — a compiler may CSE that, eager will not. If you already have
+    ids, or you softmax the same partitions more than once, call
+    :func:`segment_softmax` instead. This is not a pattern to grow
+    (no ``partition_sum`` / ``partition_min``).
 
     Args:
         logits: Scores aligned with the flattened partitions (length
-            ``sum(partitions)`` when concrete).
-        partitions: 1-D integer vector of partition sizes.
-        sum_partitions: Optional shape-size for the flattened length. When
-            omitted, :func:`repeat` uses the natural dynamic length (fine
-            eagerly / on TF). **Under** ``jax.jit``, pass a static
-            ``sum_partitions`` so ``jnp.repeat`` can compile (JAX needs a
-            static total or static per-element repeats).
+            ``sum_partitions``).
+        partitions: 1-D integer vector of partition sizes (length
+            ``num_segments``).
+        num_segments: **Required** shape-size, same name as
+            :func:`segment_softmax`. Number of partitions
+            (``shape(partitions)[0]``, not inferred).
+        sum_partitions: **Required** shape-size for the flattened length
+            (``shape(logits)[0]``, not a data ``sum(partitions)``). Passed
+            to :func:`repeat` as ``total_repeat_length``.
 
     Returns:
         Softmax of ``logits`` within each partition (same shape as ``logits``).
-
-    Notes:
-        ``num_segments`` for the inner softmax is ``shape(partitions)[0]``
-        (Python int when static, else a backend size / symbolic under
-        jit/compile).
     """
-    n_part = _normalize_shape_dim(shape(partitions)[0])
+    n_part = _normalize_shape_dim(num_segments)
     ids = arange(n_part, like=partitions)
-    if sum_partitions is None:
-        segment_ids = repeat(ids, partitions)
-    else:
-        segment_ids = repeat(
-            ids, partitions, total_repeat_length=_normalize_shape_dim(sum_partitions)
-        )
+    segment_ids = repeat(
+        ids, partitions, total_repeat_length=_normalize_shape_dim(sum_partitions)
+    )
     return segment_softmax(logits, segment_ids, num_segments=n_part)

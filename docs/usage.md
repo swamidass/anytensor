@@ -83,12 +83,19 @@ tensors) so `jax.jit` / `tf.function` / `torch.compile` can treat them as static
 | `segment_count` / `mean` / `variance` | Counts and moments |
 | `segment_normalize` / `segment_softmax` | Per-segment normalize / softmax |
 | `segment_min_or_constant` / `segment_max_or_constant` | Empty segments → constant |
-| `partition_softmax` | Softmax over contiguous partition lengths |
+| `partition_softmax` | Softmax over contiguous partition lengths (`num_segments` + `sum_partitions` required; rebuilds ids each call) |
 
 Einops (`rearrange`, `einsum`, `reduce`, …) is re-exported for convenience.
 
-Under `jax.jit`, pass a static `sum_partitions` to `partition_softmax` so
-`jnp.repeat` can compile. See [Surprising differences](semantics.md).
+`partition_softmax(logits, partitions, num_segments, sum_partitions)` is a
+convenience over `segment_softmax`. It rebuilds `segment_ids` (`arange` +
+`repeat`) on **every** call — a compiler may CSE that, eager will not. Prefer
+`segment_softmax` when you already have ids or you use the same partitions
+more than once. There is no `partition_sum` / `partition_min` family.
+
+Under `jax.jit`, `num_segments` and `sum_partitions` must be static-friendly
+shape-sizes (`shape(partitions)[0]` / `shape(logits)[0]`, or Python ints).
+See [Surprising differences](semantics.md).
 
 ## Torch compile / export
 

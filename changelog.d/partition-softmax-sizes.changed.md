@@ -1,0 +1,1 @@
+Require ``num_segments`` and ``sum_partitions`` on ``partition_softmax`` (JAX shape-size rule; ``num_segments`` matches ``segment_softmax``). Ids are rebuilt each call — prefer ``segment_softmax`` when they are reused. ``anytensor.jraph.partition_softmax`` keeps official jraph's third positional ``sum_partitions`` but now requires it.

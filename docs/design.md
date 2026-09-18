@@ -148,8 +148,16 @@ by design (see below).
 ### 5. Shape-sizes are required and stay static-friendly
 
 `num_segments` is **always required** (JAX convention). We do **not** infer
-`max(ids)+1`. The same idea applies to `total_repeat_length` and
-`sum_partitions`.
+`max(ids)+1`. The same idea applies to `sum_partitions` on
+`partition_softmax` (always required; same kind of shape-size as
+`num_segments` / `total_repeat_length`). `partition_softmax` also takes
+`num_segments` — the same name as `segment_softmax`, not inferred from
+`partitions`.
+
+`partition_softmax` is a convenience, not a family: it rebuilds `segment_ids`
+on every call (`arange` + `repeat`). A compiler may CSE that; eager will not.
+Prefer `segment_softmax` when ids are reused. Do not add `partition_sum` /
+`partition_min` / `partition_max`.
 
 Allowed forms:
 
@@ -201,7 +209,7 @@ rely on NaN under XLA for portability.
 | Path | Expectation |
 |---|---|
 | Eager (all backends) | Full public surface |
-| `jax.jit` | Mark shape-sizes static; `repeat` / `partition_softmax` may need `total_repeat_length` / `sum_partitions` |
+| `jax.jit` | Mark shape-sizes static; `repeat` needs `total_repeat_length` under jit; `partition_softmax` always requires `num_segments` + `sum_partitions` |
 | `tf.function` | Prefer Python ints for sizes **or** `at.shape(x)` under polymorphic / ONNX graphs |
 | `torch.compile` | Prefer over deprecated `torch.jit.*`. `fullgraph=False` for portable helpers; `fullgraph=True` needs a Torch-only body — see [Worked examples](examples.md) |
 | `torch.jit.script` / `trace` | **Deprecated by PyTorch.** Legacy `enable_torchscript()` still covers `segment_sum` / `min` / `max` only |
