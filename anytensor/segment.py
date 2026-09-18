@@ -22,6 +22,9 @@ matter: a :func:`module_if_loaded` helper enables the divert as soon as
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
+
 from .backends import get_backend
 from .optional import module_if_loaded
 from .typing import ArrayT, ShapeSize, SegmentValues, SegmentIds, SegmentOut, ShapedArray, IntArray
@@ -41,6 +44,9 @@ from .core import (
 from .namespace import array_namespace
 
 _TORCHSCRIPT_ENABLED = False
+_PARTITION_IDS_CACHE: ContextVar[dict | None] = ContextVar(
+    "anytensor_partition_ids_cache", default=None
+)
 
 
 def _align_segment_args(x, segment_ids):
@@ -437,6 +443,32 @@ def segment_max_or_constant(
     return _replace_empty_with_constant(out, segment_ids, num_segments, constant, sorted=sorted)
 
 
+def _size_cache_key(value):
+    if type(value) is int:
+        return ("i", value)
+    return ("o", id(value))
+
+
+@contextmanager
+def partition_cache():
+    """Reuse :func:`partition_ids` results for the same tensors in this block.
+
+    Graph helpers often expand the same ``n_node`` / ``n_edge`` vector more
+    than once in a call. A process-wide ``id()`` cache is wrong (unhashable
+    tensors, in-place edits, tracers). This context is opt-in, reentrant, and
+    drops the map on exit. :func:`~anytensor.jraph.GraphNetwork` enters one
+    per apply so those repeats hit.
+    """
+    if _PARTITION_IDS_CACHE.get() is not None:
+        yield
+        return
+    token = _PARTITION_IDS_CACHE.set({})
+    try:
+        yield
+    finally:
+        _PARTITION_IDS_CACHE.reset(token)
+
+
 def partition_ids(
     partitions: IntArray,
     num_segments: ShapeSize,
@@ -445,20 +477,26 @@ def partition_ids(
     """Expand partition lengths to segment ids (``[0,0,…,1,1,…,n-1]``).
 
     This is the conversion :func:`partition_softmax` does internally. Call it
-    **once** and reuse the ids with :func:`segment_softmax` / ``segment_*``.
-    Both sizes are required shape-sizes (JAX convention): ``num_segments`` is
+    **once** and reuse the ids with :func:`segment_softmax` / ``segment_*``,
+    or wrap a graph apply in :func:`partition_cache`. Both sizes are required
+    shape-sizes (JAX convention): ``num_segments`` is
     ``shape(partitions)[0]``; ``sum_partitions`` is the flattened length
     (``shape(logits)[0]``, not a data ``sum(partitions)``).
-
-    There is no process-wide cache keyed on ``id(partitions)``: tensors are
-    unhashable, in-place edits would stale ids, and tracers get a new wrapper
-    every compile. Hold the returned array if you need reuse.
     """
     n_part = _normalize_shape_dim(num_segments)
-    ids = arange(n_part, like=partitions)
-    return repeat(
-        ids, partitions, total_repeat_length=_normalize_shape_dim(sum_partitions)
-    )
+    total = _normalize_shape_dim(sum_partitions)
+    cache = _PARTITION_IDS_CACHE.get()
+    if cache is not None:
+        key = (id(partitions), _size_cache_key(n_part), _size_cache_key(total))
+        hit = cache.get(key)
+        if hit is not None:
+            held, ids = hit
+            if held is partitions:
+                return ids
+    ids = repeat(arange(n_part, like=partitions), partitions, total_repeat_length=total)
+    if cache is not None:
+        cache[key] = (partitions, ids)
+    return ids
 
 
 def partition_softmax(

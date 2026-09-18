@@ -542,6 +542,7 @@ _ONNX_SKIP = frozenset(
         "empty_segment_identity",
         "enable_torchscript",
         "enable_typecheck",
+        "partition_cache",
         "ArrayT",
         "Axes",
         "Bool",

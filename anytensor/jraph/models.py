@@ -11,7 +11,7 @@ from anytensor import tree
 from anytensor.core import concatenate, maximum, reshape, rsqrt, shape, take, where
 from anytensor.core import arange as at_arange
 from anytensor.core import ones as at_ones
-from anytensor.core import repeat as at_repeat
+from anytensor.segment import partition_cache, partition_ids
 
 from . import utils
 from .graph import GraphsTuple
@@ -39,9 +39,7 @@ GNUpdateGlobalFn = Callable[[NodeFeatures, EdgeFeatures, Globals], Globals]
 
 def _repeat_by(values, repeats, total_length):
     """Scatter rows of ``values`` according to per-row ``repeats`` (axis 0)."""
-    n = shape(repeats)[0]
-    ids = at_arange(n, like=repeats)
-    idx = at_repeat(ids, repeats, total_repeat_length=total_length)
+    idx = partition_ids(repeats, shape(repeats)[0], total_length)
     return take(values, idx)
 
 
@@ -77,6 +75,10 @@ def GraphNetwork(
         )
 
     def _ApplyGraphNet(graph: GraphsTuple) -> GraphsTuple:
+        with partition_cache():
+            return _ApplyGraphNetInner(graph)
+
+    def _ApplyGraphNetInner(graph: GraphsTuple) -> GraphsTuple:
         nodes, edges, receivers, senders, globals_, n_node, n_edge = graph
         node_leaves = tree.leaves(nodes)
         if node_leaves:
@@ -150,12 +152,11 @@ def GraphNetwork(
 
         if update_global_fn:
             n_graph = shape(n_node)[0]
-            graph_idx = at_arange(n_graph, like=n_node)
-            node_gr_idx = at_repeat(graph_idx, n_node, total_repeat_length=sum_n_node)
+            node_gr_idx = partition_ids(n_node, n_graph, sum_n_node)
             edge_gr_idx = (
                 None
                 if senders is None
-                else at_repeat(graph_idx, n_edge, total_repeat_length=sum_n_edge)
+                else partition_ids(n_edge, n_graph, sum_n_edge)
             )
             node_attributes = (
                 None

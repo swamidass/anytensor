@@ -160,6 +160,18 @@ def test_partition_softmax_and_semantics_edges():
     with pytest.raises(TypeError):
         at.partition_softmax(logits, parts)
 
+    with at.partition_cache():
+        ids_a = at.partition_ids(parts, 2, 3)
+        ids_b = at.partition_ids(parts, 2, 3)
+        assert ids_a is ids_b
+        with at.partition_cache():
+            assert at.partition_ids(parts, 2, 3) is ids_a
+        nseg, nsum = np.int64(2), np.int64(3)
+        ids_t = at.partition_ids(parts, nseg, nsum)
+        assert at.partition_ids(parts, nseg, nsum) is ids_t
+    ids_c = at.partition_ids(parts, 2, 3)
+    assert ids_c is not ids_a
+
     with pytest.raises(ValueError):
         empty_segment_identity(np.float32, "mean", xp=np)
 
