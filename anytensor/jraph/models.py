@@ -70,7 +70,9 @@ def GraphNetwork(
 
     Follows Algorithm 1 of https://arxiv.org/abs/1806.01261, with separate
     sender/receiver aggregations and optional softmax attention. Same call
-    signature as :func:`jraph.GraphNetwork`.
+    signature as :func:`jraph.GraphNetwork`. Apply is decorated with
+    :data:`~anytensor.cache` (sticky): stacked calls reuse ``n_node`` /
+    ``n_edge`` expansions via :func:`~anytensor.partition_ids`.
     """
     not_both_supplied = lambda x, y: (x != y) and ((x is None) or (y is None))
     if not_both_supplied(attention_reduce_fn, attention_logit_fn):

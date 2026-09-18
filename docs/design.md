@@ -160,8 +160,9 @@ other partition functions call it so a hit is shared. A compiler may CSE
 the rebuild; eager will not. JAX keeps `total_length` required so dropping an
 optional cannot silently become data-dependent (`sum(partitions)`);
 passing `None` is a `TypeError`, not that fallback. `@cache` on a
-library apply (GraphNetwork), `with cache():`, or
-`cache.enable()` / `disable()` turns the cache on;
+library apply (GraphNetwork) is **sticky** so stacked applies reuse
+`n_node` / `n_edge` expansions; `with cache():` is a scoped block;
+`cache.enable()` / `disable()` turns the cache on or off;
 `cache.purge("partition", partitions)` drops one tensor. The cache is a
 dict of dicts (`cache["partition"]` holds the ids map) so later helpers can
 add other namespaces the same way. `partition_ids` reuses

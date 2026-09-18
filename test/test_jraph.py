@@ -174,6 +174,34 @@ def test_graph_network_identity():
     np.testing.assert_allclose(_np(out.globals), _np(graph.globals))
 
 
+def test_graph_network_cache_carries_across_applies(monkeypatch):
+    from anytensor import segment
+
+    repeats = {"n": 0}
+    real = segment.repeat
+
+    def counting(*args, **kwargs):
+        repeats["n"] += 1
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(segment, "repeat", counting)
+    g1, g2 = _toy_graphs()
+    graph = atj.batch([g1, g2])
+    net = atj.GraphNetwork(
+        update_edge_fn=lambda e, s, r, g: e,
+        update_node_fn=lambda n, s, r, g: n,
+        update_global_fn=lambda n, e, g: g,
+    )
+    net(graph)
+    n_first = repeats["n"]
+    assert n_first > 0
+    net(graph)
+    assert repeats["n"] == n_first
+    at.cache.disable()
+    net(graph)
+    assert repeats["n"] == 2 * n_first
+
+
 def test_graph_network_none_globals_and_disabled_updates():
     g1, _ = _toy_graphs()
     graph = g1._replace(globals=None)

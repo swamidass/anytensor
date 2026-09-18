@@ -73,8 +73,8 @@ optional softmax attention). Thin wrappers match jraph:
 `InteractionNetwork`, `GraphMapFeatures`, `RelationNetwork`, `DeepSets`,
 `GraphNetGAT`, `GAT`, `GraphConvolution`. Apply is decorated with
 `@cache` so `partition_ids` expands the same `n_node` /
-`n_edge` vector once (weakrefs; `cache["partition"]`; other partition
-helpers call `partition_ids` rather than the cache).
+`n_edge` vector once (sticky across stacked applies; weakrefs;
+`cache["partition"]`; other partition helpers call `partition_ids`).
 
 Segment helpers on this module still require `num_segments` (AnyTensor
 contract). `unique_indices` is accepted and ignored.

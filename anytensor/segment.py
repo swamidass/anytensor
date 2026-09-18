@@ -10,8 +10,8 @@ tensor scalar — never inferred from ``segment_ids`` (that would be
 ``num_segments``: it is ``shape(partitions)[0]``, a shape read. They do
 require ``total_length`` (``shape(logits)[0]``, not a data
 ``sum(partitions)``). Partition helpers call :func:`partition_ids`,
-which consults ``cache["partition"]`` when a decorator /
-context / :meth:`cache.enable` is active. If a cached expansion's
+which consults ``cache["partition"]`` when a decorator (sticky across
+calls) / context / :meth:`cache.enable` is active. If a cached expansion's
 length does not match ``total_length`` (host Python ints), that entry
 is purged, a warning is issued, and ids are recomputed; tracing skips
 the check. :meth:`cache.purge` drops one tensor from one namespace.

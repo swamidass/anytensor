@@ -325,6 +325,8 @@ def test_cache_decorator_enable_disable_purge():
 
     a, b = twice(parts)
     assert a is b
+    assert at.partition_ids(parts, 3) is a
+    at.cache.disable()
     assert at.partition_ids(parts, 3) is not a
 
     @at.cache()

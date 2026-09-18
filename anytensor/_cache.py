@@ -128,13 +128,14 @@ class _Cache:
     than once in a call. A process-wide ``id()`` cache is wrong (unhashable
     tensors, in-place edits, tracers). This object is opt-in:
 
-    * **Decorator** (preferred on library apply functions)::
+    * **Decorator** (preferred on library apply functions; **sticky** so
+      repeated calls reuse the map)::
 
           @cache
           def apply(graph):
               ...
 
-    * **Context** (reentrant)::
+    * **Context** (reentrant; drops on exit unless already sticky)::
 
           with cache():
               ...
@@ -160,7 +161,8 @@ class _Cache:
     Python ints), that entry is purged, a warning is issued, and ids
     are recomputed; tracing skips the check.
     Callers do not thread ids through the stack.
-    :func:`~anytensor.jraph.GraphNetwork` is decorated so each apply hits it.
+    :func:`~anytensor.jraph.GraphNetwork` is decorated so stacked applies
+    reuse ``n_node`` / ``n_edge`` expansions.
 
     Tensor-keyed namespaces use ``key[0] == id(obj)`` so :meth:`purge` can
     drop every entry for one object.
@@ -172,8 +174,8 @@ class _Cache:
 
         @wraps(fn)
         def wrapped(*args, **kwargs):
-            with self:
-                return fn(*args, **kwargs)
+            self.enable()
+            return fn(*args, **kwargs)
 
         return wrapped
 
