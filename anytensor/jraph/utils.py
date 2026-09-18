@@ -210,8 +210,9 @@ def partition_softmax(logits, partitions, sum_partitions, *, num_segments=None):
     omitting it. AnyTensor **requires** it (same JAX shape-size rule as
     ``num_segments`` on segment ops). ``num_segments`` matches
     :func:`segment_softmax`; default is ``shape(partitions)[0]``.
-    Rebuilds segment ids on every call — prefer :func:`segment_softmax` when
-    ids are reused.
+    Rebuilds segment ids on every call unless :func:`~anytensor.partition_cache`
+    is active (then this helper reuses the expansion). Prefer
+    :func:`segment_softmax` when ids are already in hand.
     """
     if num_segments is None:
         num_segments = shape(partitions)[0]

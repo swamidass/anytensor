@@ -83,22 +83,26 @@ tensors) so `jax.jit` / `tf.function` / `torch.compile` can treat them as static
 | `segment_count` / `mean` / `variance` | Counts and moments |
 | `segment_normalize` / `segment_softmax` | Per-segment normalize / softmax |
 | `segment_min_or_constant` / `segment_max_or_constant` | Empty segments → constant |
-| `partition_softmax` | Softmax over contiguous partition lengths (`num_segments` + `sum_partitions` required; rebuilds ids each call) |
+| `partition_softmax` | Softmax over contiguous partition lengths (`num_segments` + `sum_partitions` required; rebuilds ids each call unless `partition_cache` is active) |
 | `partition_ids` | Expand partition lengths to segment ids (call once, reuse) |
-| `partition_cache` | Context: reuse `partition_ids` for the same tensors in a block |
+| `partition_cache` | Context: partition helpers reuse ids for the same tensors (weakrefs; GraphNetwork enters one per apply) |
 
 Einops (`rearrange`, `einsum`, `reduce`, …) is re-exported for convenience.
 
 `partition_softmax(logits, partitions, num_segments, sum_partitions)` is a
-convenience over `partition_ids` + `segment_softmax`. It rebuilds
-`segment_ids` on **every** call — a compiler may CSE that, eager will not.
-Call `partition_ids` once and reuse, wrap a block in `partition_cache()`
-(reentrant; GraphNetwork enters one per apply), or use `segment_softmax` if
-you already have ids. There is no process-wide `id()` cache.
+convenience over `partition_ids` + `segment_softmax`. Both sizes are required
+shape-sizes (JAX convention; `num_segments` matches `segment_softmax`). It
+rebuilds `segment_ids` on **every** call unless you wrap the block in
+`partition_cache()` — then `partition_softmax` consults the cache itself, so
+graph code does not thread ids through the stack. A compiler may CSE the
+rebuild; eager will not. Entries are weak (GC drops them; the context does
+not pin). Use `segment_softmax` if you already have ids. There is no
+process-wide `id()` cache.
 
 ```python
-ids = at.partition_ids(partitions, num_segments, sum_partitions)
-y = at.segment_softmax(logits, ids, num_segments)
+with at.partition_cache():
+    y = at.partition_softmax(logits, partitions, num_segments, sum_partitions)
+    z = at.partition_softmax(other_logits, partitions, num_segments, sum_partitions)
 ```
 
 Under `jax.jit`, `num_segments` and `sum_partitions` must be static-friendly

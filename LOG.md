@@ -18,8 +18,9 @@
   `split`) take sizes from `at.shape`; `partition_softmax` requires
   `num_segments` (same name as `segment_softmax`) and
   `sum_partitions=at.shape(logits)[0]`. `partition_ids` is the one-shot
-  conversion to reuse with `segment_*`; `partition_cache()` reuses ids for
-  the same tensors in a block (GraphNetwork enters one per apply). Hetero and
+  conversion to reuse with `segment_*`; `partition_cache()` is a reentrant
+  context so partition helpers reuse ids for the same tensors (weakrefs; GC
+  drops entries; GraphNetwork enters one per apply). Hetero and
   jraph model zoos are a
   TF/ONNX stress test: destination sizes come from `at.shape` (HAN no longer
   `int()`s ranks; jraph GAT/GCN/GraphNetwork no longer read `.shape[0]`).

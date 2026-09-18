@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import gc
 import sys
+import weakref
 
 import numpy as np
 import pytest
@@ -169,6 +171,9 @@ def test_partition_softmax_and_semantics_edges():
         nseg, nsum = np.int64(2), np.int64(3)
         ids_t = at.partition_ids(parts, nseg, nsum)
         assert at.partition_ids(parts, nseg, nsum) is ids_t
+        nseg_o, nsum_o = np.array(2), np.array(3)
+        ids_o = at.partition_ids(parts, nseg_o, nsum_o)
+        assert at.partition_ids(parts, nseg_o, nsum_o) is ids_o
     ids_c = at.partition_ids(parts, 2, 3)
     assert ids_c is not ids_a
 
@@ -180,6 +185,82 @@ def test_partition_softmax_and_semantics_edges():
 
     assert empty_segment_identity(KindF(), "min", xp=np) == np.inf
     assert empty_segment_identity(KindF(), "max", xp=np) == -np.inf
+
+
+def test_partition_cache_weakrefs_and_partition_softmax(monkeypatch):
+    from anytensor import segment
+
+    logits = np.array([1.0, 2.0, 0.5], dtype=np.float32)
+    parts = np.array([2, 1], dtype=np.int64)
+    repeats = {"n": 0}
+    real_repeat = segment.repeat
+
+    def counting_repeat(*args, **kwargs):
+        repeats["n"] += 1
+        return real_repeat(*args, **kwargs)
+
+    monkeypatch.setattr(segment, "repeat", counting_repeat)
+    at.partition_softmax(logits, parts, 2, 3)
+    at.partition_softmax(logits, parts, 2, 3)
+    assert repeats["n"] == 2
+    with at.partition_cache():
+        at.partition_softmax(logits, parts, 2, 3)
+        at.partition_softmax(logits, parts, 2, 3)
+        assert at.partition_ids(parts, 2, 3) is not None
+    assert repeats["n"] == 3
+
+    with at.partition_cache():
+        wr, ids_live = _partition_ids_then_drop()
+        gc.collect()
+        assert wr() is None
+        other = np.array([2, 1], dtype=np.int64)
+        ids_other = at.partition_ids(other, 2, 3)
+        assert ids_other is not ids_live
+        assert list(np.asarray(ids_other)) == [0, 0, 1]
+
+        gone = _Gone()
+        dead = weakref.ref(gone)
+        del gone
+        gc.collect()
+        assert dead() is None
+        cache = segment._PARTITION_IDS_CACHE.get()
+        key = (id(other), ("i", 2), ("i", 3))
+        cache[key] = (dead, ids_other)
+        ids_fresh = at.partition_ids(other, 2, 3)
+        assert ids_fresh is not ids_other
+
+        stale = np.array([1, 2], dtype=np.int64)
+        cache[key] = (weakref.ref(stale), ids_fresh)
+        ids_ok = at.partition_ids(other, 2, 3)
+        assert ids_ok is not ids_fresh
+        assert list(np.asarray(ids_ok)) == [0, 0, 1]
+
+
+class _Gone:
+    pass
+
+
+def _partition_ids_then_drop():
+    live = np.array([2, 1], dtype=np.int64)
+    wr = weakref.ref(live)
+    ids_live = at.partition_ids(live, 2, 3)
+    return wr, ids_live
+
+
+def test_partition_cache_strongref_when_weakref_fails(monkeypatch):
+    from anytensor import segment
+
+    def boom(*_args, **_kwargs):
+        raise TypeError("cannot create weak reference")
+
+    monkeypatch.setattr(segment.weakref, "ref", boom)
+    parts = np.array([2, 1], dtype=np.int64)
+    with at.partition_cache():
+        ids_a = at.partition_ids(parts, 2, 3)
+        ids_b = at.partition_ids(parts, 2, 3)
+        assert ids_a is ids_b
+        pin = segment._StrongRef(parts)
+        assert pin() is parts
 
 
 def test_normalize_shape_dim_and_promote_shape_roles():

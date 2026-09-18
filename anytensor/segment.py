@@ -7,10 +7,11 @@ Empty-segment identities are standardized in :mod:`anytensor.semantics`
 Python int, a jit/compile symbolic constant, or a 0-d tensor scalar — never
 inferred from ``segment_ids``. The same rule applies to ``sum_partitions`` on
 :func:`partition_softmax`. Partition helpers rebuild ``segment_ids`` on every
-call (fine under a compiler CSE, extra work eagerly) — call
-:func:`partition_ids` once and reuse with :func:`segment_softmax`, or skip
-the helper when you already have ids. There is no ``partition_sum`` /
-``partition_min`` family.
+call (fine under a compiler CSE, extra work eagerly). Wrap a block in
+:func:`partition_cache` and :func:`partition_softmax` / :func:`partition_ids`
+reuse the same expansion; or call :func:`partition_ids` once and pass ids to
+:func:`segment_softmax`. There is no ``partition_sum`` / ``partition_min``
+family.
 
 TorchScript: :func:`enable_torchscript` wraps ``segment_sum`` / ``min`` /
 ``max`` with a ``torch.jit.is_scripting()`` divert. Import order does not
@@ -22,6 +23,7 @@ matter: a :func:`module_if_loaded` helper enables the divert as soon as
 
 from __future__ import annotations
 
+import weakref
 from contextlib import contextmanager
 from contextvars import ContextVar
 
@@ -449,24 +451,63 @@ def _size_cache_key(value):
     return ("o", id(value))
 
 
+class _StrongRef:
+    """Pin ``obj`` when it cannot take a :class:`weakref.ref`."""
+
+    __slots__ = ("_obj",)
+
+    def __init__(self, obj):
+        self._obj = obj
+
+    def __call__(self):
+        return self._obj
+
+
 @contextmanager
 def partition_cache():
-    """Reuse :func:`partition_ids` results for the same tensors in this block.
+    """Reuse partition→segment-id expansions for the same tensors in this block.
 
     Graph helpers often expand the same ``n_node`` / ``n_edge`` vector more
     than once in a call. A process-wide ``id()`` cache is wrong (unhashable
-    tensors, in-place edits, tracers). This context is opt-in, reentrant, and
-    drops the map on exit. :func:`~anytensor.jraph.GraphNetwork` enters one
-    per apply so those repeats hit.
+    tensors, in-place edits, tracers). This context is opt-in and reentrant.
+    Entries are weak: when the partition tensor is collected, the cached ids
+    drop; the map is also cleared on exit so it does not pin. Partition
+    helpers (:func:`partition_ids`, :func:`partition_softmax`) consult it
+    automatically — callers do not thread ids through the stack.
+    :func:`~anytensor.jraph.GraphNetwork` enters one per apply.
     """
     if _PARTITION_IDS_CACHE.get() is not None:
         yield
         return
-    token = _PARTITION_IDS_CACHE.set({})
+    cache: dict = {}
+    token = _PARTITION_IDS_CACHE.set(cache)
     try:
         yield
     finally:
+        cache.clear()
         _PARTITION_IDS_CACHE.reset(token)
+
+
+def _cache_lookup(cache, partitions, n_part, total):
+    key = (id(partitions), _size_cache_key(n_part), _size_cache_key(total))
+    hit = cache.get(key)
+    if hit is not None:
+        held_ref, ids = hit
+        if held_ref() is partitions:
+            return key, ids
+        cache.pop(key, None)
+    return key, None
+
+
+def _cache_store(cache, key, partitions, ids):
+    def _drop(_ref, cache=cache, key=key):
+        cache.pop(key, None)
+
+    try:
+        held_ref = weakref.ref(partitions, _drop)
+    except TypeError:
+        held_ref = _StrongRef(partitions)
+    cache[key] = (held_ref, ids)
 
 
 def partition_ids(
@@ -476,26 +517,26 @@ def partition_ids(
 ) -> IntArray:
     """Expand partition lengths to segment ids (``[0,0,…,1,1,…,n-1]``).
 
-    This is the conversion :func:`partition_softmax` does internally. Call it
-    **once** and reuse the ids with :func:`segment_softmax` / ``segment_*``,
-    or wrap a graph apply in :func:`partition_cache`. Both sizes are required
-    shape-sizes (JAX convention): ``num_segments`` is
+    This is the conversion :func:`partition_softmax` does internally. Both
+    sizes are required shape-sizes (JAX convention): ``num_segments`` is
     ``shape(partitions)[0]``; ``sum_partitions`` is the flattened length
     (``shape(logits)[0]``, not a data ``sum(partitions)``).
+
+    Outside :func:`partition_cache`, every call rebuilds ids. Inside the
+    cache, the same ``partitions`` tensor (and sizes) returns the previous
+    ids until the tensor is collected or the block exits.
     """
     n_part = _normalize_shape_dim(num_segments)
     total = _normalize_shape_dim(sum_partitions)
     cache = _PARTITION_IDS_CACHE.get()
+    key = None
     if cache is not None:
-        key = (id(partitions), _size_cache_key(n_part), _size_cache_key(total))
-        hit = cache.get(key)
-        if hit is not None:
-            held, ids = hit
-            if held is partitions:
-                return ids
+        key, cached = _cache_lookup(cache, partitions, n_part, total)
+        if cached is not None:
+            return cached
     ids = repeat(arange(n_part, like=partitions), partitions, total_repeat_length=total)
     if cache is not None:
-        cache[key] = (partitions, ids)
+        _cache_store(cache, key, partitions, ids)
     return ids
 
 
@@ -508,10 +549,12 @@ def partition_softmax(
     """Softmax within contiguous partitions of lengths ``partitions``.
 
     Convenience: :func:`partition_ids` then :func:`segment_softmax`. **Ids are
-    rebuilt on every call** — a compiler may CSE that, eager will not. If you
-    already have ids, or you softmax the same partitions more than once, call
-    :func:`partition_ids` once (or :func:`segment_softmax` with existing ids).
-    This is not a pattern to grow (no ``partition_sum`` / ``partition_min``).
+    rebuilt on every call** unless a :func:`partition_cache` is active — then
+    this helper reuses the cached expansion for the same tensors (eager graph
+    code should wrap an apply in that context). A compiler may CSE the
+    rebuild; eager will not. If you already have ids, call
+    :func:`segment_softmax`. This is not a pattern to grow (no
+    ``partition_sum`` / ``partition_min``).
 
     Args:
         logits: Scores aligned with the flattened partitions (length

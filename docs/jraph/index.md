@@ -72,8 +72,8 @@ static sizes (`n_graph >= 2`). Masks and `zero_out_padding` ignore the dummy.
 optional softmax attention). Thin wrappers match jraph:
 `InteractionNetwork`, `GraphMapFeatures`, `RelationNetwork`, `DeepSets`,
 `GraphNetGAT`, `GAT`, `GraphConvolution`. Each apply enters
-`partition_cache()` so expanding the same `n_node` / `n_edge` vector is done
-once.
+`partition_cache()` so `partition_ids` / expanding the same `n_node` /
+`n_edge` vector is done once (weakrefs; callers do not thread segment ids).
 
 Segment helpers on this module still require `num_segments` (AnyTensor
 contract). `unique_indices` is accepted and ignored.

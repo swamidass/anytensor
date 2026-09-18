@@ -156,11 +156,15 @@ by design (see below).
 
 `partition_softmax` is a convenience, not a family: it rebuilds `segment_ids`
 on every call (`partition_ids` = `arange` + `repeat`). A compiler may CSE
-that; eager will not. Call `partition_ids` once, or wrap a block in
-`partition_cache()` (reentrant; GraphNetwork enters one per apply). Do not
-add `partition_sum` / `partition_min` / `partition_max`. There is no
-process-wide `id()` / weakref cache: tensors are unhashable, in-place edits
-would stale the ids, and tracers wrap a new object every compile.
+that; eager will not. JAX keeps both sizes required so omitting an optional
+cannot silently become `sum(partitions)`. Inside `partition_cache()`
+(reentrant; GraphNetwork enters one per apply), `partition_softmax` and
+`partition_ids` reuse the same tensor's expansion via weakrefs — the cache
+does not pin, and GC drops the ids. Call `partition_ids` once yourself if you
+are outside that block. Do not add `partition_sum` / `partition_min` /
+`partition_max`. There is no process-wide cache: tensors are unhashable,
+in-place edits would stale the ids, and tracers wrap a new object every
+compile.
 
 Allowed forms:
 
