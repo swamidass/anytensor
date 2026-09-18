@@ -517,6 +517,15 @@ def test_mean_empty_and_repeat_guards():
     assert list(np.asarray(tp)) == [1.0, 2.0, 3.0, 0.0, 0.0]
 
 
+def test_host_concrete_int_skips_non_python_int(monkeypatch):
+    """Autograph rewrites ``int(tensor)`` to a graph op; that must not look host-concrete."""
+    from anytensor import core as core_mod
+    from anytensor.core import _host_concrete_int
+
+    monkeypatch.setattr(core_mod, "int", lambda _x: object(), raising=False)
+    assert _host_concrete_int(3) is None
+
+
 def test_tensorflow_namespace_helpers():
     tf = pytest.importorskip("tensorflow")
     from anytensor.namespace import array_namespace

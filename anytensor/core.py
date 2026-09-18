@@ -658,19 +658,24 @@ def arange(start: Any, /, stop: Any = None, step: Any = 1, *, dtype: DtypeLike =
 
 
 def _leading_dim_is_concrete(size) -> bool:
-    try:
-        int(size)
-        return True
-    except (TypeError, ValueError):
-        return False
+    return _host_concrete_int(size) is not None
 
 
 def _host_concrete_int(value):
-    """Return ``int(value)`` when safe on the host; else ``None`` (tracing)."""
+    """Return ``int(value)`` when safe on the host; else ``None`` (tracing).
+
+    TF Autograph rewrites ``int(tensor)`` into a graph op, so a symbolic
+    size (``tf.shape(x)[0]`` stored in a length-1 count vector) must not
+    look like a Python int — that would take the eager ``repeat`` loop and
+    bake the partition total.
+    """
     try:
-        return int(value)
+        n = int(value)
     except (TypeError, ValueError):
         return None
+    if type(n) is not int:
+        return None
+    return n
 
 
 def _repeats_are_host_concrete(repeats) -> bool:

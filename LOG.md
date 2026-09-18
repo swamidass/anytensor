@@ -29,8 +29,11 @@
   `int()`s ranks; jraph GAT/GCN/GraphNetwork no longer read `.shape[0]`).
   Partition totals (`total_length` / jraph `sum_partitions` / GraphNetwork
   `sum_n_node` / `sum_n_edge`) are `at.shape` of the aligned tensor, not
-  `sum(partitions)` / `sum(n_node)`, so ONNX keeps a `dim_param`. A
+  `sum(partitions)` /   `sum(n_node)`, so ONNX keeps a `dim_param`. A
   single-graph `n_node` / `n_edge` vector is `full((1,), shape(x)[0])`.
+  Host size checks (`_host_concrete_int`) keep only Python `int`s so TF
+  Autograph cannot treat `int(tf.shape(x)[0])` as concrete and bake the
+  partition total in the eager `repeat` loop.
 
 ## 2026-09-16
 
