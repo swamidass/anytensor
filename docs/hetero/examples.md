@@ -1,11 +1,77 @@
 # Hetero examples
 
-These recipes assume a `HeteroGraphsTuple` graph `g` is already built.
-Pass learnable maps as callables (`lambda x: x @ W`, a module `__call__`,
-…); the library does not own parameters.
+Overview first if terms are unfamiliar: [Heterogeneous graphs](index.md)
+(node types, relations, directed edges, reverse relations). API:
+[Hetero API](api.md).
 
-Overview and term definitions: [Heterogeneous graphs](index.md).
-API: [Hetero API](api.md).
+Pass learnable maps as callables (`lambda x: x @ W`, module `__call__`, …);
+the library does not own parameters.
+
+## Build a small academic heterograph
+
+Three **node types** (`author`, `paper`, `institution`) and several
+**relations** (typed directed edges). Ids are local per type.
+
+```python
+import numpy as np
+from anytensor.hetero import HeteroGraphsTuple
+
+writes = ("author", "writes", "paper")
+written_by = ("paper", "written_by", "author")  # reverse of writes
+cites = ("paper", "cites", "paper")
+affil = ("author", "affiliated_with", "institution")
+employs = ("institution", "employs", "author")  # reverse of affiliated_with
+
+g = HeteroGraphsTuple(
+    nodes={
+        # author 0 Ada, 1 Bao, 2 Chen
+        "author": np.ones((3, 4), dtype=np.float32),
+        # paper 0 Graphs 101, 1 Hetero GNNs
+        "paper": np.ones((2, 8), dtype=np.float32),
+        # institution 0 MIT, 1 ETH
+        "institution": np.ones((2, 4), dtype=np.float32),
+    },
+    edges={
+        writes: None,
+        written_by: None,
+        cites: None,
+        affil: None,
+        employs: None,
+    },
+    senders={
+        writes: np.array([0, 1, 2]),          # Ada, Bao → Graphs 101; Chen → Hetero
+        written_by: np.array([0, 0, 1]),
+        cites: np.array([1]),                 # Hetero GNNs cites Graphs 101
+        affil: np.array([0, 1, 2]),           # Ada,Bao→MIT; Chen→ETH
+        employs: np.array([0, 0, 1]),
+    },
+    receivers={
+        writes: np.array([0, 0, 1]),
+        written_by: np.array([0, 1, 2]),
+        cites: np.array([0]),
+        affil: np.array([0, 0, 1]),
+        employs: np.array([0, 1, 2]),
+    },
+    n_node={
+        "author": np.array([3]),
+        "paper": np.array([2]),
+        "institution": np.array([2]),
+    },
+    n_edge={
+        writes: np.array([3]),
+        written_by: np.array([3]),
+        cites: np.array([1]),
+        affil: np.array([3]),
+        employs: np.array([3]),
+    },
+)
+assert set(g.nodes) == {"author", "paper", "institution"}
+assert ("author", "writes", "paper") in g.n_edge
+```
+
+`writes` alone would update papers from authors. `written_by` and `employs`
+are the reverse relations so authors (and the author←institution channel)
+can update too — see [Direction](index.md#direction-messages-follow-the-arrow).
 
 ## Per-relation attention (kernel)
 
