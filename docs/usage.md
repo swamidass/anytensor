@@ -91,11 +91,12 @@ Einops (`rearrange`, `einsum`, `reduce`, …) is re-exported for convenience.
 
 `partition_softmax(logits, partitions, num_segments, sum_partitions)` is a
 convenience over `partition_ids` + `segment_softmax`. Both sizes are required
-shape-sizes (JAX convention; `num_segments` matches `segment_softmax`). It
-rebuilds `segment_ids` on **every** call unless you wrap the block in
-`partition_cache()` — then `partition_softmax` consults the cache itself, so
-graph code does not thread ids through the stack. A compiler may CSE the
-rebuild; eager will not. Entries are weak (GC drops them; the context does
+shape-sizes (JAX convention; `num_segments` matches `segment_softmax`).
+Dropping either, or passing `None`, is a `TypeError` — not a silent
+`sum(partitions)`. It rebuilds `segment_ids` on **every** call unless you wrap
+the block in `partition_cache()` — then `partition_softmax` consults the cache
+itself, so graph code does not thread ids through the stack. A compiler may CSE
+the rebuild; eager will not. Entries are weak (GC drops them; the context does
 not pin). Use `segment_softmax` if you already have ids. There is no
 process-wide `id()` cache.
 
