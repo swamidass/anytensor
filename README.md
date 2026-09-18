@@ -50,7 +50,7 @@ Read next:
 - [Hetero](docs/hetero/index.md) — heterographs, attention, model zoo + citations
 - [Tree](docs/tree/index.md) — nest helpers (pure Python + NumPy) for graphs and any structured record
 - [Design](docs/design.md) — principles, edge cases, **testing as contract**, SemVer
-- [Usage](docs/usage.md) — promotion, segment helpers, `torch.compile`, typing
+- [Usage](docs/usage.md) — promotion, [caller rules](docs/usage.md#caller-rules), `torch.compile`, typing
 - [ONNX](docs/onnx/index.md) — recommended deploy path (ORT); `anytensor.export` recipes (Flax / Lightning / Keras, symbolic lengths)
 - [Surprising differences](docs/semantics.md) — NaN / ±inf / graph / GPU gotchas from fuzz
 - [API reference](docs/api/index.md) — generated from docstrings

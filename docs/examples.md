@@ -204,7 +204,8 @@ np.testing.assert_allclose(np.asarray(out_xla), out_np)
 | `torch.export` | Wrap the helper in `nn.Module.forward` (bare functions are rejected) |
 | ONNX (recommended; ORT) | `from anytensor import export`; `at.shape(x)[0]` for lengths; embed weights as `nn.Parameter` or in-trace TF constants — [ONNX](onnx/index.md) |
 
-See also [Usage](usage.md) and [Surprising differences](semantics.md).
+See also [Usage](usage.md) ([caller rules](usage.md#caller-rules)) and
+[Surprising differences](semantics.md).
 GraphsTuple / GraphNetwork recipes: [Jraph examples](jraph/examples.md).
 Nest helpers: [Tree examples](tree/examples.md).
 

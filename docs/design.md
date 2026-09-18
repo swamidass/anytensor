@@ -17,7 +17,8 @@ compile recipes, see [Worked examples](examples.md).
 6. Prefer `torch.compile` over deprecated TorchScript; portable helpers need `fullgraph=False`.
 
 That is the design: a small set of hard contracts, and clear warnings everywhere
-else.
+else. Library-consumer do/don't (shape-sizes, partition totals, cache, export):
+[Usage → Caller rules](usage.md#caller-rules).
 
 ---
 
@@ -147,6 +148,8 @@ by design (see below).
 
 ### 5. Shape-sizes are required and stay static-friendly
 
+Caller-facing list: [Usage → Caller rules](usage.md#caller-rules).
+
 `num_segments` is **always required** on segment ops (JAX convention). We
 do **not** infer `max(ids)+1`. `total_length` on partition helpers is
 the same kind of required shape-size (`shape(logits)[0]`, not a data
@@ -158,31 +161,17 @@ uses `shape(nodes)[0]` / `shape(senders)[0]` for the official `sum_n_node` /
 data-dependent.
 
 `partition_softmax` is a convenience, not a family: it calls
-`partition_ids` (`arange` + `repeat`) then `segment_softmax`.
-`partition_ids` is the only partition helper that talks to the cache;
-other partition functions call it so a hit is shared. A compiler may CSE
-the rebuild; eager will not. JAX keeps `total_length` required so dropping an
-optional cannot silently become data-dependent (`sum(partitions)`);
-passing `None` is a `TypeError`, not that fallback. `@cache` on a
-library apply (GraphNetwork) is **sticky** so stacked applies reuse
-`n_node` / `n_edge` expansions; `with cache():` is a scoped block;
-`cache.enable()` / `disable()` turns the cache on or off;
-`cache.purge("partition", partitions)` drops one tensor. The cache is a
-dict of dicts (`cache["partition"]` holds the ids map) so later helpers can
-add other namespaces the same way. `partition_ids` reuses
-the same tensor's expansion via weakrefs — the cache does not pin, GC drops
-the ids, and callbacks hold only a weakref to the namespace map — that avoids a
-callback→map→entry loop that would pin ids for the life of the tensor. If a
-cached expansion's length does not match `total_length` (both host Python ints),
-that entry is purged, a warning is issued, and ids are recomputed. Under tracing
-the lengths are not Python ints, so the check is skipped. One cache entry per
-partition vector: `shape(ids)[0]` *is* the flattened total (`shape(logits)[0]`);
-do not cache a separate `sum(partitions)` — on ONNX export it is a `dim_param`
-of the ids tensor. Call
-`partition_ids` once yourself if you are outside that block. Do not add
-`partition_sum` / `partition_min` / `partition_max`. There is no
-process-wide cache: tensors are unhashable, in-place edits would stale the
-ids, and tracers wrap a new object every compile.
+`partition_ids` (`arange` + `repeat`) then `segment_softmax`. JAX keeps
+`total_length` required so dropping an optional cannot silently become
+data-dependent (`sum(partitions)`); passing `None` is a `TypeError`, not
+that fallback. Do not add `partition_sum` / `partition_min` /
+`partition_max`. A compiler may CSE a rebuild of ids; eager will not.
+
+The cache is opt-in (forms and namespaces: [Caller rules](usage.md#caller-rules)).
+Entries are weak: GC drops them, and callbacks hold only a weakref to the
+namespace map so a long-lived tensor cannot pin the block. There is no
+process-wide cache because tensors are unhashable, in-place edits would
+stale the ids, and tracers wrap a new object every compile.
 
 Allowed forms:
 

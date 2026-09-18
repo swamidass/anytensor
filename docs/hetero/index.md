@@ -24,7 +24,9 @@ rate movies. [DGL](https://www.dgl.ai/)’s
 pattern — **per-relation message + reduce**, then an explicit
 **cross-relation fuse** — is the portable core. This module follows that
 shape on AnyTensor primitives (`take`, `segment_*`, optional
-`segment_softmax` attention).
+`segment_softmax` attention). Destination sizes are shape-sizes
+(`at.shape(nodes)[0]`, never `int(shape)` under tracing) — see
+[Usage → Caller rules](../usage.md#caller-rules).
 
 Nested features use [`anytensor.tree`](../tree/index.md). Batching is
 `tree.batch` / `tree.unbatch` via `HeteroGraphsTuple.__tree_batch__`

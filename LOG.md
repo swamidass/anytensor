@@ -2,6 +2,11 @@
 
 ## 2026-09-18
 
+- Docs: scannable library-consumer contracts on
+  [Usage → Caller rules](docs/usage.md#caller-rules) (required shape-sizes,
+  partition totals from `at.shape` not data sums, opt-in cache / sticky
+  `@cache`, stacked GCN `cache["gcn"]`, opt-in `anytensor.export`). ONNX /
+  Jraph / Design / semantics / home / README point at that section.
 - ONNX recipes live in the opt-in `anytensor.export` subpackage (not in
   `anytensor.__all__`; `to_onnx_torch` / `to_onnx_tensorflow` /
   `numpy_leaves`). ONNX is the recommended deploy target (ORT is well

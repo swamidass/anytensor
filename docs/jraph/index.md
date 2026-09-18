@@ -68,6 +68,10 @@ static sizes (`n_graph >= 2`). Masks and `zero_out_padding` ignore the dummy.
 
 ## Models
 
+Caller contracts (required `num_segments` / `sum_partitions`, GraphNetwork
+totals from `at.shape`, sticky `@cache`, stacked GCN structure):
+[Usage → Caller rules](../usage.md#caller-rules).
+
 `GraphNetwork` follows Battaglia et al. (sender and receiver aggregations,
 optional softmax attention). Thin wrappers match jraph:
 `InteractionNetwork`, `GraphMapFeatures`, `RelationNetwork`, `DeepSets`,

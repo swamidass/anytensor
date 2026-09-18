@@ -75,6 +75,91 @@ tensors) so `jax.jit` / `tf.function` / `torch.compile` can treat them as static
 | Zero-copy impossible | `fallback="copy"` (warn) or `"error"` |
 | Mutating host buffer | `@promote(..., copy=True)` or `promote_options(copy=True)` |
 
+## Caller rules
+
+Contracts for library authors writing on AnyTensor. These stay portable under
+`jax.jit` / `tf.function` / `torch.compile` / ONNX. Why they exist:
+[Design](design.md#5-shape-sizes-are-required-and-stay-static-friendly).
+Backend surprises: [Surprising differences](semantics.md).
+
+### Shape-sizes
+
+| Do | Don't |
+|---|---|
+| Pass `num_segments` on every **segment** op | Infer `max(ids)+1`, omit, or pass `None` |
+| Read lengths with `at.shape(x)[0]` | `int(x.shape[0])` / `int(at.shape(x)[0])` under tracing |
+| Leave Python ints as Python ints | Wrap a size into a 0-d tensor yourself |
+
+Kind `shape` is a Python `int`, a jit symbolic constant, or a 0-d integral
+tensor. Omitting a required size, or passing `None`, is a `TypeError`.
+
+### Partition helpers
+
+There is no `partition_sum` / `partition_min` / `partition_max`. Partition
+softmax is `partition_ids` then `segment_softmax`.
+
+| Do | Don't |
+|---|---|
+| `total_length=at.shape(logits)[0]` (required) | `sum(partitions)`, omit, or `None` |
+| Treat `num_segments` as `shape(partitions)[0]` — not an argument | Pass `num_segments=` to partition helpers |
+| jraph: 3rd positional `sum_partitions` is that alias | Data-sum the count vector |
+| GraphNetwork: `sum_n_node = shape(nodes)[0]`, `sum_n_edge = shape(senders)[0]` | `sum(n_node)` / `sum(n_edge)` |
+| Single-graph counts: `at.full((1,), at.shape(x)[0], dtype=np.int32, like=x)` | Host `int(N)` fill that bakes on export |
+
+On ONNX those totals are `dim_param`s (`Shape` of the aligned tensor), not
+`ReduceSum` of the partition vector.
+
+### Cache
+
+Off by default. Opt in; entries are weak (GC drops them; the cache does not
+pin). There is no process-wide `id()` cache: tensors are unhashable, in-place
+edits would stale ids, and tracers wrap a new object every compile.
+
+| Form | Behavior |
+|---|---|
+| `@cache` on a callable | **Sticky** `enable()` — later calls reuse the map (GraphNetwork / GraphConvolution apply) |
+| `with cache():` | Scoped; drops on exit unless sticky |
+| `cache.enable()` / `disable()` | Turn the cache on or off |
+| `cache.purge("partition", tensor)` | Drop one tensor from one namespace |
+
+`at.cache` is a dict of dicts. `partition_ids` is the only partition helper
+that talks to `cache["partition"]`: **one expansion per partition vector**;
+`shape(ids)[0]` *is* the flattened total (no separate `sum(partitions)` map).
+Other partition helpers call `partition_ids`, so a hit is shared. If a cached
+expansion's length does not match `total_length` (both host Python ints), that
+entry is purged, a warning is issued, and ids are recomputed. Under tracing
+the lengths are not Python ints, so the check is skipped.
+
+`GraphConvolution` stores self-edges / `N` / degrees at `cache["gcn"]` so a
+stacked GCN (and its ONNX graph) does not duplicate `Shape` / `Range` /
+`Concat` per layer. Per-layer `MatMul` still appears once per apply.
+
+```python
+import anytensor as at
+import numpy as np
+
+logits = np.array([1.0, 2.0, 3.0])
+partitions = np.array([2, 1])
+total_length = at.shape(logits)[0]
+other_logits = logits * 2
+
+with at.cache():
+    y = at.partition_softmax(logits, partitions, total_length)
+    z = at.partition_softmax(other_logits, partitions, total_length)
+```
+
+### Export
+
+Opt-in `anytensor.export` is a recipe, not a stable library API (not in
+`anytensor.__all__`). Details: [ONNX](onnx/index.md).
+
+| Do | Don't |
+|---|---|
+| `from anytensor import export` | Treat export helpers as a frozen public contract |
+| Keep lengths as `at.shape` so ONNX gets `dim_param`s | Python ints or data sums that bake `N` |
+| Embed weights (`as_torch_module` / Lightning `nn.Parameter`, or `as_tensorflow_fn`) | Extra feeds, outer `tf.constant`, or `jax2tf` |
+| Stack GraphNetwork / GraphConvolution under `@cache` | Expect a fresh partition / GCN structure subgraph per layer |
+
 ## Segment helpers
 
 | Function | Role |
@@ -89,36 +174,9 @@ tensors) so `jax.jit` / `tf.function` / `torch.compile` can treat them as static
 
 Einops (`rearrange`, `einsum`, `reduce`, …) is re-exported for convenience.
 
-`partition_softmax(logits, partitions, total_length)` is a convenience over
-`partition_ids` + `segment_softmax`. `num_segments` is not an argument — it is
-`shape(partitions)[0]`. `total_length` is a required shape-size
-(`shape(logits)[0]`). Dropping it, or passing `None`, is a `TypeError` — not a
-silent `sum(partitions)`. On ONNX export that total is a `dim_param`
-(`Shape` of the aligned tensor), not a `ReduceSum` of the partition vector.
-It calls `partition_ids` then `segment_softmax`.
-`partition_ids` is the only partition helper that talks to the cache:
-wrap the apply in `@cache` (sticky: later calls reuse the map),
-`with cache():` (scoped), or `cache.enable()` / `disable()`. One cache
-entry per partition vector; `shape(ids)[0]` is the flattened total.
-Every partition helper
-shares `cache["partition"]`, so graph code does not thread ids through the stack.
-If a cached expansion's length does not match `total_length` (both host Python
-ints), that entry is purged, a warning is issued, and ids are recomputed.
-Under tracing the lengths are not Python ints, so the check is skipped. A compiler
-may CSE the rebuild; eager will not. Entries are weak (GC drops them; the
-context does not pin). Callbacks hold only a weakref to the namespace map so a
-long-lived tensor cannot keep the block alive. Use `segment_softmax` if you
-already have ids. `@cache` / `enable()` opt in; entries are weak. There is no
-always-on process-wide `id()` cache.
-
-```python
-with at.cache():
-    y = at.partition_softmax(logits, partitions, total_length)
-    z = at.partition_softmax(other_logits, partitions, total_length)
-```
-
-Under `jax.jit`, `total_length` must be a static-friendly shape-size
-(`shape(logits)[0]`, or a Python int). See [Surprising differences](semantics.md).
+`partition_softmax` is `partition_ids` + `segment_softmax`. Use
+`segment_softmax` if you already have ids. Caller contracts (required
+`total_length`, cache forms, ONNX `dim_param`s): [Caller rules](#caller-rules).
 
 ## Torch compile / export
 
@@ -145,7 +203,8 @@ engine. AnyTensor does not run ops on ORT. The recipes live in the opt-in
 `anytensor.export` subpackage (not in `anytensor.__all__`, not a stable
 library API). Export the **same** AnyTensor function after it is running on
 Torch or TensorFlow tensors. Derive `num_segments` from `at.shape(nodes)[0]`
-so `N` stays symbolic.
+so `N` stays symbolic. Do/don't for lengths, weights, and stacked graphs:
+[Caller rules](#export).
 
 ```python
 from anytensor import export

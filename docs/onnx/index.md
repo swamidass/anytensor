@@ -14,6 +14,8 @@ another ONNX runner) can serve it.
 Symbolic lengths come from tensor shapes (`at.shape(x)[0]`), not from Python
 ints. Learned weights must land in `graph.initializer`, not as extra feeds —
 use `export.as_torch_module(fn, params)` / `export.as_tensorflow_fn`.
+Library-consumer contracts (required sizes, partition totals, cache, stacked
+GCN/GN): [Usage → Caller rules](../usage.md#caller-rules).
 
 ```python
 from anytensor import export
@@ -52,6 +54,8 @@ Then tell the exporter those axes are dynamic:
 instead of an initializer.
 
 ### Partition totals
+
+Caller list: [Usage → Partition helpers](../usage.md#partition-helpers).
 
 Official jraph names the flattened length `sum_partitions` / uses
 `sum(n_node)`. A data `sum(partitions)` becomes `ReduceSum` in ONNX

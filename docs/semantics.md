@@ -4,7 +4,8 @@ Cross-backend and symbolic fuzz turned up several places where frameworks
 disagree, or where a “native” op looks right until you hit NaN, ±inf, or
 `jit` / `tf.function`. AnyTensor **standardizes** some of these; others stay
 **backend-local**. The machine-readable contract lives in
-[`anytensor.semantics`](api/semantics_api.md).
+[`anytensor.semantics`](api/semantics_api.md). Required sizes, partition
+totals, cache, and export: [Usage → Caller rules](usage.md#caller-rules).
 
 ## What we standardize
 
