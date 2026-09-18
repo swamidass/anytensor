@@ -478,6 +478,9 @@ def partition_ids(
     ``total_length`` (in-place edit of a 0-d size, or a stale entry),
     that entry is purged, a warning is issued, and ids are recomputed.
     The length check uses host Python ints only; tracing skips it.
+    There is no separate cache of ``sum(partitions)``: the ids'
+    leading size *is* that total (``shape(logits)[0]``), and on ONNX
+    export it stays a ``dim_param``.
     Passing ``None`` for ``total_length`` is a ``TypeError``.
     """
     n_part = shape(partitions)[0]

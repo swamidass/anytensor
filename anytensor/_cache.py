@@ -159,7 +159,9 @@ class _Cache:
     functions call ``partition_ids`` so a cache hit is shared. If a
     cached expansion's length does not match ``total_length`` (host
     Python ints), that entry is purged, a warning is issued, and ids
-    are recomputed; tracing skips the check.
+    are recomputed; tracing skips the check. The ids' leading size
+    *is* the partition total — there is no separate ``sum(partitions)``
+    cache; on export that length is a ``dim_param``.
     Callers do not thread ids through the stack.
     :func:`~anytensor.jraph.GraphNetwork` is decorated so stacked applies
     reuse ``n_node`` / ``n_edge`` expansions.

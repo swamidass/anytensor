@@ -33,7 +33,9 @@
   single-graph `n_node` / `n_edge` vector is `full((1,), shape(x)[0])`.
   Host size checks (`_host_concrete_int`) keep only Python `int`s so TF
   Autograph cannot treat `int(tf.shape(x)[0])` as concrete and bake the
-  partition total in the eager `repeat` loop.
+  partition total in the eager `repeat` loop. The cached ids' leading
+  size *is* the partition total; there is no separate `sum(partitions)`
+  map.
 
 ## 2026-09-16
 
