@@ -2,6 +2,9 @@
 
 ## 2026-09-18
 
+- Docs: GraphNetwork does not pick a cache key (`partition_ids` keys by
+  `n_node` / `n_edge`); users follow with `@cache` on apply. Hetero does
+  not expand partitions / does not write the cache.
 - Docs: scannable library-consumer contracts on
   [Usage → Caller rules](docs/usage.md#caller-rules) (required shape-sizes,
   partition totals from `at.shape` not data sums, opt-in cache / sticky

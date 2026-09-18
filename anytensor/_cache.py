@@ -164,7 +164,10 @@ class _Cache:
     is issued, and ids are recomputed; tracing skips the check.
     Callers do not thread ids through the stack.
     :func:`~anytensor.jraph.GraphNetwork` is decorated so stacked applies
-    reuse ``n_node`` / ``n_edge`` expansions.
+    reuse ``n_node`` / ``n_edge`` expansions. It does not pick a key —
+    :func:`~anytensor.partition_ids` does (``id`` of the partition vector).
+    Hetero message passing does not expand partitions and does not write
+    this cache.
 
     Tensor-keyed namespaces use ``key[0] == id(obj)`` so :meth:`purge` can
     drop every entry for one object.

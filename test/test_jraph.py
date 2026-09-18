@@ -202,6 +202,40 @@ def test_graph_network_cache_carries_across_applies(monkeypatch):
     assert repeats["n"] == 2 * n_first
 
 
+def test_graph_network_cache_keys_are_partition_tensor_ids():
+    """GN enables the cache; partition_ids keys by n_node / n_edge, not the graph."""
+    g1, g2 = _toy_graphs()
+    graph = atj.batch([g1, g2])
+    net = atj.GraphNetwork(
+        update_edge_fn=lambda e, s, r, g: e,
+        update_node_fn=lambda n, s, r, g: n,
+        update_global_fn=lambda n, e, g: g,
+    )
+    net(graph)
+    ns = at.cache["partition"]
+    keys = set(ns)
+    assert (id(graph.n_node),) in keys
+    assert (id(graph.n_edge),) in keys
+    assert (id(graph),) not in keys
+    net(graph)
+    assert set(ns) == keys
+
+
+def test_user_cache_decorator_follows_graph_network_keying():
+    parts = np.array([2, 1], dtype=np.int64)
+
+    @at.cache
+    def my_apply(partitions, total):
+        a = at.partition_ids(partitions, total)
+        b = at.partition_ids(partitions, total)
+        return a, b
+
+    first, second = my_apply(parts, 3)
+    assert first is second
+    assert (id(parts),) in at.cache["partition"]
+    assert (id(first),) not in at.cache["partition"]
+
+
 def test_graph_convolution_cache_reuses_self_edges(monkeypatch):
     from anytensor.jraph import models as jmodels
 
@@ -217,6 +251,7 @@ def test_graph_convolution_cache_reuses_self_edges(monkeypatch):
     layer = atj.GraphConvolution(update_node_fn=lambda n: n, add_self_edges=True)
     layer(g1)
     assert counts["n"] == 1
+    assert (id(g1.senders), True, True) in at.cache["gcn"]
     layer(g1)
     assert counts["n"] == 1
     at.cache.disable()

@@ -72,8 +72,11 @@ def GraphNetwork(
     Follows Algorithm 1 of https://arxiv.org/abs/1806.01261, with separate
     sender/receiver aggregations and optional softmax attention. Same call
     signature as :func:`jraph.GraphNetwork`. Apply is decorated with
-    :data:`~anytensor.cache` (sticky): stacked calls reuse ``n_node`` /
-    ``n_edge`` expansions via :func:`~anytensor.partition_ids`.
+    :data:`~anytensor.cache` (sticky) so stacked calls reuse ``n_node`` /
+    ``n_edge`` expansions. GraphNetwork does not pick a cache key:
+    :func:`~anytensor.partition_ids` keys ``cache["partition"]`` by
+    ``id(n_node)`` / ``id(n_edge)``. Callers follow the same pattern with
+    ``@cache`` on their apply.
 
     Flattened totals (official ``sum_n_node`` / ``sum_n_edge``) are
     :func:`~anytensor.shape` of the node / sender axis — not
@@ -364,9 +367,10 @@ def GraphConvolution(
 ):
     """GCN layer (Kipf & Welling). No activation after aggregation.
 
-    Apply is decorated with :data:`~anytensor.cache` (sticky): stacked calls
-    reuse self-edges, node count, and degree vectors so ONNX does not
-    duplicate ``Shape`` / ``Range`` / ``Concat`` for the same ``n_node``.
+    Apply is decorated with :data:`~anytensor.cache` (sticky). Structure
+    (self-edges / ``N`` / degrees) is stored at ``cache["gcn"]`` keyed by
+    ``(id(senders), add_self_edges, symmetric_normalization)`` so stacked
+    applies and ONNX do not duplicate ``Shape`` / ``Range`` / ``Concat``.
     """
 
     @cache

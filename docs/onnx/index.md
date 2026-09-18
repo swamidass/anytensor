@@ -90,8 +90,10 @@ The same file also exports the **model zoos** as a TF/ONNX stress test:
 GraphNetGAT, GAT, GraphConvolution). Those layers take destination sizes from
 `at.shape`, not `int(shape(...))`, so node/edge axes stay `dim_param`s.
 GraphNetwork apply is `@cache` (sticky), so `partition_ids` reuses the same `n_node` /
-`n_edge` expansion across stacked applies and during the TF trace. Partition
+`n_edge` expansion across stacked applies and during the TF trace (GN does not
+pick a key; the key is `id(n_node)` / `id(n_edge)`). Partition
 flattened length is `shape(nodes)[0]` / `shape(logits)[0]`, never a data
 `sum(n_node)`. Stacked `GraphConvolution` reuses self-edges, `N`, and degrees
-(`cache["gcn"]`) so the ONNX graph does not duplicate `Shape` / `Range` /
-`Concat` per layer.
+(`cache["gcn"]`, keyed by senders + flags) so the ONNX graph does not duplicate
+`Shape` / `Range` / `Concat` per layer. Hetero zoo layers do not expand
+partitions; dest size is `shape(dst_nodes)[0]`.

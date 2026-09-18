@@ -130,9 +130,41 @@ expansion's length does not match `total_length` (both host Python ints), that
 entry is purged, a warning is issued, and ids are recomputed. Under tracing
 the lengths are not Python ints, so the check is skipped.
 
-`GraphConvolution` stores self-edges / `N` / degrees at `cache["gcn"]` so a
-stacked GCN (and its ONNX graph) does not duplicate `Shape` / `Range` /
-`Concat` per layer. Per-layer `MatMul` still appears once per apply.
+#### Who sets the key
+
+GraphNetwork does **not** invent a graph-level key. `@cache` on apply only
+calls `enable()` (sticky). Keys are written by `partition_ids` when GN
+expands the same `n_node` / `n_edge` vectors (`_repeat_by`, global
+aggregation). Stacked `net(g)` hits because those count vectors are
+unchanged; node/edge **features** are new each layer and are not the key.
+
+| Helper | Namespace | Key | Who writes it |
+|---|---|---|---|
+| GraphNetwork / `partition_softmax` | `"partition"` | `(id(partitions),)` | `partition_ids` |
+| GraphConvolution structure | `"gcn"` | `(id(senders), add_self_edges, symmetric_normalization)` | GCN apply (self-edges / `N` / degrees) |
+| Hetero `multi_update_all` / zoo | — | — | Nothing. Dest size is `shape(dst_nodes)[0]`; incidence is already `senders` / `receivers`. No `partition_ids`. |
+
+Follow GraphNetwork in your own helper the same way: decorate apply, then
+call `partition_ids` (or GN / GCN). Do not key by the `GraphsTuple`.
+
+```python
+@at.cache
+def my_apply(graph):
+    total = at.shape(graph.nodes)[0]
+    return at.partition_ids(graph.n_node, total)  # key is id(graph.n_node)
+```
+
+`GraphConvolution` adds a second namespace because self-edges / degrees are
+**derived** (`arange` + `concat`), not a partition expansion. Per-layer
+`MatMul` still appears once per apply. That lookup/store helper is
+library-internal; for a custom derived tensor, subscript `cache["name"]`
+while the cache is on and start the key with `id(obj)` so
+`cache.purge("name", obj)` can drop it.
+
+Hetero layers are **plain functions**, not `@cache` factories. Wrapping a
+stack in `@cache` is harmless but empty unless a `message_fn` also calls
+`partition_ids`. Batch/unbatch still data-sum `n_node` for offsets (eager,
+like jraph pad) — that is not the apply path.
 
 ```python
 import anytensor as at

@@ -62,6 +62,14 @@ at each destination node. `stack` yields shape
 `(n_dst, n_relations, …)` in etype-dict insertion order — used when a model
 needs to attend **across relations** (see HAN below).
 
+Unlike GraphNetwork, hetero apply does **not** call `partition_ids` and is
+not `@cache`. Destination `num_segments` is `at.shape(dst_nodes)[0]` (a
+shape-size). `n_node` / `n_edge` maps are for batch/pad, not for expanding
+ids at message-passing time — incidence is already `senders` / `receivers`
+per etype. Wrapping a stacked R-GCN / HAN in `@cache` only matters if a
+`message_fn` also expands partitions. See
+[Usage → Cache keys](../usage.md#who-sets-the-key).
+
 Per-relation attention matches the optional attention path on homo
 [`GraphNetwork`](../jraph/index.md) (same `segment_softmax` idea as
 [Graph Attention Networks](https://arxiv.org/abs/1710.10903) / GAT). That

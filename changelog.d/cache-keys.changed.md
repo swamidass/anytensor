@@ -1,0 +1,1 @@
+Document that GraphNetwork does not pick a cache key (``partition_ids`` keys by ``n_node`` / ``n_edge``; users follow with ``@cache`` on apply) and that hetero message passing does not write that cache.
