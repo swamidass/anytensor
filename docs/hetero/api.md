@@ -1,12 +1,12 @@
 # Hetero API
 
-Generated reference for heterogeneous graphs
-([`HeteroGraphsTuple`](index.md#data-model)), DGL-style
-`multi_update_all` with optional per-relation attention, and the model zoo
-(R-GCN, GraphSAGE, HAN, HGT, CompGCN — full names and papers in the
-[overview](index.md#model-zoo)).
+Generated reference for heterogeneous graphs — multiple **node types** and
+**relations** (typed edges). Start with the
+[overview](index.md#what-is-a-heterogeneous-graph) (academic
+author / paper / institution walkthrough) and [examples](examples.md).
 
-Narrative: [Overview](index.md). Worked recipes: [Examples](examples.md).
+Model zoo acronyms (R-GCN, GraphSAGE, HAN, HGT, CompGCN) are spelled out in
+the [model zoo](index.md#model-zoo) table.
 
 ::: anytensor.hetero
     options:
