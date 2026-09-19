@@ -151,7 +151,9 @@ Homogeneous GNNs assume one node/edge type. Many graphs in practice do not.
 pattern — **per-relation message + reduce**, then an explicit
 **cross-relation fuse** — is the portable core. This module follows that
 shape on AnyTensor primitives (`take`, `segment_*`, optional
-`segment_softmax` attention).
+`segment_softmax` attention). Destination sizes are shape-sizes
+(`at.shape(nodes)[0]`, never `int(shape)` under tracing) — see
+[Usage → Caller rules](../usage.md#caller-rules).
 
 Nested features use [`anytensor.tree`](../tree/index.md). Batching is
 `tree.batch` / `tree.unbatch` via `HeteroGraphsTuple.__tree_batch__`
@@ -196,11 +198,18 @@ destination ntype with a **cross-reducer** (`sum` / `mean` / `max` /
 destination node. `stack` yields `(n_dst, n_relations, …)` in etype-dict
 order — used when a model attends **across relations** (HAN).
 
-Per-relation attention matches homo
-[`GraphNetwork`](../jraph/index.md) attention (same idea as
-[Graph Attention Networks](https://arxiv.org/abs/1710.10903) / GAT), which
-is what **Heterogeneous Graph Attention Network** (HAN) node-level attention
-and **Heterogeneous Graph Transformer** (HGT) typed attention build on.
+Apply is **`@cache`** — the same pattern as GraphNetwork
+([Usage → Cache](../usage.md#cache)). Destination `num_segments` is
+`at.shape(dst_nodes)[0]`. `n_node` / `n_edge` maps are for batch/pad;
+incidence is already `senders` / `receivers` per etype. A `message_fn`
+that calls `partition_ids` shares `cache.lookup` / `store` on `"partition"`.
+
+Per-relation attention matches the optional attention path on homo
+[`GraphNetwork`](../jraph/index.md) (same `segment_softmax` idea as
+[Graph Attention Networks](https://arxiv.org/abs/1710.10903) / GAT). That
+is what lets this stack express **Heterogeneous Graph Attention Network**
+(HAN) node-level attention and **Heterogeneous Graph Transformer** (HGT)
+typed attention.
 
 ## Model zoo
 

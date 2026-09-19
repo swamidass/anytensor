@@ -62,7 +62,7 @@ Dtype policy is per-operand via `@promote`:
 @promote(x="data", segment_ids="index", num_segments="shape")  # size dim
 ```
 
-`num_segments` / `total_repeat_length` / `sum_partitions` are **shape** sizes:
+`num_segments` / `total_repeat_length` / `total_length` are **shape** sizes:
 Python `int`, jit symbolic constant, or 0-d integral tensor scalar — **required**
 (JAX convention), never inferred from ids. Plain ints stay Python (not 0-d
 tensors) so `jax.jit` / `tf.function` / `torch.compile` can treat them as static.
@@ -75,6 +75,113 @@ tensors) so `jax.jit` / `tf.function` / `torch.compile` can treat them as static
 | Zero-copy impossible | `fallback="copy"` (warn) or `"error"` |
 | Mutating host buffer | `@promote(..., copy=True)` or `promote_options(copy=True)` |
 
+## Caller rules
+
+Contracts for library authors writing on AnyTensor. These stay portable under
+`jax.jit` / `tf.function` / `torch.compile` / ONNX. Why they exist:
+[Design](design.md#5-shape-sizes-are-required-and-stay-static-friendly).
+Backend surprises: [Surprising differences](semantics.md).
+
+### Shape-sizes
+
+| Do | Don't |
+|---|---|
+| Pass `num_segments` on every **segment** op | Infer `max(ids)+1`, omit, or pass `None` |
+| Read lengths with `at.shape(x)[0]` | `int(x.shape[0])` / `int(at.shape(x)[0])` under tracing |
+| Leave Python ints as Python ints | Wrap a size into a 0-d tensor yourself |
+
+Kind `shape` is a Python `int`, a jit symbolic constant, or a 0-d integral
+tensor. Omitting a required size, or passing `None`, is a `TypeError`.
+
+### Partition helpers
+
+`partition_sum` / `min` / `max` / `softmax` are `partition_ids` then the
+matching `segment_*` helper. Official jraph only wraps `partition_softmax`
+(`sum_partitions` as the third positional).
+
+| Do | Don't |
+|---|---|
+| `total_length=at.shape(logits)[0]` (required) | `sum(partitions)`, omit, or `None` |
+| Treat `num_segments` as `shape(partitions)[0]` — not an argument | Pass `num_segments=` to partition helpers |
+| jraph: 3rd positional `sum_partitions` is that alias | Data-sum the count vector |
+| GraphNetwork: `sum_n_node = shape(nodes)[0]`, `sum_n_edge = shape(senders)[0]` | `sum(n_node)` / `sum(n_edge)` |
+| Single-graph counts: `at.full((1,), at.shape(x)[0], dtype=np.int32, like=x)` | Host `int(N)` fill that bakes on export |
+
+On ONNX those totals are `dim_param`s (`Shape` of the aligned tensor), not
+`ReduceSum` of the partition vector.
+
+### Cache
+
+**Pattern** (library apply and caller apply are the same): put `@at.cache`
+on the function you apply, then call `partition_ids` / GraphNetwork /
+GraphConvolution / `multi_update_all`. For derived structure, use
+`cache.lookup` / `cache.store` — the same pair GraphConvolution uses.
+
+```python
+@at.cache
+def apply(graph):
+    total = at.shape(graph.nodes)[0]
+    ids = at.partition_ids(graph.n_node, total)
+    extra = (True,)  # flags that change the derived tensor
+    packed = at.cache.lookup("structure", graph.senders, extra)
+    if packed is None:
+        packed = (graph.senders, total)
+        at.cache.store("structure", graph.senders, packed, extra)
+    return ids, packed
+```
+
+Off by default. `@cache` is **sticky** (`enable()` until `disable()`).
+`with cache():` is scoped (drops on exit unless already sticky). Entries
+are weak (GC drops them). There is no process-wide `id()` cache: tensors
+are unhashable, in-place edits would stale ids, and tracers wrap a new
+object every compile.
+
+| Form | Behavior |
+|---|---|
+| `@cache` on apply | Sticky `enable()` — GraphNetwork, GCN, GAT, GraphMapFeatures, hetero `multi_update_all` / zoo |
+| `cache.lookup(ns, obj, extra)` / `store(...)` | Key `(id(obj),) + tuple(extra)`; no-op when the cache is off |
+| `with cache():` | Scoped; drops on exit unless sticky |
+| `cache.enable()` / `disable()` | Turn the cache on or off |
+| `cache.purge(ns, obj)` | Drop one object from one namespace |
+
+`partition_ids` is `lookup` / `store` on `"partition"` (one expansion per
+partition vector; `shape(ids)[0]` is the flattened total). Other partition
+helpers call it. Wrong-size hits (both lengths host Python ints) purge,
+warn, and recompute; tracing skips the check.
+
+GraphConvolution stores self-edges / `N` / degrees with the same
+`lookup` / `store` on `"gcn"` and `extra=(add_self_edges, symmetric_normalization)`.
+Hetero dest size is `shape(dst_nodes)[0]` (incidence is already
+`senders` / `receivers`); `@cache` still enables the map so a `message_fn`
+that calls `partition_ids` shares it. Do not key by the graph object.
+Batch/unbatch still data-sum `n_node` for offsets (eager, like jraph pad).
+
+```python
+import anytensor as at
+import numpy as np
+
+logits = np.array([1.0, 2.0, 3.0])
+partitions = np.array([2, 1])
+total_length = at.shape(logits)[0]
+other_logits = logits * 2
+
+with at.cache():
+    y = at.partition_softmax(logits, partitions, total_length)
+    z = at.partition_softmax(other_logits, partitions, total_length)
+```
+
+### Export
+
+Opt-in `anytensor.export` is a recipe, not a stable library API (not in
+`anytensor.__all__`). Details: [ONNX](onnx/index.md).
+
+| Do | Don't |
+|---|---|
+| `from anytensor import export` | Treat export helpers as a frozen public contract |
+| Keep lengths as `at.shape` so ONNX gets `dim_param`s | Python ints or data sums that bake `N` |
+| Embed weights (`as_torch_module` / Lightning `nn.Parameter`, or `as_tensorflow_fn`) | Extra feeds, outer `tf.constant`, or `jax2tf` |
+| Stack `@cache` apply (GN / GCN / hetero) | Expect a fresh partition / GCN structure subgraph per layer |
+
 ## Segment helpers
 
 | Function | Role |
@@ -83,12 +190,15 @@ tensors) so `jax.jit` / `tf.function` / `torch.compile` can treat them as static
 | `segment_count` / `mean` / `variance` | Counts and moments |
 | `segment_normalize` / `segment_softmax` | Per-segment normalize / softmax |
 | `segment_min_or_constant` / `segment_max_or_constant` | Empty segments → constant |
-| `partition_softmax` | Softmax over contiguous partition lengths |
+| `partition_sum` / `min` / `max` / `softmax` | Reduce / softmax over contiguous partition lengths (`total_length` required; `num_segments` is `shape(partitions)[0]`; each calls `partition_ids`) |
+| `partition_ids` | Expand partition lengths to segment ids (the cache chokepoint; other partition helpers call this) |
+| `cache` | `@cache` apply / `lookup`+`store` / context / `enable`+`disable` — GraphNetwork, GCN, GAT, hetero use this same pattern |
 
 Einops (`rearrange`, `einsum`, `reduce`, …) is re-exported for convenience.
 
-Under `jax.jit`, pass a static `sum_partitions` to `partition_softmax` so
-`jnp.repeat` can compile. See [Surprising differences](semantics.md).
+`partition_sum` / `min` / `max` / `softmax` are `partition_ids` plus the
+matching `segment_*` helper. Use `segment_*` if you already have ids. Caller contracts (required
+`total_length`, cache forms, ONNX `dim_param`s): [Caller rules](#caller-rules).
 
 ## Torch compile / export
 
@@ -107,6 +217,28 @@ sites that still hit `segment_sum` / `min` / `max`; it is not the recommended
 path. It does not import Torch and does not care about import order: a helper
 registered with `module_if_loaded("torch", …)` enables the divert as soon as
 Torch is imported.
+
+## ONNX (dynamic shapes)
+
+**Recommend ONNX** for deployment: ONNX Runtime is well tested as a serving
+engine. AnyTensor does not run ops on ORT. The recipes live in the opt-in
+`anytensor.export` subpackage (not in `anytensor.__all__`, not a stable
+library API). Export the **same** AnyTensor function after it is running on
+Torch or TensorFlow tensors. Derive `num_segments` from `at.shape(nodes)[0]`
+so `N` stays symbolic. Do/don't for lengths, weights, and stacked graphs:
+[Caller rules](#export).
+
+```python
+from anytensor import export
+```
+
+| Start | Recipe |
+|---|---|
+| Lightning | `nn.Parameter` on the module + `to_onnx_torch(..., dynamic_shapes=)` (best named initializers) |
+| Keras | `as_tensorflow_fn` / `to_onnx_tensorflow(..., params=)` so constants are created inside the trace |
+| Flax | `numpy_leaves(params)` then `as_torch_module(fn, params)` (preferred) or the Keras row — not `jax2tf`, not extra inputs |
+
+Helpers (`from anytensor import export`): [ONNX](onnx/index.md).
 
 ## Typing
 

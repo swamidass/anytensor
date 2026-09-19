@@ -189,6 +189,7 @@ live in [Worked examples](examples.md):
 - `torch.compile(neighbor_attention, fullgraph=False)` (portable); `fullgraph=True` needs a Torch-only body
 - `torch.export` via an `nn.Module` whose `forward` calls the helper
 - `tf.function` / `jit_compile=True`
+- ONNX (recommended deploy path; ORT is well tested): [ONNX](onnx/index.md) (`anytensor.export`; Lightning / Keras / Flax recipes)
 
 Prefer `torch.compile` / `torch.export` over deprecated `torch.jit.script` /
 `trace`. Those fences are executed in CI via Sybil so they do not rot.
@@ -200,6 +201,7 @@ Prefer `torch.compile` / `torch.export` over deprecated `torch.jit.script` /
 ```bash
 pip install "anytensor @ git+https://github.com/swamidass/anytensor.git"
 pip install "anytensor[jax]" "anytensor[torch]" "anytensor[tensorflow]"
+pip install "anytensor[onnx]"   # plus tf2onnx for the TensorFlow export path
 # or
 pip install "anytensor[all]"
 ```
@@ -227,7 +229,7 @@ constant, or 0-d integral tensor scalar.
 - [Jraph](jraph/index.md) — portable GraphsTuple / GraphNetwork (follows [jraph](https://github.com/google-deepmind/jraph))
 - [Hetero](hetero/index.md) — heterogeneous graphs (multi-type nodes/edges), attention, model zoo
 - [Tree](tree/index.md) — portable `jax.tree` nests, pure Python + NumPy (graphs, and any structured record)
-- [Usage](usage.md) — promotion, segment helpers, `torch.compile`, typing
+- [Usage](usage.md) — promotion, [caller rules](usage.md#caller-rules), `torch.compile`, typing
 - [Design](design.md) — principles, decisions, and what to expect on edges
 - [Surprising differences](semantics.md) — NaN / ±inf / graph / GPU gotchas
 - [API reference](api/index.md) — generated from docstrings

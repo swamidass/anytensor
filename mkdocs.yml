@@ -77,6 +77,10 @@ nav:
       - Overview: hetero/index.md
       - Examples: hetero/examples.md
       - API: hetero/api.md
+  - ONNX:
+      - Overview: onnx/index.md
+      - Examples: onnx/examples.md
+      - API: onnx/api.md
   - API:
       - Overview: api/index.md
       - Package root: api/anytensor.md

@@ -68,10 +68,20 @@ static sizes (`n_graph >= 2`). Masks and `zero_out_padding` ignore the dummy.
 
 ## Models
 
+Caller contracts (required `num_segments` / `sum_partitions`, GraphNetwork
+totals from `at.shape`, sticky `@cache`, stacked GCN structure):
+[Usage → Caller rules](../usage.md#caller-rules).
+
 `GraphNetwork` follows Battaglia et al. (sender and receiver aggregations,
 optional softmax attention). Thin wrappers match jraph:
 `InteractionNetwork`, `GraphMapFeatures`, `RelationNetwork`, `DeepSets`,
-`GraphNetGAT`, `GAT`, `GraphConvolution`.
+`GraphNetGAT`, `GAT`, `GraphConvolution`. **Every apply is `@cache`** —
+the same pattern callers use (`docs/usage.md#cache`). `partition_ids`
+does `cache.lookup` / `store` on `"partition"` keyed by `n_node` /
+`n_edge`. GraphConvolution uses the same pair on `"gcn"` with
+`extra=(add_self_edges, symmetric_normalization)` so stacked GCN does not
+duplicate `Shape` / `Range` / `Concat` on ONNX. Do not key by the
+`GraphsTuple`.
 
 Segment helpers on this module still require `num_segments` (AnyTensor
 contract). `unique_indices` is accepted and ignored.
@@ -82,7 +92,8 @@ contract). `unique_indices` is accepted and ignored.
 |---|---|
 | Backends | Caller’s tensors (NumPy / JAX / Torch / TF) |
 | `None` features | Empty pytree (jraph / `jax.tree`) |
-| Segment ops | `num_segments` required; `unique_indices` ignored |
+| Segment ops | `num_segments` required; `partition_softmax` requires `sum_partitions` (3rd positional, official jraph name for core `total_length`) and takes `num_segments` from `shape(partitions)[0]`; `unique_indices` ignored |
+| GraphNetwork totals | `sum_n_node` / `sum_n_edge` are `shape(nodes)[0]` / `shape(senders)[0]`, not `sum(n_node)` — so ONNX gets a `dim_param`, not `ReduceSum` |
 | Nest library | [`anytensor.tree`](../tree/index.md) (no JAX runtime dep) |
 | Graph concat | Magic methods on `GraphsTuple` (`__tree_batch__` / `__tree_unbatch__`); `jraph.batch` is `tree.batch` |
 | Public names | **Every name in official `jraph.__all__`** (unit-tested). Also exports `segment_mean` / `min` / `variance` / `normalize` (on the official module, omitted from its `__all__`) and `sparse_matrix_to_graphs_tuple` (not in upstream jraph). |

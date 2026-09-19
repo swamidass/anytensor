@@ -17,7 +17,8 @@ compile recipes, see [Worked examples](examples.md).
 6. Prefer `torch.compile` over deprecated TorchScript; portable helpers need `fullgraph=False`.
 
 That is the design: a small set of hard contracts, and clear warnings everywhere
-else.
+else. Library-consumer do/don't (shape-sizes, partition totals, cache, export):
+[Usage → Caller rules](usage.md#caller-rules).
 
 ---
 
@@ -40,8 +41,11 @@ else.
    discipline). Prefer `torch.compile` over deprecated TorchScript; portable
    helpers expect graph breaks (`fullgraph=False`).
 
-Non-goals (for now): a RaggedTensor API, ONNX Runtime as a backend, or
-papering over every XLA vs eager disagreement. GraphsTuple lives in
+Non-goals (for now): a RaggedTensor API, ONNX Runtime as a **compute** backend
+(AnyTensor does not dispatch ops onto ORT tensors), or papering over every XLA
+vs eager disagreement. **ONNX is the recommended export target** — ORT is well
+tested for deployment. The opt-in guide is [`anytensor.export`](onnx/index.md)
+(not a stable library API). GraphsTuple lives in
 [`anytensor.jraph`](jraph/index.md) (jraph-compatible, any backend);
 heterogeneous graphs and their model zoo live in
 [`anytensor.hetero`](hetero/index.md); nested features use
@@ -135,7 +139,7 @@ float; don’t assume the raw return is already one.
 | `data` | Numeric payload | Share Array API `result_type` (ints widen beside floats) |
 | `index` | Segment ids, `take` indices | **Stay integral** — never widened to float by a float peer |
 | `mask` | `where` condition | Cast to bool if needed |
-| `shape` | `num_segments`, `total_repeat_length`, … | Python `int` / symbolic / 0-d integral tensor; **not** promoted to a 0-d array |
+| `shape` | `num_segments`, `total_repeat_length`, `total_length`, … | Python `int` / symbolic / 0-d integral tensor; **not** promoted to a 0-d array |
 
 **Edge implication:** passing float segment ids fails fast (kind `index` or
 jaxtyping `Integer[...]` under test-time typecheck). Passing `num_segments` as
@@ -144,9 +148,31 @@ by design (see below).
 
 ### 5. Shape-sizes are required and stay static-friendly
 
-`num_segments` is **always required** (JAX convention). We do **not** infer
-`max(ids)+1`. The same idea applies to `total_repeat_length` and
-`sum_partitions`.
+Caller-facing list: [Usage → Caller rules](usage.md#caller-rules).
+
+`num_segments` is **always required** on segment ops (JAX convention). We
+do **not** infer `max(ids)+1`. `total_length` on partition helpers is
+the same kind of required shape-size (`shape(logits)[0]`, not a data
+`sum(partitions)`). On ONNX export that size is a `dim_param` (`Shape` of
+the aligned tensor), not a `ReduceSum` of the partition vector. GraphNetwork
+uses `shape(nodes)[0]` / `shape(senders)[0]` for the official `sum_n_node` /
+`sum_n_edge` slots for the same reason. Partition helpers do **not** take
+`num_segments` — that is `shape(partitions)[0]`, a shape read, not
+data-dependent.
+
+`partition_sum` / `min` / `max` / `softmax` are conveniences: they call
+`partition_ids` (`arange` + `repeat`) then the matching `segment_*`
+helper. JAX keeps `total_length` required so dropping an optional cannot
+silently become data-dependent (`sum(partitions)`); passing `None` is a
+`TypeError`, not that fallback. A compiler may CSE a rebuild of ids;
+eager will not.
+
+The cache is opt-in. Library apply and caller apply use the same pattern
+(`@cache` plus `cache.lookup` / `store`): [Caller rules](usage.md#cache).
+Entries are weak: GC drops them, and callbacks hold only a weakref to the
+namespace map so a long-lived tensor cannot pin the block. There is no
+process-wide cache because tensors are unhashable, in-place edits would
+stale the ids, and tracers wrap a new object every compile.
 
 Allowed forms:
 
@@ -198,10 +224,11 @@ rely on NaN under XLA for portability.
 | Path | Expectation |
 |---|---|
 | Eager (all backends) | Full public surface |
-| `jax.jit` | Mark shape-sizes static; `repeat` / `partition_softmax` may need `total_repeat_length` / `sum_partitions` |
-| `tf.function` | Prefer Python ints for sizes; use `at.shape(x)` under polymorphic shapes |
+| `jax.jit` | Mark shape-sizes static; `repeat` needs `total_repeat_length` under jit; partition helpers always require `total_length` (`num_segments` is `shape(partitions)[0]`) |
+| `tf.function` | Prefer Python ints for sizes **or** `at.shape(x)` under polymorphic / ONNX graphs |
 | `torch.compile` | Prefer over deprecated `torch.jit.*`. `fullgraph=False` for portable helpers; `fullgraph=True` needs a Torch-only body — see [Worked examples](examples.md) |
 | `torch.jit.script` / `trace` | **Deprecated by PyTorch.** Legacy `enable_torchscript()` still covers `segment_sum` / `min` / `max` only |
+| ONNX (recommended deploy path; ORT) | Rebind onto Torch or TF tensors; `at.shape(x)[0]` for symbolic lengths (including partition totals / GraphNetwork `sum_n_node`). Embed weights as `nn.Parameter` (best names) or in-trace TF constants via `as_tensorflow_fn` — not outer tensors / extra inputs. See [`anytensor.export`](onnx/index.md) |
 
 ### 9. Legacy TorchScript divert (not recommended)
 

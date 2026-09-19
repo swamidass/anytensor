@@ -92,10 +92,14 @@ def test_segment_softmax_and_partition_softmax(backend):
     bpart = backend_impl.from_numpy(partitions)
 
     s = at.segment_softmax(blogits, bseg, 2)
-    p = at.partition_softmax(blogits, bpart, sum_partitions=5)
+    p = at.partition_softmax(blogits, bpart, 5)
     assert close(backend_impl.to_numpy(s), at.segment_softmax(logits, seg_id, 2))
     assert close(backend_impl.to_numpy(p), at.partition_softmax(logits, partitions, 5))
     assert close(backend_impl.to_numpy(s), backend_impl.to_numpy(p))
+    for name in ("partition_sum", "partition_min", "partition_max"):
+        got = getattr(at, name)(blogits, bpart, 5)
+        want = getattr(at, name.replace("partition_", "segment_"))(blogits, bseg, 2)
+        assert close(backend_impl.to_numpy(got), backend_impl.to_numpy(want))
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
@@ -297,6 +301,9 @@ def test_where_clip_astype(backend):
     by = at.where(bx > 5, bx, 0.0)
     assert close(backend_impl.to_numpy(by), np.where(x > 5, x, 0.0))
     assert close(backend_impl.to_numpy(at.clip(bx, 5.0, 10.0)), np.clip(x, 5.0, 10.0))
+    assert close(backend_impl.to_numpy(at.clip(bx, min=5.0)), np.clip(x, 5.0, None))
+    assert close(backend_impl.to_numpy(at.clip(bx, max=10.0)), np.clip(x, None, 10.0))
+    assert close(backend_impl.to_numpy(at.clip(bx)), x)
     xp = array_namespace(bx)
     # Use the namespace default integer (JAX often has no int64 without x64).
     casted = at.astype(bx, xp.asarray(0).dtype)
@@ -320,6 +327,9 @@ def test_reshape_transpose_concatenate_stack(backend):
     assert close(backend_impl.to_numpy(parts[1]), x[1:])
     empty_mid = at.split(bx, [0, 0, 2], axis=0)
     assert close(backend_impl.to_numpy(empty_mid[1]), x[:0])
+    whole = at.split(bx, [], axis=0)
+    assert len(whole) == 1
+    assert close(backend_impl.to_numpy(whole[0]), x)
     assert close(backend_impl.to_numpy(at.stack([bx, bx], axis=0)), np.stack([x, x], axis=0))
 
 

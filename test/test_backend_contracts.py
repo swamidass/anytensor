@@ -61,6 +61,52 @@ def test_jax_array_type_detected():
         assert isinstance(x, jax.Array)
 
 
+def test_tensorflow_split_unknown_axis_length():
+    """``tf.function`` leaves ``x.shape[axis] is None``; empty/index cuts must still work."""
+    tf = pytest.importorskip("tensorflow")
+    import anytensor as at
+
+    vec = tf.TensorSpec((None,), tf.float32)
+    mat = tf.TensorSpec((None, 3), tf.float32)
+
+    @tf.function(autograph=False, input_signature=[vec])
+    def empty_cuts(x):
+        return at.split(x, [], axis=0)
+
+    @tf.function(autograph=False, input_signature=[vec])
+    def mid_cut(x):
+        return at.split(x, [1], axis=0)
+
+    @tf.function(autograph=False, input_signature=[vec])
+    def empty_mid(x):
+        return at.split(x, [0, 0, 2], axis=0)
+
+    @tf.function(autograph=False, input_signature=[mat])
+    def split_cols(x):
+        return at.split(x, [1, 2], axis=1)
+
+    x = tf.constant([1.0, 2.0, 3.0])
+    whole = empty_cuts(x)
+    assert len(whole) == 1
+    np.testing.assert_array_equal(whole[0].numpy(), [1.0, 2.0, 3.0])
+
+    left, right = mid_cut(x)
+    np.testing.assert_array_equal(left.numpy(), [1.0])
+    np.testing.assert_array_equal(right.numpy(), [2.0, 3.0])
+
+    parts = empty_mid(x)
+    assert len(parts) == 4
+    np.testing.assert_array_equal(parts[0].numpy(), [])
+    np.testing.assert_array_equal(parts[1].numpy(), [])
+    np.testing.assert_array_equal(parts[2].numpy(), [1.0, 2.0])
+    np.testing.assert_array_equal(parts[3].numpy(), [3.0])
+
+    cols = split_cols(tf.constant([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]))
+    np.testing.assert_array_equal(cols[0].numpy(), [[1.0], [4.0]])
+    np.testing.assert_array_equal(cols[1].numpy(), [[2.0], [5.0]])
+    np.testing.assert_array_equal(cols[2].numpy(), [[3.0], [6.0]])
+
+
 def test_tf_sorted_segment_arity():
     """sorted=True uses tf.math.segment_* which takes only (data, ids)."""
     tf = pytest.importorskip("tensorflow")

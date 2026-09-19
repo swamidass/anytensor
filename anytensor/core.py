@@ -541,8 +541,17 @@ def where(condition: ShapedArray, x: ShapedArray, y: ShapedArray) -> ShapedArray
 
 @as_array_result
 def clip(x: ShapedArray, min: Any = None, max: Any = None) -> ShapedArray:
-    """Clip values to ``[min, max]``."""
-    return array_namespace(x).clip(x, min=min, max=max)
+    """Clip values to ``[min, max]``.
+
+    Implemented with :func:`maximum` / :func:`minimum` so TF tracing does not
+    emit ``BroadcastArgs`` (tf2onnx cannot lower that op).
+    """
+    out = x
+    if min is not None:
+        out = maximum(out, min)
+    if max is not None:
+        out = minimum(out, max)
+    return out
 
 
 @as_array_result
@@ -649,19 +658,24 @@ def arange(start: Any, /, stop: Any = None, step: Any = 1, *, dtype: DtypeLike =
 
 
 def _leading_dim_is_concrete(size) -> bool:
-    try:
-        int(size)
-        return True
-    except (TypeError, ValueError):
-        return False
+    return _host_concrete_int(size) is not None
 
 
 def _host_concrete_int(value):
-    """Return ``int(value)`` when safe on the host; else ``None`` (tracing)."""
+    """Return ``int(value)`` when safe on the host; else ``None`` (tracing).
+
+    TF Autograph rewrites ``int(tensor)`` into a graph op, so a symbolic
+    size (``tf.shape(x)[0]`` stored in a length-1 count vector) must not
+    look like a Python int — that would take the eager ``repeat`` loop and
+    bake the partition total.
+    """
     try:
-        return int(value)
+        n = int(value)
     except (TypeError, ValueError):
         return None
+    if type(n) is not int:
+        return None
+    return n
 
 
 def _repeats_are_host_concrete(repeats) -> bool:
@@ -753,6 +767,8 @@ def repeat(x: ShapedArray, repeats: Any, *, total_repeat_length: Optional[ShapeS
             constant, or 0-d integral tensor) for the flattened output length.
             Required for a static output size under ``jax.jit`` when repeats
             are dynamic. Not supported together with ``axis is not None`` yet.
+            :func:`~anytensor.partition_softmax` always passes this as
+            ``total_length``.
         axis: Axis to repeat along; ``None`` flattens (Array API / NumPy style).
 
     Returns:
@@ -760,9 +776,10 @@ def repeat(x: ShapedArray, repeats: Any, *, total_repeat_length: Optional[ShapeS
 
     Notes:
         Under ``jax.jit``, ``jnp.repeat`` needs static repeat counts or a
-        static ``total_repeat_length``. For :func:`~anytensor.partition_softmax`,
-        pass static ``sum_partitions``. Omitting ``total_repeat_length`` is
-        fine eagerly and on TensorFlow.
+        static ``total_repeat_length``. :func:`~anytensor.partition_softmax`
+        always passes ``total_length`` as that length. Omitting
+        ``total_repeat_length`` on :func:`repeat` itself is fine eagerly and
+        on TensorFlow.
     """
     from .backends import get_backend
 

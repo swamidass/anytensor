@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import os
 
+import pytest
+
 # Install before Hypothesis / any test module imports ``anytensor``.
 # Skip if explicitly disabled (e.g. debugging) or beartype is missing.
 # Hook specific submodules — not ``anytensor.torchscript`` — so TorchScript
@@ -103,3 +105,12 @@ def pytest_report_header(config):
     if tc is not None:
         lines.append(f"anytensor jaxtyping typecheck: {'on' if tc else 'off'}")
     return lines
+
+
+@pytest.fixture(autouse=True)
+def _reset_anytensor_cache():
+    """``@cache`` is sticky; drop it between tests so GraphNetwork applies do not leak."""
+    yield
+    import anytensor as at
+
+    at.cache.disable()

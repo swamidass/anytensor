@@ -4,7 +4,8 @@ Cross-backend and symbolic fuzz turned up several places where frameworks
 disagree, or where a “native” op looks right until you hit NaN, ±inf, or
 `jit` / `tf.function`. AnyTensor **standardizes** some of these; others stay
 **backend-local**. The machine-readable contract lives in
-[`anytensor.semantics`](api/semantics_api.md).
+[`anytensor.semantics`](api/semantics_api.md). Required sizes, partition
+totals, cache, and export: [Usage → Caller rules](usage.md#caller-rules).
 
 ## What we standardize
 
@@ -15,6 +16,7 @@ disagree, or where a “native” op looks right until you hit NaN, ±inf, or
 | `num_segments` | Easy to infer as `max(ids)+1` | **Required** (JAX convention). Kind `shape`: Python `int`, jit symbolic constant, or 0-d integral tensor — never inferred |
 | Scalar `repeats` under TF graph | Promoting a Python `2` to a 0-d TF tensor breaks `tf.experimental.numpy.repeat` | Python scalar repeats stay Python; TF shim uses `tf.repeat` / `tf.range` |
 | `zeros_like` / `full_like` under `tf.function` | After retracing, `x.shape` is `(None,)` and `tnp.zeros` errors | Use symbolic `shape(x)` (static dim or `tf.shape` component) |
+| `split` cut indices under `tf.function` | Converting cuts to `tf.split` sizes used `int(x.shape[axis])`, which is `None` when the dim is symbolic | Slice along the axis (empty `[]` is `[x]`); equal-section `int` still uses `tf.split` |
 
 ## Backend-local (we document, do not unify)
 
@@ -23,7 +25,7 @@ disagree, or where a “native” op looks right until you hit NaN, ±inf, or
 | **Index width** | Torch scatter needs **int64** (we cast). JAX without `jax_enable_x64` often keeps **int32** and may warn/truncate on int64 ids. TF often int32. Do not assume NumPy int64 ids stay int64 after upcast. |
 | **Float width / underflow** | JAX may truncate float64→float32 without x64. ``inf *`` subnormal or float32-min may be ``inf`` (NumPy / eager TF) vs ``nan`` (JAX / TF XLA) when the tiny flushes to 0. Fuzz keeps finite samples at ``|x| >= 1e-3`` or exact 0. |
 | **`sorted=`** | Honored on JAX/TF; **no-op** on NumPy/Torch (unsorted-safe path). |
-| **`jax.jit` + `repeat` / `partition_softmax`** | `jnp.repeat` needs a **static** repeat count or `total_repeat_length`. Pass static `sum_partitions` (shape-size) under jit; omitting it is fine eagerly / on TF. |
+| **`jax.jit` + `repeat` / `partition_*`** | `jnp.repeat` needs a **static** repeat count or `total_repeat_length`. Partition helpers require `total_length` (`shape(x)[0]`); `num_segments` is `shape(partitions)[0]`, not an argument. |
 | **TF XLA vs eager with NaN** | Eager often yields NaN; `tf.function(jit_compile=True)` may yield **±inf** for `min`/`max`/`maximum`/`minimum` and similar. Not portable — avoid relying on NaN under XLA. |
 | **Empty axis `min`/`max`** | Length-0 reductions are framework-defined (often error). Prefer nonempty. |
 | **GPU (no GPU CI)** | Torch CUDA still wants int64 ids; keep outputs on the input device; compare float32; equal-value tie order is not portable under atomics; empty CUDA / GPU XLA are stricter than CPU; MPS ≠ CUDA. |

@@ -1,5 +1,60 @@
 # Lab log
 
+## 2026-09-18
+
+- TF ``split`` under ``tf.function``: index cuts (including empty ``[]``)
+  slice along the axis instead of ``int(x.shape[axis])``, which is ``None``
+  when the dim is symbolic. Equal-section ``int`` still uses ``tf.split``.
+- `partition_sum` / `min` / `max` are `partition_ids` then the matching
+  `segment_*` helper (same required `total_length` as softmax). Official
+  jraph still wraps only `partition_softmax`.
+- Public cache pattern: `@cache` on apply plus `cache.lookup` / `store`.
+  GraphNetwork, GCN, GAT, GraphMapFeatures, and hetero apply use it;
+  callers write the same decorator.
+- Docs: GraphNetwork does not pick a cache key (`partition_ids` keys by
+  `n_node` / `n_edge`); users follow with `@cache` on apply. Hetero does
+  not expand partitions / does not write the cache.
+- Docs: scannable library-consumer contracts on
+  [Usage → Caller rules](docs/usage.md#caller-rules) (required shape-sizes,
+  partition totals from `at.shape` not data sums, opt-in cache / sticky
+  `@cache`, stacked GCN `cache["gcn"]`, opt-in `anytensor.export`). ONNX /
+  Jraph / Design / semantics / home / README point at that section.
+- ONNX recipes live in the opt-in `anytensor.export` subpackage (not in
+  `anytensor.__all__`; `to_onnx_torch` / `to_onnx_tensorflow` /
+  `numpy_leaves`). ONNX is the recommended deploy target (ORT is well
+  tested); AnyTensor does not run ops on ORT. Weights embed as ONNX
+  initializers via
+  `as_torch_module(fn, params)` (`nn.Parameter`, best names) or
+  `as_tensorflow_fn` (named constants created *inside* the TF trace). Outer
+  `tf.constant` / extra args leak as graph inputs; `assert_embedded_weights`
+  catches that. Lightning is an `nn.Module`; Keras uses `tf.function` +
+  tf2onnx (not `model.export`); Flax rebinds numpy params — jax2tf is a dead
+  end (`XlaCallModule`). Torch `segment_reduce` no longer `int()`s
+  `num_segments`. Public-op coverage via TF tf2onnx in CI; Torch dynamo ONNX
+  skipped on CI. Constructor ops (`zeros` / `ones` / `full` / `arange` /
+  `split`) take sizes from `at.shape`; `partition_softmax` takes
+  `num_segments` from `shape(partitions)[0]` and requires
+  `total_length=at.shape(logits)[0]`. `partition_ids` is the one-shot
+  conversion (and the only partition helper that talks to `cache["partition"]`);
+  other partition functions call it. If a cached expansion's length does not
+  match `total_length` (host Python ints), that entry is purged, a warning is
+  issued, and ids are recomputed; tracing skips the check. `cache` as a decorator
+  is sticky (GraphNetwork stacked applies reuse `n_node` / `n_edge`); `with cache():`
+  is scoped; ``enable``/``disable``; dict of dicts; ``purge`` drops one tensor. Hetero and
+  jraph model zoos are a
+  TF/ONNX stress test: destination sizes come from `at.shape` (HAN no longer
+  `int()`s ranks; jraph GAT/GCN/GraphNetwork no longer read `.shape[0]`).
+  Partition totals (`total_length` / jraph `sum_partitions` / GraphNetwork
+  `sum_n_node` / `sum_n_edge`) are `at.shape` of the aligned tensor, not
+  `sum(partitions)` /   `sum(n_node)`, so ONNX keeps a `dim_param`. A
+  single-graph `n_node` / `n_edge` vector is `full((1,), shape(x)[0])`.
+  Host size checks (`_host_concrete_int`) keep only Python `int`s so TF
+  Autograph cannot treat `int(tf.shape(x)[0])` as concrete and bake the
+  partition total in the eager `repeat` loop. The partition cache is one
+  entry per vector; `shape(ids)[0]` *is* the flattened total. Stacked
+  `GraphConvolution` caches self-edges / `N` / degrees at `cache["gcn"]`
+  so ONNX does not duplicate `Shape` / `Range` / `Concat` per layer.
+
 ## 2026-09-16
 
 - Folded `anytensor.jraph` into the 100% coverage gate (None connectivity,

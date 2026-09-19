@@ -11,7 +11,7 @@ from anytensor import tree
 from anytensor.core import concatenate, maximum, reshape, rsqrt, shape, take, where
 from anytensor.core import arange as at_arange
 from anytensor.core import ones as at_ones
-from anytensor.core import repeat as at_repeat
+from anytensor.segment import cache, partition_ids
 
 from . import utils
 from .graph import GraphsTuple
@@ -38,10 +38,12 @@ GNUpdateGlobalFn = Callable[[NodeFeatures, EdgeFeatures, Globals], Globals]
 
 
 def _repeat_by(values, repeats, total_length):
-    """Scatter rows of ``values`` according to per-row ``repeats`` (axis 0)."""
-    n = shape(repeats)[0]
-    ids = at_arange(n, like=repeats)
-    idx = at_repeat(ids, repeats, total_repeat_length=total_length)
+    """Scatter rows of ``values`` according to per-row ``repeats`` (axis 0).
+
+    Goes through :func:`~anytensor.partition_ids` so a cache hit is shared
+    with other partition helpers.
+    """
+    idx = partition_ids(repeats, total_length)
     return take(values, idx)
 
 
@@ -68,7 +70,14 @@ def GraphNetwork(
 
     Follows Algorithm 1 of https://arxiv.org/abs/1806.01261, with separate
     sender/receiver aggregations and optional softmax attention. Same call
-    signature as :func:`jraph.GraphNetwork`.
+    signature as :func:`jraph.GraphNetwork`. Apply uses the public cache
+    pattern: ``@cache`` (sticky) plus :func:`~anytensor.partition_ids`
+    (``cache.lookup`` / ``store`` on ``"partition"``, keyed by ``n_node`` /
+    ``n_edge``). Callers write the same ``@cache`` apply.
+
+    Flattened totals (official ``sum_n_node`` / ``sum_n_edge``) are
+    :func:`~anytensor.shape` of the node / sender axis — not
+    ``sum(n_node)`` — so they stay symbolic sizes on ONNX export.
     """
     not_both_supplied = lambda x, y: (x != y) and ((x is None) or (y is None))
     if not_both_supplied(attention_reduce_fn, attention_logit_fn):
@@ -76,16 +85,30 @@ def GraphNetwork(
             "attention_logit_fn and attention_reduce_fn must both be supplied."
         )
 
+    @cache
     def _ApplyGraphNet(graph: GraphsTuple) -> GraphsTuple:
         nodes, edges, receivers, senders, globals_, n_node, n_edge = graph
         node_leaves = tree.leaves(nodes)
+        # Official jraph uses ``sum(n_node)`` / ``sum(n_edge)``. That is a data
+        # reduction (``ReduceSum`` in ONNX) and ``int()`` of it bakes a host
+        # constant. ``shape(nodes)[0]`` is the same integer when the
+        # GraphsTuple invariant holds, and is a dim_param on export.
         if node_leaves:
-            sum_n_node = node_leaves[0].shape[0]
+            sum_n_node = shape(node_leaves[0])[0]
         else:
+            # No node tensor to read. Eager-only host int (cannot be a
+            # symbolic node axis).
             sum_n_node = int(np_sum_n_node(n_node))
-        sum_n_edge = 0 if senders is None else senders.shape[0]
-        if node_leaves and not utils._tree_all(  # noqa: SLF001
-            tree.map(lambda n: n.shape[0] == sum_n_node, nodes)
+        sum_n_edge = 0 if senders is None else shape(senders)[0]
+        # ``int(size)`` is rewritten by TF Autograph into a graph op, so a
+        # symbolic leading dim looks "concrete". Only compare nest lengths
+        # when the size is already a Python int (eager NumPy / JAX / TF).
+        if (
+            node_leaves
+            and type(sum_n_node) is int
+            and not utils._tree_all(  # noqa: SLF001
+                tree.map(lambda n: n.shape[0] == sum_n_node, nodes)
+            )
         ):
             raise ValueError(
                 "All node arrays in nest must contain the same number of nodes."
@@ -142,13 +165,12 @@ def GraphNetwork(
             )
 
         if update_global_fn:
-            n_graph = n_node.shape[0]
-            graph_idx = at_arange(n_graph, like=n_node)
-            node_gr_idx = at_repeat(graph_idx, n_node, total_repeat_length=sum_n_node)
+            n_graph = shape(n_node)[0]
+            node_gr_idx = partition_ids(n_node, sum_n_node)
             edge_gr_idx = (
                 None
                 if senders is None
-                else at_repeat(graph_idx, n_edge, total_repeat_length=sum_n_edge)
+                else partition_ids(n_edge, sum_n_edge)
             )
             node_attributes = (
                 None
@@ -220,12 +242,16 @@ def GraphMapFeatures(
     embed_node_fn: Optional[EmbedNodeFn] = None,
     embed_global_fn: Optional[EmbedGlobalFn] = None,
 ):
-    """Embed nodes, edges, and globals independently."""
+    """Embed nodes, edges, and globals independently.
+
+    Apply is ``@cache`` (same pattern as GraphNetwork).
+    """
     identity = lambda x: x
     embed_edges_fn = embed_edge_fn if embed_edge_fn else identity
     embed_nodes_fn = embed_node_fn if embed_node_fn else identity
     embed_globals_fn = embed_global_fn if embed_global_fn else identity
 
+    @cache
     def Embed(graphs_tuple: GraphsTuple) -> GraphsTuple:
         return graphs_tuple._replace(
             nodes=embed_nodes_fn(graphs_tuple.nodes),
@@ -307,19 +333,23 @@ def GAT(
     attention_logit_fn: GATAttentionLogitFn,
     node_update_fn: Optional[GATNodeUpdateFn] = None,
 ):
-    """Graph Attention Network layer (Veličković et al.). Expects self-edges."""
+    """Graph Attention Network layer (Veličković et al.). Expects self-edges.
+
+    Apply is ``@cache`` (same pattern as GraphNetwork). Destination size is
+    :func:`~anytensor.shape` of nodes.
+    """
     if node_update_fn is None:
 
         def node_update_fn(x):
             y = _leaky_relu(x)
             return reshape(y, (shape(y)[0], -1))
 
+    @cache
     def _ApplyGAT(graph: GraphsTuple) -> GraphsTuple:
         nodes, edges, receivers, senders, _, _, _ = graph
-        try:
-            sum_n_node = nodes.shape[0]
-        except (IndexError, AttributeError) as exc:
-            raise IndexError("GAT requires node features") from exc
+        if nodes is None:
+            raise IndexError("GAT requires node features")
+        sum_n_node = shape(nodes)[0]
         nodes = attention_query_fn(nodes)
         sent_attributes = take(nodes, senders)
         received_attributes = take(nodes, receivers)
@@ -341,32 +371,34 @@ def GraphConvolution(
     add_self_edges: bool = False,
     symmetric_normalization: bool = True,
 ):
-    """GCN layer (Kipf & Welling). No activation after aggregation."""
+    """GCN layer (Kipf & Welling). No activation after aggregation.
 
+    Apply uses the public cache pattern: ``@cache`` plus
+    :meth:`~anytensor.cache.lookup` / :meth:`~anytensor.cache.store` on
+    ``"gcn"`` keyed by senders and the constructor flags so stacked applies
+    and ONNX do not duplicate ``Shape`` / ``Range`` / ``Concat``.
+    """
+
+    @cache
     def _ApplyGCN(graph: GraphsTuple) -> GraphsTuple:
-        nodes, _, receivers, senders, _, _, _ = graph
+        nodes, _, receivers, senders, _, n_node, _ = graph
         nodes = update_node_fn(nodes)
-        total_num_nodes = tree.leaves(nodes)[0].shape[0]
-        if add_self_edges:
-            self_idx = at_arange(total_num_nodes, like=senders)
-            conv_receivers = concatenate((receivers, self_idx), axis=0)
-            conv_senders = concatenate((senders, self_idx), axis=0)
-        else:
-            conv_senders = senders
-            conv_receivers = receivers
-
+        conv_senders, conv_receivers, total_num_nodes, sender_degree, receiver_degree = (
+            _gcn_structure(
+                nodes,
+                senders,
+                receivers,
+                n_node,
+                add_self_edges=add_self_edges,
+                symmetric_normalization=symmetric_normalization,
+            )
+        )
         if symmetric_normalization:
-
-            def count_edges(x):
-                ones = at_ones(shape(conv_senders), dtype=conv_senders.dtype, like=conv_senders)
-                return utils.segment_sum(ones, x, total_num_nodes)
-
-            sender_degree = count_edges(conv_senders)
-            receiver_degree = count_edges(conv_receivers)
+            one = at_ones((), dtype=tree.leaves(nodes)[0].dtype, like=tree.leaves(nodes)[0])
             nodes = tree.map(
                 lambda x: x
                 * reshape(
-                    rsqrt(maximum(sender_degree, 1.0)),
+                    rsqrt(maximum(sender_degree, one)),
                     (shape(sender_degree)[0],) + (1,) * (x.ndim - 1),
                 ),
                 nodes,
@@ -380,7 +412,7 @@ def GraphConvolution(
             nodes = tree.map(
                 lambda x: x
                 * reshape(
-                    rsqrt(maximum(receiver_degree, 1.0)),
+                    rsqrt(maximum(receiver_degree, one)),
                     (shape(receiver_degree)[0],) + (1,) * (x.ndim - 1),
                 ),
                 nodes,
@@ -395,3 +427,51 @@ def GraphConvolution(
         return graph._replace(nodes=nodes)
 
     return _ApplyGCN
+
+
+def _gcn_structure(
+    nodes,
+    senders,
+    receivers,
+    n_node,
+    *,
+    add_self_edges: bool,
+    symmetric_normalization: bool,
+):
+    """Self-edges, ``N``, and degrees — ``cache.lookup`` / ``store`` on ``"gcn"``."""
+    extra = (add_self_edges, symmetric_normalization)
+    cached = cache.lookup("gcn", senders, extra)
+    if cached is not None:
+        return cached
+    total_num_nodes = shape(tree.leaves(nodes)[0])[0]
+    # Prefer the cached partition-ids length when ``n_node`` was expanded
+    # elsewhere in this block (same symbol on export).
+    if n_node is not None:
+        total_num_nodes = shape(partition_ids(n_node, total_num_nodes))[0]
+    if add_self_edges:
+        self_idx = at_arange(total_num_nodes, like=senders)
+        conv_receivers = concatenate((receivers, self_idx), axis=0)
+        conv_senders = concatenate((senders, self_idx), axis=0)
+    else:
+        conv_senders = senders
+        conv_receivers = receivers
+    sender_degree = receiver_degree = None
+    if symmetric_normalization:
+        feat_dtype = tree.leaves(nodes)[0].dtype
+        like = tree.leaves(nodes)[0]
+
+        def count_edges(x):
+            ones = at_ones(shape(conv_senders), dtype=feat_dtype, like=like)
+            return utils.segment_sum(ones, x, total_num_nodes)
+
+        sender_degree = count_edges(conv_senders)
+        receiver_degree = count_edges(conv_receivers)
+    packed = (
+        conv_senders,
+        conv_receivers,
+        total_num_nodes,
+        sender_degree,
+        receiver_degree,
+    )
+    cache.store("gcn", senders, packed, extra)
+    return packed

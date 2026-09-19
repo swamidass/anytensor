@@ -38,6 +38,7 @@ from anytensor.core import (
     where,
 )
 from anytensor.namespace import array_namespace
+from anytensor.segment import cache
 
 from .graph import ArrayTree, CanonicalEtype, HeteroGraphsTuple, Ntype
 from .message import (
@@ -78,6 +79,7 @@ def _src_message(apply: LinearFn):
     return msg
 
 
+@cache
 def relational_graph_convolution(
     graph: HeteroGraphsTuple,
     relation_apply: Mapping[CanonicalEtype, LinearFn],
@@ -114,6 +116,7 @@ def relational_graph_convolution(
     return graph.update(nodes=merged)
 
 
+@cache
 def hetero_sage(
     graph: HeteroGraphsTuple,
     relation_apply: Mapping[CanonicalEtype, LinearFn],
@@ -126,6 +129,7 @@ def hetero_sage(
     GraphSAGE (SAmple and aggreGatE): per-relation map on sources, ``mean``
     aggregate, cross ``sum``, then
     ``activation(combine_apply[n](concat[h_self, mailbox]))``.
+    Apply is ``@cache`` (same pattern as GraphNetwork).
     """
     etype_dict = {
         etype: RelationSpec(message_fn=_src_message(fn), reduce="mean")
@@ -143,6 +147,7 @@ def hetero_sage(
     return graph.update(nodes=merged)
 
 
+@cache
 def comp_gcn(
     graph: HeteroGraphsTuple,
     relation_apply: Mapping[CanonicalEtype, LinearFn],
@@ -189,6 +194,7 @@ def comp_gcn(
     return graph.update(nodes=merged)
 
 
+@cache
 def han(
     graph: HeteroGraphsTuple,
     meta_path_etypes: Sequence[CanonicalEtype],
@@ -211,6 +217,7 @@ def han(
        (GAT-style).
     2. Mailboxes **stacked**; **semantic attention** mixes path embeddings
        with ``semantic_query`` after ``semantic_project``.
+    Apply is ``@cache`` (same pattern as GraphNetwork).
     """
     if not meta_path_etypes:
         raise ValueError("han requires at least one meta-path etype")
@@ -229,12 +236,10 @@ def han(
     for ntype in {e[2] for e in meta_path_etypes}:
         h_stack = stacked.nodes[ntype]  # (n, R, d)
         h_act = node_activation(h_stack)
-        n = int(shape(h_act)[0])
-        r = int(shape(h_act)[1])
-        d = int(shape(h_act)[2])
-        flat = reshape(h_act, (n * r, d))
+        n, r, d = shape(h_act)[:3]
+        flat = reshape(h_act, (-1, d))
         proj = semantic_project(flat)
-        d_s = int(shape(proj)[-1])
+        d_s = shape(proj)[-1]
         proj = reshape(proj, (n, r, d_s))
         proj = semantic_activation(proj)
         q_vec = reshape(semantic_query, (d_s,))
@@ -244,6 +249,7 @@ def han(
     return graph.update(nodes=nodes)
 
 
+@cache
 def hgt(
     graph: HeteroGraphsTuple,
     message_apply: Mapping[CanonicalEtype, LinearFn],
@@ -264,6 +270,7 @@ def hgt(
       ``1/sqrt(d)`` here, or set ``scale``).
     * Softmax over neighbors, weighted sum, cross ``sum`` across etypes.
     * ``target_apply[ntype]`` — target-type output projection.
+    Apply is ``@cache`` (same pattern as GraphNetwork).
     """
 
     def maybe_scale(logit_fn: LogitFn) -> LogitFn:

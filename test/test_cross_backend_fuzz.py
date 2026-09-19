@@ -331,7 +331,7 @@ def sample_partition_softmax(draw) -> tuple:
         parts[0] = 1
     n = sum(parts)
     logits = _f32_vec(draw, n, allow_nan=False, allow_infinity=False)
-    # Static sum_partitions (shape-size) so jax.jit can compile jnp.repeat.
+    # Static shape-sizes so jax.jit can compile jnp.repeat.
     return (logits, np.asarray(parts, dtype=np.int64), int(n))
 
 
@@ -632,8 +632,29 @@ def fuzz_segment_count(segment_ids, num_segments):
 
 
 @fuzz_op(sample_partition_softmax)
-def fuzz_partition_softmax(logits, partitions, sum_partitions):
-    return at.partition_softmax(logits, partitions, sum_partitions=sum_partitions)
+def fuzz_partition_ids(logits, partitions, total_length):
+    del logits
+    return at.partition_ids(partitions, total_length)
+
+
+@fuzz_op(sample_partition_softmax)
+def fuzz_partition_softmax(logits, partitions, total_length):
+    return at.partition_softmax(logits, partitions, total_length)
+
+
+@fuzz_op(sample_partition_softmax)
+def fuzz_partition_sum(logits, partitions, total_length):
+    return at.partition_sum(logits, partitions, total_length)
+
+
+@fuzz_op(sample_partition_softmax)
+def fuzz_partition_min(logits, partitions, total_length):
+    return at.partition_min(logits, partitions, total_length)
+
+
+@fuzz_op(sample_partition_softmax)
+def fuzz_partition_max(logits, partitions, total_length):
+    return at.partition_max(logits, partitions, total_length)
 
 
 # Public names that are infrastructure, aliases, or non-ops — not required in FUZZ_OPS.
@@ -659,6 +680,7 @@ _NON_FUZZ_PUBLIC = frozenset(
         "enable_torchscript",
         "enable_typecheck",
         "module_if_loaded",
+        "cache",
         # typing helpers / jaxtyping re-exports (not runtime ops)
         "ArrayT",
         "Axes",

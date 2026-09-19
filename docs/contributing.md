@@ -64,9 +64,11 @@ fuzz registrations in `test/test_cross_backend_fuzz.py`, contracts in
 `test/test_symbolic_fuzz.py`, tree/jraph in `test/test_tree.py` and
 `test/test_jraph.py`, official-jraph parity fuzz in
 `test/test_jraph_parity_fuzz.py` (batch/pad, GraphNetwork, model zoo including
-GAT with self-edges). Fenced examples in `docs/examples.md`,
-`docs/tree/examples.md`, and `docs/jraph/examples.md` are executed by Sybil
-(`test/docs_sybil.py`).
+GAT with self-edges), ONNX recipes in `test/test_onnx_export.py`
+(`anytensor.export`, including hetero/jraph model-zoo TF export). Fenced
+examples in `docs/examples.md`,
+`docs/tree/examples.md`, `docs/jraph/examples.md`, and
+`docs/onnx/examples.md` are executed by Sybil (`test/docs_sybil.py`).
 
 ## Docs
 

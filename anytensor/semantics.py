@@ -46,7 +46,8 @@ Surprises we document only (backend-local)
   ``inf *`` subnormal / float32-min may be ``inf`` (NumPy, eager TF) vs ``nan``
   (JAX, TF XLA) when the tiny flushes to 0.
 * **``jax.jit`` + ``repeat``** — needs static repeats or
-  ``total_repeat_length`` / ``sum_partitions``.
+  ``total_repeat_length``. Partition helpers require ``total_length``;
+  ``num_segments`` is ``shape(partitions)[0]``.
 * **TF XLA vs eager with NaN** — eager → NaN; ``jit_compile=True`` may → ±inf
   for min/max/maximum/minimum and similar.
 * **Empty axis ``min``/``max``** — length-0 is framework-defined (often error).

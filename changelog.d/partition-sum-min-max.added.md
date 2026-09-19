@@ -1,0 +1,1 @@
+Add ``partition_sum`` / ``partition_min`` / ``partition_max`` (``partition_ids`` then the matching ``segment_*`` helper; same required ``total_length`` / ``shape(partitions)[0]`` contracts as ``partition_softmax``).

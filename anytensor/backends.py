@@ -440,14 +440,15 @@ class TorchBackend(AbstractBackend):
         del sorted
         from . import torchscript
 
-        # Torch scatter needs a host int length; symbolic sizes belong under compile.
-        n = int(num_segments)
+        # Do not ``int()`` the length: that specialises ``torch.export`` SymInts
+        # and bakes ``N`` into ONNX. Python ints (already normalised) stay ints;
+        # ``at.shape(x)[0]`` stays a symbolic size.
         if reduction == "sum":
-            return torchscript.segment_sum(x, seg_ids, n)
+            return torchscript.segment_sum(x, seg_ids, num_segments)
         if reduction == "min":
-            return torchscript.segment_min(x, seg_ids, n)
+            return torchscript.segment_min(x, seg_ids, num_segments)
         if reduction == "max":
-            return torchscript.segment_max(x, seg_ids, n)
+            return torchscript.segment_max(x, seg_ids, num_segments)
         raise ValueError(f"reduction type {reduction} not supported")
 
     def from_numpy(self, x):
@@ -606,14 +607,24 @@ class TensorflowBackend(AbstractBackend):
         return self.tf.concat(tensors, axis=axis)
 
     def split(self, x, indices_or_sections, axis: int = 0):
-        # ``tf.split`` takes section *sizes*; convert NumPy-style cut indices.
+        # NumPy cut indices. Slice so unknown ``tf.function`` dims do not
+        # require ``int(x.shape[axis])`` (``None`` under tracing). Empty ``[]``
+        # is one chunk — the whole array — matching ``numpy.split``.
         axis = int(axis)
         if isinstance(indices_or_sections, int):
             return list(self.tf.split(x, indices_or_sections, axis=axis))
-        length = int(x.shape[axis])
-        cuts = [0, *[int(i) for i in indices_or_sections], length]
-        sizes = [cuts[i + 1] - cuts[i] for i in range(len(cuts) - 1)]
-        return list(self.tf.split(x, sizes, axis=axis))
+        cuts = [int(i) for i in indices_or_sections]
+        if not cuts:
+            return [x]
+        rank = x.ndim if x.ndim is not None else x.shape.rank
+        starts = [0, *cuts]
+        stops = [*cuts, None]
+        parts = []
+        for start, stop in zip(starts, stops):
+            idx = [slice(None)] * int(rank)
+            idx[axis] = slice(start, stop)
+            parts.append(x[tuple(idx)])
+        return parts
 
     def add_axis(self, x, new_position):
         return self.tf.expand_dims(x, new_position)

@@ -33,6 +33,13 @@ def _setup(namespace: dict) -> None:
         weighted = messages * alpha[:, None]
         return at.segment_sum(weighted, dst_index, num_nodes)
 
+    def neighbor_from_nodes(messages, scores, dst_index, nodes):
+        num_nodes = at.shape(nodes)[0]
+        alpha = at.where(scores > 0, scores, scores * 0.2)
+        alpha = at.segment_softmax(alpha, dst_index, num_nodes)
+        weighted = messages * alpha[:, None]
+        return at.segment_sum(weighted, dst_index, num_nodes)
+
     messages = np.array(
         [[1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [2.0, 0.0]],
         dtype=np.float32,
@@ -40,6 +47,7 @@ def _setup(namespace: dict) -> None:
     scores = np.array([1.0, 1.0, 0.5, 2.0], dtype=np.float32)
     dst = np.array([0, 0, 1, 2], dtype=np.int64)
     num_nodes = 3
+    nodes = np.zeros((num_nodes, 2), dtype=np.float32)
     out_np = neighbor_attention(messages, scores, dst, num_nodes)
 
     namespace.update(
@@ -47,9 +55,11 @@ def _setup(namespace: dict) -> None:
         pytest=pytest,
         at=at,
         neighbor_attention=neighbor_attention,
+        neighbor_from_nodes=neighbor_from_nodes,
         messages=messages,
         scores=scores,
         dst=dst,
+        nodes=nodes,
         num_nodes=num_nodes,
         out_np=out_np,
     )
@@ -82,5 +92,6 @@ docs_sybil = SybilCollection(
         _examples(_DOCS, "docs"),
         _examples(_DOCS / "tree", "docs_tree"),
         _examples(_DOCS / "jraph", "docs_jraph"),
+        _examples(_DOCS / "onnx", "docs_onnx"),
     ]
 )

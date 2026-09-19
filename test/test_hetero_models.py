@@ -311,6 +311,25 @@ def test_rgcn_default_relu():
     assert out.nodes["paper"].shape == (2, 2)
 
 
+def test_hetero_apply_uses_cache_decorator():
+    import anytensor as at
+
+    g, writes, cites = _author_paper()
+    rel = {
+        writes: _lin(np.eye(2, dtype=np.float32)),
+        cites: _lin(np.eye(2, dtype=np.float32)),
+    }
+    self_a = {
+        "author": _lin(np.eye(2, dtype=np.float32)),
+        "paper": _lin(np.eye(2, dtype=np.float32)),
+    }
+    out = relational_graph_convolution(g, rel, self_a)
+    assert "partition" in at.cache
+    assert dict(at.cache["partition"]) == {}
+    assert at.cache.lookup("gcn", g.senders[writes], (True, True)) is None
+    assert out.nodes["paper"].shape == (2, 2)
+
+
 def test_gat_attention_logit_helper():
     src = np.asarray([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)
     dst = np.asarray([[1.0, 1.0], [1.0, 1.0]], dtype=np.float32)

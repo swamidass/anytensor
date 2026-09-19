@@ -174,6 +174,110 @@ def test_graph_network_identity():
     np.testing.assert_allclose(_np(out.globals), _np(graph.globals))
 
 
+def test_graph_network_cache_carries_across_applies(monkeypatch):
+    from anytensor import segment
+
+    repeats = {"n": 0}
+    real = segment.repeat
+
+    def counting(*args, **kwargs):
+        repeats["n"] += 1
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(segment, "repeat", counting)
+    g1, g2 = _toy_graphs()
+    graph = atj.batch([g1, g2])
+    net = atj.GraphNetwork(
+        update_edge_fn=lambda e, s, r, g: e,
+        update_node_fn=lambda n, s, r, g: n,
+        update_global_fn=lambda n, e, g: g,
+    )
+    net(graph)
+    n_first = repeats["n"]
+    assert n_first > 0
+    net(graph)
+    assert repeats["n"] == n_first
+    at.cache.disable()
+    net(graph)
+    assert repeats["n"] == 2 * n_first
+
+
+def test_graph_network_cache_keys_are_partition_tensor_ids():
+    """GN enables the cache; partition_ids keys by n_node / n_edge, not the graph."""
+    g1, g2 = _toy_graphs()
+    graph = atj.batch([g1, g2])
+    net = atj.GraphNetwork(
+        update_edge_fn=lambda e, s, r, g: e,
+        update_node_fn=lambda n, s, r, g: n,
+        update_global_fn=lambda n, e, g: g,
+    )
+    net(graph)
+    ns = at.cache["partition"]
+    keys = set(ns)
+    assert (id(graph.n_node),) in keys
+    assert (id(graph.n_edge),) in keys
+    assert (id(graph),) not in keys
+    net(graph)
+    assert set(ns) == keys
+
+
+def test_user_apply_uses_lookup_store():
+    """Caller apply: @cache + partition_ids + cache.lookup/store (same as GCN)."""
+    g1, _ = _toy_graphs()
+
+    @at.cache
+    def apply(graph):
+        total = at.shape(graph.nodes)[0]
+        ids = at.partition_ids(graph.n_node, total)
+        extra = (True,)
+        packed = at.cache.lookup("structure", graph.senders, extra)
+        if packed is None:
+            packed = (graph.senders, total)
+            at.cache.store("structure", graph.senders, packed, extra)
+        return ids, packed
+
+    ids1, packed1 = apply(g1)
+    ids2, packed2 = apply(g1)
+    assert ids1 is ids2
+    assert packed1 is packed2
+    assert at.cache.lookup("structure", g1.senders, (True,)) is packed1
+    assert at.cache.lookup("structure", g1.senders, (False,)) is None
+    assert (id(g1),) not in at.cache["partition"]
+
+
+def test_graph_convolution_cache_reuses_self_edges(monkeypatch):
+    from anytensor.jraph import models as jmodels
+
+    counts = {"n": 0}
+    real = jmodels.at_arange
+
+    def counting(*args, **kwargs):
+        counts["n"] += 1
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(jmodels, "at_arange", counting)
+    g1, _ = _toy_graphs()
+    layer = atj.GraphConvolution(update_node_fn=lambda n: n, add_self_edges=True)
+    layer(g1)
+    assert counts["n"] == 1
+    assert at.cache.lookup("gcn", g1.senders, (True, True)) is not None
+    assert (id(g1.senders), True, True) in at.cache["gcn"]
+    layer(g1)
+    assert counts["n"] == 1
+    at.cache.disable()
+    layer(g1)
+    assert counts["n"] == 2
+    at.cache.disable()
+
+    g_none = g1._replace(n_node=None)
+    atj.GraphConvolution(update_node_fn=lambda n: n, add_self_edges=True)(g_none)
+    plain = atj.GraphConvolution(
+        update_node_fn=lambda n: n, add_self_edges=False, symmetric_normalization=False
+    )
+    out = plain(g1)
+    assert out.nodes.shape == g1.nodes.shape
+
+
 def test_graph_network_none_globals_and_disabled_updates():
     g1, _ = _toy_graphs()
     graph = g1._replace(globals=None)
@@ -269,7 +373,7 @@ def test_concatenated_args_and_segment_wrappers():
     assert atj.segment_max(data, ids, 2)[0] == 2.0
     sm = atj.segment_softmax(data, ids, 2)
     np.testing.assert_allclose(sm[:2].sum(), 1.0, atol=1e-5)
-    part = atj.partition_softmax(data, np.array([2, 1]))
+    part = atj.partition_softmax(data, np.array([2, 1]), 3)
     np.testing.assert_allclose(part[:2].sum(), 1.0, atol=1e-5)
     atj.segment_min(data, ids, 2)
     atj.segment_variance(data, ids, 2)
