@@ -2,6 +2,9 @@
 
 ## 2026-09-18
 
+- TF ``split`` under ``tf.function``: index cuts (including empty ``[]``)
+  slice along the axis instead of ``int(x.shape[axis])``, which is ``None``
+  when the dim is symbolic. Equal-section ``int`` still uses ``tf.split``.
 - `partition_sum` / `min` / `max` are `partition_ids` then the matching
   `segment_*` helper (same required `total_length` as softmax). Official
   jraph still wraps only `partition_softmax`.

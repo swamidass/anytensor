@@ -16,6 +16,7 @@ totals, cache, and export: [Usage → Caller rules](usage.md#caller-rules).
 | `num_segments` | Easy to infer as `max(ids)+1` | **Required** (JAX convention). Kind `shape`: Python `int`, jit symbolic constant, or 0-d integral tensor — never inferred |
 | Scalar `repeats` under TF graph | Promoting a Python `2` to a 0-d TF tensor breaks `tf.experimental.numpy.repeat` | Python scalar repeats stay Python; TF shim uses `tf.repeat` / `tf.range` |
 | `zeros_like` / `full_like` under `tf.function` | After retracing, `x.shape` is `(None,)` and `tnp.zeros` errors | Use symbolic `shape(x)` (static dim or `tf.shape` component) |
+| `split` cut indices under `tf.function` | Converting cuts to `tf.split` sizes used `int(x.shape[axis])`, which is `None` when the dim is symbolic | Slice along the axis (empty `[]` is `[x]`); equal-section `int` still uses `tf.split` |
 
 ## Backend-local (we document, do not unify)
 
