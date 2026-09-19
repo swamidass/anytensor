@@ -642,6 +642,21 @@ def fuzz_partition_softmax(logits, partitions, total_length):
     return at.partition_softmax(logits, partitions, total_length)
 
 
+@fuzz_op(sample_partition_softmax)
+def fuzz_partition_sum(logits, partitions, total_length):
+    return at.partition_sum(logits, partitions, total_length)
+
+
+@fuzz_op(sample_partition_softmax)
+def fuzz_partition_min(logits, partitions, total_length):
+    return at.partition_min(logits, partitions, total_length)
+
+
+@fuzz_op(sample_partition_softmax)
+def fuzz_partition_max(logits, partitions, total_length):
+    return at.partition_max(logits, partitions, total_length)
+
+
 # Public names that are infrastructure, aliases, or non-ops — not required in FUZZ_OPS.
 _NON_FUZZ_PUBLIC = frozenset(
     {

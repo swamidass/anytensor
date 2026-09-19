@@ -498,7 +498,10 @@ _ONNX_OP_NAMES = (
     "ones",
     "ones_like",
     "partition_ids",
+    "partition_max",
+    "partition_min",
     "partition_softmax",
+    "partition_sum",
     "prod",
     "rearrange",
     "reduce",
@@ -630,8 +633,9 @@ def _tf_cases() -> dict[str, tuple[Callable, list, tuple]]:
         "full_like": (lambda a: at.full_like(a, 3.0), [vec], (x,)),
         # Sizes from at.shape so the constructor introduces a graph symbol
         # (equated with the operand's dim by where it sits in the graph).
-        # partition_ids / partition_softmax: total_length is shape(a)[0], not
-        # sum(partitions) — the flattened length stays a dim_param.
+        # partition_ids / partition_softmax / partition_sum / min / max:
+        # total_length is shape(a)[0], not sum(partitions) — the flattened
+        # length stays a dim_param.
         "zeros": (lambda a: at.zeros(at.shape(a), dtype=tf.float32, like=a), [vec], (x,)),
         "ones": (lambda a: at.ones(at.shape(a), dtype=tf.float32, like=a), [vec], (x,)),
         "full": (lambda a: at.full(at.shape(a), 3.0, dtype=tf.float32, like=a), [vec], (x,)),
@@ -652,6 +656,21 @@ def _tf_cases() -> dict[str, tuple[Callable, list, tuple]]:
         ),
         "partition_softmax": (
             lambda a, p: at.partition_softmax(a, p, at.shape(a)[0]),
+            [vec, vec_i],
+            (x, tf.constant([2, 1], tf.int64)),
+        ),
+        "partition_sum": (
+            lambda a, p: at.partition_sum(a, p, at.shape(a)[0]),
+            [vec, vec_i],
+            (x, tf.constant([2, 1], tf.int64)),
+        ),
+        "partition_min": (
+            lambda a, p: at.partition_min(a, p, at.shape(a)[0]),
+            [vec, vec_i],
+            (x, tf.constant([2, 1], tf.int64)),
+        ),
+        "partition_max": (
+            lambda a, p: at.partition_max(a, p, at.shape(a)[0]),
             [vec, vec_i],
             (x, tf.constant([2, 1], tf.int64)),
         ),

@@ -96,6 +96,10 @@ def test_segment_softmax_and_partition_softmax(backend):
     assert close(backend_impl.to_numpy(s), at.segment_softmax(logits, seg_id, 2))
     assert close(backend_impl.to_numpy(p), at.partition_softmax(logits, partitions, 5))
     assert close(backend_impl.to_numpy(s), backend_impl.to_numpy(p))
+    for name in ("partition_sum", "partition_min", "partition_max"):
+        got = getattr(at, name)(blogits, bpart, 5)
+        want = getattr(at, name.replace("partition_", "segment_"))(blogits, bseg, 2)
+        assert close(backend_impl.to_numpy(got), backend_impl.to_numpy(want))
 
 
 @pytest.mark.parametrize("backend", BACKENDS)

@@ -160,12 +160,12 @@ uses `shape(nodes)[0]` / `shape(senders)[0]` for the official `sum_n_node` /
 `num_segments` — that is `shape(partitions)[0]`, a shape read, not
 data-dependent.
 
-`partition_softmax` is a convenience, not a family: it calls
-`partition_ids` (`arange` + `repeat`) then `segment_softmax`. JAX keeps
-`total_length` required so dropping an optional cannot silently become
-data-dependent (`sum(partitions)`); passing `None` is a `TypeError`, not
-that fallback. Do not add `partition_sum` / `partition_min` /
-`partition_max`. A compiler may CSE a rebuild of ids; eager will not.
+`partition_sum` / `min` / `max` / `softmax` are conveniences: they call
+`partition_ids` (`arange` + `repeat`) then the matching `segment_*`
+helper. JAX keeps `total_length` required so dropping an optional cannot
+silently become data-dependent (`sum(partitions)`); passing `None` is a
+`TypeError`, not that fallback. A compiler may CSE a rebuild of ids;
+eager will not.
 
 The cache is opt-in. Library apply and caller apply use the same pattern
 (`@cache` plus `cache.lookup` / `store`): [Caller rules](usage.md#cache).
@@ -224,7 +224,7 @@ rely on NaN under XLA for portability.
 | Path | Expectation |
 |---|---|
 | Eager (all backends) | Full public surface |
-| `jax.jit` | Mark shape-sizes static; `repeat` needs `total_repeat_length` under jit; `partition_softmax` always requires `total_length` (`num_segments` is `shape(partitions)[0]`) |
+| `jax.jit` | Mark shape-sizes static; `repeat` needs `total_repeat_length` under jit; partition helpers always require `total_length` (`num_segments` is `shape(partitions)[0]`) |
 | `tf.function` | Prefer Python ints for sizes **or** `at.shape(x)` under polymorphic / ONNX graphs |
 | `torch.compile` | Prefer over deprecated `torch.jit.*`. `fullgraph=False` for portable helpers; `fullgraph=True` needs a Torch-only body — see [Worked examples](examples.md) |
 | `torch.jit.script` / `trace` | **Deprecated by PyTorch.** Legacy `enable_torchscript()` still covers `segment_sum` / `min` / `max` only |

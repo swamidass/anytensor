@@ -2,6 +2,9 @@
 
 ## 2026-09-18
 
+- `partition_sum` / `min` / `max` are `partition_ids` then the matching
+  `segment_*` helper (same required `total_length` as softmax). Official
+  jraph still wraps only `partition_softmax`.
 - Public cache pattern: `@cache` on apply plus `cache.lookup` / `store`.
   GraphNetwork, GCN, GAT, GraphMapFeatures, and hetero apply use it;
   callers write the same decorator.

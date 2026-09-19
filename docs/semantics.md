@@ -24,7 +24,7 @@ totals, cache, and export: [Usage → Caller rules](usage.md#caller-rules).
 | **Index width** | Torch scatter needs **int64** (we cast). JAX without `jax_enable_x64` often keeps **int32** and may warn/truncate on int64 ids. TF often int32. Do not assume NumPy int64 ids stay int64 after upcast. |
 | **Float width / underflow** | JAX may truncate float64→float32 without x64. ``inf *`` subnormal or float32-min may be ``inf`` (NumPy / eager TF) vs ``nan`` (JAX / TF XLA) when the tiny flushes to 0. Fuzz keeps finite samples at ``|x| >= 1e-3`` or exact 0. |
 | **`sorted=`** | Honored on JAX/TF; **no-op** on NumPy/Torch (unsorted-safe path). |
-| **`jax.jit` + `repeat` / `partition_softmax`** | `jnp.repeat` needs a **static** repeat count or `total_repeat_length`. `partition_softmax` requires `total_length` (`shape(logits)[0]`); `num_segments` is `shape(partitions)[0]`, not an argument. |
+| **`jax.jit` + `repeat` / `partition_*`** | `jnp.repeat` needs a **static** repeat count or `total_repeat_length`. Partition helpers require `total_length` (`shape(x)[0]`); `num_segments` is `shape(partitions)[0]`, not an argument. |
 | **TF XLA vs eager with NaN** | Eager often yields NaN; `tf.function(jit_compile=True)` may yield **±inf** for `min`/`max`/`maximum`/`minimum` and similar. Not portable — avoid relying on NaN under XLA. |
 | **Empty axis `min`/`max`** | Length-0 reductions are framework-defined (often error). Prefer nonempty. |
 | **GPU (no GPU CI)** | Torch CUDA still wants int64 ids; keep outputs on the input device; compare float32; equal-value tie order is not portable under atomics; empty CUDA / GPU XLA are stricter than CPU; MPS ≠ CUDA. |

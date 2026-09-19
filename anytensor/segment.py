@@ -16,7 +16,8 @@ is active. If a cached expansion's
 length does not match ``total_length`` (host Python ints), that entry
 is purged, a warning is issued, and ids are recomputed; tracing skips
 the check. :meth:`cache.purge` drops one tensor from one namespace.
-There is no ``partition_sum`` / ``partition_min`` family.
+``partition_sum`` / ``min`` / ``max`` / ``softmax`` are that expansion
+then the matching ``segment_*`` helper.
 
 TorchScript: :func:`enable_torchscript` wraps ``segment_sum`` / ``min`` /
 ``max`` with a ``torch.jit.is_scripting()`` divert. Import order does not
@@ -503,17 +504,71 @@ def partition_ids(
     return ids
 
 
-def _stale_cached_ids(cached, total):
-    """``(got, want)`` when both lengths are Python ints and differ; else ``None``.
+def _partition_apply(values, partitions, total_length, segment_fn):
+    """Expand partitions then call a segment helper. Cache via :func:`partition_ids`."""
+    ids = partition_ids(partitions, total_length)
+    return segment_fn(values, ids, num_segments=shape(partitions)[0])
 
-    ``type(...) is int`` (not truthiness / ``==`` on tensors) so TF Autograph
-    does not turn this into ``tf.cond`` with mismatched branch structures.
+
+def partition_sum(
+    x: ShapedArray,
+    partitions: IntArray,
+    total_length: ShapeSize,
+) -> ShapedArray:
+    """Sum within contiguous partitions of lengths ``partitions``.
+
+    Convenience: :func:`partition_ids` then :func:`segment_sum`.
+    ``num_segments`` is ``shape(partitions)[0]`` — not an argument.
+    ``total_length`` is **required** (``shape(x)[0]``, not a data
+    ``sum(partitions)``). Does not talk to :data:`cache` itself —
+    :func:`partition_ids` does, so a cache hit is shared with every
+    partition helper. If you already have ids, call :func:`segment_sum`.
+
+    Args:
+        x: Values aligned with the flattened partitions (length
+            ``total_length``).
+        partitions: 1-D integer vector of partition sizes. Length is the
+            number of segments.
+        total_length: **Required** shape-size for the flattened length
+            (``shape(x)[0]``, not a data ``sum(partitions)``).
+
+    Returns:
+        Array of shape ``(shape(partitions)[0],) + x.shape[1:]``. Empty
+        partitions are ``0`` (same identity as :func:`segment_sum`).
     """
-    got = _host_concrete_int(shape(cached)[0])
-    want = _host_concrete_int(total)
-    if type(got) is int and type(want) is int and got != want:
-        return got, want
-    return None
+    return _partition_apply(x, partitions, total_length, segment_sum)
+
+
+def partition_min(
+    x: ShapedArray,
+    partitions: IntArray,
+    total_length: ShapeSize,
+) -> ShapedArray:
+    """Minimum within contiguous partitions of lengths ``partitions``.
+
+    Convenience: :func:`partition_ids` then :func:`segment_min`. Same
+    contracts as :func:`partition_sum`. Empty partitions keep the min
+    identity (``+inf`` / dtype max). Prefer
+    :func:`segment_min_or_constant` after :func:`partition_ids` for a
+    finite empty fill.
+    """
+    return _partition_apply(x, partitions, total_length, segment_min)
+
+
+def partition_max(
+    x: ShapedArray,
+    partitions: IntArray,
+    total_length: ShapeSize,
+) -> ShapedArray:
+    """Maximum within contiguous partitions of lengths ``partitions``.
+
+    Convenience: :func:`partition_ids` then :func:`segment_max`. Same
+    contracts as :func:`partition_sum`. Empty partitions keep the max
+    identity (``-inf`` / dtype min). Prefer
+    :func:`segment_max_or_constant` after :func:`partition_ids` for a
+    finite empty fill.
+    """
+    return _partition_apply(x, partitions, total_length, segment_max)
 
 
 def partition_softmax(
@@ -530,8 +585,7 @@ def partition_softmax(
     :func:`partition_ids` does, so a cache hit is shared with every
     partition helper. **Ids are rebuilt on every call** unless that
     cache is active. A compiler may CSE the rebuild; eager will not.
-    If you already have ids, call :func:`segment_softmax`. This is not
-    a pattern to grow (no ``partition_sum`` / ``partition_min``).
+    If you already have ids, call :func:`segment_softmax`.
 
     Args:
         logits: Scores aligned with the flattened partitions (length
@@ -545,5 +599,17 @@ def partition_softmax(
     Returns:
         Softmax of ``logits`` within each partition (same shape as ``logits``).
     """
-    segment_ids = partition_ids(partitions, total_length)
-    return segment_softmax(logits, segment_ids, num_segments=shape(partitions)[0])
+    return _partition_apply(logits, partitions, total_length, segment_softmax)
+
+
+def _stale_cached_ids(cached, total):
+    """``(got, want)`` when both lengths are Python ints and differ; else ``None``.
+
+    ``type(...) is int`` (not truthiness / ``==`` on tensors) so TF Autograph
+    does not turn this into ``tf.cond`` with mismatched branch structures.
+    """
+    got = _host_concrete_int(shape(cached)[0])
+    want = _host_concrete_int(total)
+    if type(got) is int and type(want) is int and got != want:
+        return got, want
+    return None

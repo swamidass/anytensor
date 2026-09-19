@@ -95,8 +95,9 @@ tensor. Omitting a required size, or passing `None`, is a `TypeError`.
 
 ### Partition helpers
 
-There is no `partition_sum` / `partition_min` / `partition_max`. Partition
-softmax is `partition_ids` then `segment_softmax`.
+`partition_sum` / `min` / `max` / `softmax` are `partition_ids` then the
+matching `segment_*` helper. Official jraph only wraps `partition_softmax`
+(`sum_partitions` as the third positional).
 
 | Do | Don't |
 |---|---|
@@ -189,14 +190,14 @@ Opt-in `anytensor.export` is a recipe, not a stable library API (not in
 | `segment_count` / `mean` / `variance` | Counts and moments |
 | `segment_normalize` / `segment_softmax` | Per-segment normalize / softmax |
 | `segment_min_or_constant` / `segment_max_or_constant` | Empty segments → constant |
-| `partition_softmax` | Softmax over contiguous partition lengths (`total_length` required; `num_segments` is `shape(partitions)[0]`; calls `partition_ids`, which reuses ids when `cache` is active) |
+| `partition_sum` / `min` / `max` / `softmax` | Reduce / softmax over contiguous partition lengths (`total_length` required; `num_segments` is `shape(partitions)[0]`; each calls `partition_ids`) |
 | `partition_ids` | Expand partition lengths to segment ids (the cache chokepoint; other partition helpers call this) |
 | `cache` | `@cache` apply / `lookup`+`store` / context / `enable`+`disable` — GraphNetwork, GCN, GAT, hetero use this same pattern |
 
 Einops (`rearrange`, `einsum`, `reduce`, …) is re-exported for convenience.
 
-`partition_softmax` is `partition_ids` + `segment_softmax`. Use
-`segment_softmax` if you already have ids. Caller contracts (required
+`partition_sum` / `min` / `max` / `softmax` are `partition_ids` plus the
+matching `segment_*` helper. Use `segment_*` if you already have ids. Caller contracts (required
 `total_length`, cache forms, ONNX `dim_param`s): [Caller rules](#caller-rules).
 
 ## Torch compile / export

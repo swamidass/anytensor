@@ -62,7 +62,8 @@ Official jraph names the flattened length `sum_partitions` / uses
 (and `int(sum(...))` bakes a host constant). AnyTensor takes that total as
 a **shape-size**, so it stays a `dim_param`:
 
-- `partition_ids` / `partition_softmax`: required `total_length` /
+- `partition_ids` / `partition_sum` / `min` / `max` / `softmax`: required
+  `total_length` /
   jraph `sum_partitions` is `at.shape(logits)[0]`, not `sum(partitions)`.
 - GraphNetwork apply: `sum_n_node = at.shape(nodes)[0]`,
   `sum_n_edge = at.shape(senders)[0]` — not `sum(n_node)`.
@@ -80,9 +81,9 @@ cache).
 `tf2onnx` path (runs in CI) and the GAT-style neighbor helper through Torch
 dynamo ONNX (skipped on CI, same Triton SIGSEGV as `torch.compile`).
 Constructors (`zeros` / `ones` / `full` / `arange` / `split`) take sizes from
-`at.shape` so the new length is a graph symbol. `partition_softmax` takes
-`num_segments` from `shape(partitions)[0]` and requires
-`total_length=at.shape(logits)[0]` so the flattened length is not a data sum.
+`at.shape` so the new length is a graph symbol. Partition helpers take
+`num_segments` from `shape(partitions)[0]` and require
+`total_length=at.shape(x)[0]` so the flattened length is not a data sum.
 
 The same file also exports the **model zoos** as a TF/ONNX stress test:
 `anytensor.hetero` (R-GCN, GraphSAGE, CompGCN, HGT, HAN) and `anytensor.jraph`

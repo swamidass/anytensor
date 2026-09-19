@@ -165,6 +165,14 @@ def test_partition_softmax_and_semantics_edges():
         at.partition_softmax(logits, parts, None)
     with pytest.raises(TypeError, match="total_length"):
         at.partition_ids(parts, None)
+    for name in ("partition_sum", "partition_min", "partition_max"):
+        fn = getattr(at, name)
+        want = getattr(at, name.replace("partition_", "segment_"))(logits, ids, 2)
+        assert close(np.asarray(fn(logits, parts, 3)), np.asarray(want))
+        with pytest.raises(TypeError):
+            fn(logits, parts)
+        with pytest.raises(TypeError, match="total_length"):
+            fn(logits, parts, None)
     with pytest.raises(TypeError, match="num_segments"):
         at.segment_sum(logits, np.array([0, 0, 1]), None)
 
@@ -211,6 +219,9 @@ def test_cache_weakrefs_and_partition_softmax(monkeypatch):
     assert repeats["n"] == 2
     with at.cache():
         at.partition_softmax(logits, parts, 3)
+        at.partition_sum(logits, parts, 3)
+        at.partition_min(logits, parts, 3)
+        at.partition_max(logits, parts, 3)
         at.partition_softmax(logits, parts, 3)
         assert at.partition_ids(parts, 3) is not None
         ids = at.partition_ids(parts, 3)
